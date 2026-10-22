@@ -388,6 +388,9 @@ void __cdecl CL_ParseGamestate(int localClientNum, msg_t *msg)
     clc->serverCommandSequence = MSG_ReadLong(msg);
     MSG_ReadString(msg, mapname, 0x20u);
     MSG_ReadString(msg, gametype, 0x20u);
+    // zombies: the baselines below are read with zombiemode's field tables; a client joining another machine's server
+    // has not loaded the level yet (Com_LoadLevelFastFiles sets it, CL_InitCGame), so set it from the map name now.
+    Com_SetGameModeForMap(mapname);
     serverConfigStringChecksum = MSG_ReadLong(msg);
     party = 1;
     if ( CCS_ShouldLoadConstConfigStrings(1) )

@@ -107,6 +107,7 @@ unsigned __int8 *__cdecl Com_LiveCalloc(unsigned int num, unsigned int size);
 bool __cdecl Com_IsRunningMenuLevel(const char *name);
 bool __cdecl Com_IsMenuLevel(const char *name);
 bool __cdecl Com_IsZombieMap(const char *mapName); // zombies: zombie_* / zombietron are SP maps
+void __cdecl Com_SetGameModeForMap(const char *mapName); // zombies: zombiemode & co from the map name
 bool __cdecl Com_IsSPFrontEndLevel(const char *mapName); // zombies: SP "frontend" / menu_* (SP 0x004C88F3)
 bool __cdecl Com_IsSPLevel(); // zombies: the running level is an SP level (zombiemode, or the SP front end)
 extern int com_spLevelLatch; // zombies (port): Com_IsSPLevel's answer while G_ShutdownGame runs (-1 otherwise)

@@ -394,6 +394,33 @@ bool __cdecl Com_IsZombieMap(const char *mapName)
     return mapName && !I_strncmp(mapName, "zombie", 6);
 }
 
+// zombies: SP's frontend sets zombiemode before a zombie map loads (main_menu 'setdvar zombiemode 1');
+// this exe has no zombies frontend, so derive it from the map name (and clear it for MP maps).
+// Com_LoadCommonFastFile then picks common_zombie as SP's does (SP exe 0x0082CB50).
+// zombies: the SP front end keeps zombiemode as its menus set it (SP 0x008338F0 skips "frontend").
+// Called by Com_LoadLevelFastFiles, and by CL_ParseGamestate: a client joining another machine's server parses the
+// entity baselines (whose field tables and origin encoding follow zombiemode, sv_msg_write.cpp / msg_mp.cpp) before
+// CL_InitCGame loads the level.
+void __cdecl Com_SetGameModeForMap(const char *mapName)
+{
+    if ( !Com_IsMenuLevel(mapName) && !Com_IsSPFrontEndLevel(mapName) )
+        Dvar_SetBool((dvar_s *)zombiemode, Com_IsZombieMap(mapName));
+    if ( I_stristr(mapName, "zombietron") )
+    {
+        Dvar_SetBool((dvar_s *)zombiemode, 1);
+        Dvar_SetBool((dvar_s *)zombietron, 1);
+    }
+    if ( I_stristr(mapName, "zombie_cod5_") )
+    {
+        Dvar_SetBool((dvar_s *)zombiemode, 1);
+        Dvar_SetBool((dvar_s *)legacy_zombiemode, 1);
+    }
+    else
+    {
+        Dvar_SetBool((dvar_s *)legacy_zombiemode, 0);
+    }
+}
+
 void __cdecl Com_BeginRedirect(char *buffer, unsigned int buffersize, void (__cdecl *flush)(char *))
 {
     if ( buffer && buffersize )
@@ -2929,26 +2956,7 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
         zoneInfo[zoneCount].allocFlags = 0x4000000;
         zoneInfo[zoneCount++].freeFlags = 0;
     }
-    // zombies: SP's frontend sets zombiemode before a zombie map loads (main_menu 'setdvar zombiemode 1');
-    // this exe has no zombies frontend, so derive it from the map name (and clear it for MP maps).
-    // Com_LoadCommonFastFile then picks common_zombie as SP's does (SP exe 0x0082CB50).
-    // zombies: the SP front end keeps zombiemode as its menus set it (SP 0x008338F0 skips "frontend").
-    if ( !Com_IsMenuLevel(mapName) && !spFrontEnd )
-        Dvar_SetBool((dvar_s *)zombiemode, Com_IsZombieMap(mapName));
-    if ( I_stristr(mapName, "zombietron") )
-    {
-        Dvar_SetBool((dvar_s *)zombiemode, 1);
-        Dvar_SetBool((dvar_s *)zombietron, 1);
-    }
-    if ( I_stristr(mapName, "zombie_cod5_") )
-    {
-        Dvar_SetBool((dvar_s *)zombiemode, 1);
-        Dvar_SetBool((dvar_s *)legacy_zombiemode, 1);
-    }
-    else
-    {
-        Dvar_SetBool((dvar_s *)legacy_zombiemode, 0);
-    }
+    Com_SetGameModeForMap(mapName);
     // zombies: SP applies its script settings in Com_Restart with zombiemode already set by the frontend;
     // here zombiemode is only known now (after Com_Restart), so reapply them before the level's scripts
     // compile. Without this the zombiemode gate in Scr_Settings saw the boot value (0) and dev blocks
