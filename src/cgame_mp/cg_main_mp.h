@@ -64,6 +64,7 @@ char __cdecl CGScr_LoadScriptAndLabel(
                 const char *label,
                 ScriptFunctions *functions);
 void __cdecl CGScr_LoadScripts(const char *mapname, const char *gametype, ScriptFunctions *functions);
+void __cdecl CGScr_SP_LoadServerScripts(ScriptFunctions *functions); // co-op: a remote zombies server's scripts
 void __cdecl CGScr_LoadLevelScript(scriptInstance_t inst, const char *mapname, ScriptFunctions *functions);
 void __cdecl CGScr_LoadClientScripts(const char *mapname, ScriptFunctions *functions);
 void __cdecl CGScr_LoadClientScriptsAndAnims();

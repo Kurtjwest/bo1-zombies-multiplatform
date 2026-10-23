@@ -57,7 +57,10 @@ void __cdecl CG_ShutdownEntity(int localClientNum, centity_s *cent, bool shutdow
 
     if ( shutdown_script_for_local_client || CG_GetClientNumForLocalClient(localClientNum) != cent->nextState.number )
     {
-        CScr_Notify(localClientNum, cent, cscr_const.entityshutdown, 0);
+        // co-op: not when CG_Init stopped before the client scripts started (a client failing to join a game on
+        // another computer): their strings, cscr_const's included, are not there
+        if ( Scr_IsSystemInitied(SCRIPTINSTANCE_CLIENT) )
+            CScr_Notify(localClientNum, cent, cscr_const.entityshutdown, 0);
         if ( CL_LocalClient_IsFirstActive(localClientNum) )
         {
             if ( cent )

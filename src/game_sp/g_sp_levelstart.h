@@ -49,6 +49,9 @@ void G_SP_RunAITypeLoadScripts();
 // animtree every SP actor uses (.data 0x01C79B60), required. G_SP_GetActorAnims returns it.
 void G_SP_FindActorAnimTree();
 struct XAnim_s *G_SP_GetActorAnims();
+// co-op: the server's anim trees ("<name> <anim count>", in index order) in the CS_ANIMTREES config strings, which a
+// client joining from another computer checks the trees it builds against (CGScr_SP_LoadServerScripts).
+void G_SP_PublishAnimTrees();
 
 // Scr_StartLevelMain, SP 0x004B7F80: the gametype script (if any), then maps/<mapname>::main,
 // each as a thread on level, inside G_InitGame.

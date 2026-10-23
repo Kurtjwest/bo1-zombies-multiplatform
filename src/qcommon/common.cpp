@@ -2430,7 +2430,9 @@ void Com_InitDvars()
 #else 
     com_developer = _Dvar_RegisterInt("developer", 0, 0, 2, 0, "Enable development options");
 #endif
-    com_developer_script = _Dvar_RegisterBool("developer_script", 0, 0, "Enable developer script comments");
+    // co-op: in the server info (flag 4), for a client joining a zombies game on another computer, whose copy of the
+    // server's scripts has to be compiled with the same developer blocks (CGScr_SP_LoadServerScripts)
+    com_developer_script = _Dvar_RegisterBool("developer_script", 0, 4u, "Enable developer script comments");
     com_script_debugger_smoke_test = _Dvar_RegisterBool(
                                                                          "script_debugger_smoke_test",
                                                                          0,

@@ -4,6 +4,8 @@
 #include <cgame/cg_sp_hud.h>
 #include <game_sp/actor_sp_ext.h>
 #include <game_sp/g_sp_levelstart.h>
+#include <clientscript/cscr_animtree.h>
+#include <game_mp/g_scr_main_mp.h>
 #include <game_mp/actor_mp.h>
 #include "cg_main_mp.h"
 #include <universal/q_shared.h>
@@ -2476,6 +2478,60 @@ void __cdecl CGScr_LoadScripts(const char *mapname, const char *gametype, Script
     Scr_PrecacheAnimTrees(SCRIPTINSTANCE_SERVER, (void *(__cdecl *)(int))Hunk_AllocXAnimCreate, 0, 1);
 }
 
+// co-op: the server's scripts a client connected to another computer compiled in CG_Init and has not freed yet
+// (an error in between leaves them to CG_ShutdownOnceForAllClients, before a local level's G_InitGame loads its own)
+static bool cg_serverScriptsLoaded;
+
+// co-op: a client joining a zombies server on another computer (no local server) builds the server's anim trees as
+// MP's remote client did (CGScr_LoadScripts above): it compiles the server's scripts, here the zombies level's SP
+// scripts, in the order the server does (GScr_LoadScripts' SP branch); the caller's BG_LoadAnim then builds the trees
+// (Scr_PrecacheAnimTrees). A tree holds only the anims those scripts use, numbered in its own order, so the client
+// gets the server's trees and indices: the client scripts take their anims from them (CScr_RetrieveAnimTree), and
+// es.animtreeIndex and the actors' anim commands name them. GScr_SP_LoadScripts reads the level's entities (aitype
+// and traverse scripts), so the collision map is loaded first (CG_Init). Its function handles and the game module's
+// tables it fills are unused in this process while it is connected elsewhere.
+void __cdecl CGScr_SP_LoadServerScripts(ScriptFunctions *functions)
+{
+    // (checked before the script system is set up, so the error leaves nothing to clean up)
+    if ( !*CL_GetConfigString(CS_ANIMTREES) )
+        Com_Error(ERR_DROP, "The host is running an older version of the game: it has to be updated for co-op");
+    // the host's developer blocks (/# ... #/) are compiled or left out here as there: they use anims too
+    // (developer_script is in the server info)
+    const bool developerScript = gScrVarPub[SCRIPTINSTANCE_SERVER].developer_script;
+    gScrVarPub[SCRIPTINSTANCE_SERVER].developer_script = atoi(Info_ValueForKey(CL_GetConfigString(0), "developer_script")) != 0;
+    Scr_BeginLoadScripts(SCRIPTINSTANCE_SERVER, 0);
+    CGScr_LoadScriptAndLabel(SCRIPTINSTANCE_SERVER, "codescripts/delete", "main", functions);
+    CGScr_LoadScriptAndLabel(SCRIPTINSTANCE_SERVER, "codescripts/struct", "initstructs", functions);
+    CGScr_LoadScriptAndLabel(SCRIPTINSTANCE_SERVER, "codescripts/struct", "createstruct", functions);
+    CGScr_LoadScriptAndLabel(SCRIPTINSTANCE_SERVER, "codescripts/struct", "findstruct", functions);
+    GScr_SP_LoadScripts(SCRIPTINSTANCE_SERVER);
+    GScr_SetScriptsForPathNodes(); // the path nodes' traverse scripts (the level's game world is loaded)
+    G_ResetEntityParsePoint();
+    Scr_PostCompileScripts(SCRIPTINSTANCE_SERVER);
+    Scr_EndLoadScripts(SCRIPTINSTANCE_SERVER);
+    gScrVarPub[SCRIPTINSTANCE_SERVER].developer_script = developerScript;
+}
+
+// co-op: after BG_LoadAnim built them, the trees CGScr_SP_LoadServerScripts gave this client must be the server's
+// (G_SP_PublishAnimTrees lists "<name> <anim count>" per tree); NULL when they are, else the first difference.
+static const char *CGScr_SP_CheckServerAnimTrees()
+{
+    extern ClientTreeStorage gGScrXAnimTreesForClient[2][MAX_XANIMTREE_NUM];
+    const unsigned int count = gScrAnimPub[SCRIPTINSTANCE_SERVER].xanim_num[0];
+    for ( int i = 0; i <= CS_ANIMTREES_LAST - CS_ANIMTREES; ++i )
+    {
+        const char *server = CL_GetConfigString(CS_ANIMTREES + i);
+        if ( !*server )
+            return (unsigned int)i < count ? va("this game has more anim trees (%u) than the host's (%i)", count, i) : NULL;
+        const ClientTreeStorage *tree = &gGScrXAnimTreesForClient[0][i + 1];
+        const char *mine = (unsigned int)i < count && tree->strName
+                               ? va("%s %i", (const char *)tree->strName, tree->numIndices) : "(none)";
+        if ( strcmp(server, mine) )
+            return va("anim tree %i is '%s' on the host and '%s' here", i + 1, server, mine);
+    }
+    return NULL;
+}
+
 void __cdecl CGScr_LoadLevelScript(scriptInstance_t inst, const char *mapname, ScriptFunctions *functions)
 {
     char filename[68]; // [esp+4h] [ebp-48h] BYREF
@@ -3067,11 +3123,21 @@ void __cdecl CG_Init(int localClientNum, int serverMessageNum, int serverCommand
     }
     loaded_server_scripts = 0;
     loaded_client_scripts = 0;
+    bool loadedCollisionMap = false;
     if ( !Scr_IsSystemInitied(SCRIPTINSTANCE_CLIENT) )
     {
         memset((unsigned __int8 *)&cg_bgsAnim, 0, sizeof(cg_bgsAnim));
         if ( !com_sv_running->current.enabled )
         {
+            // co-op: a zombies server's scripts read the level's entities, which the collision map holds
+            // (CGScr_SP_LoadServerScripts): a client joining one loads it first
+            if ( Com_IsSPLevel() )
+            {
+                CG_LoadingString(localClientNum, "collision map");
+                CL_CM_LoadMap(cgs->mapname);
+                loadedCollisionMap = true;
+            }
+            cg_serverScriptsLoaded = true;
             CGScr_LoadScriptsAndAnims();
             loaded_server_scripts = 1;
         }
@@ -3107,11 +3173,23 @@ void __cdecl CG_Init(int localClientNum, int serverMessageNum, int serverCommand
     Com_StripExtension(&cgs->mapname[5], mapname);
     CG_LoadAnimTrees(localClientNum, cgameGlob, mapname, loaded_client_scripts);
     if ( loaded_server_scripts )
+    {
+        // co-op: the server's trees stay in use for es.animtreeIndex (Scr_GetClientAnims, whose bound is
+        // xanim_num[SCR_XANIM_CLIENT]); freeing the compiled scripts zeroes that count, so keep it (until
+        // CG_ShutdownOnceForAllClients).
+        const unsigned int serverTrees = gScrAnimPub[SCRIPTINSTANCE_SERVER].xanim_num[0];
         Scr_FreeScripts(SCRIPTINSTANCE_SERVER, 1u);
+        cg_serverScriptsLoaded = false;
+        if ( Com_IsSPLevel() )
+            gScrAnimPub[SCRIPTINSTANCE_SERVER].xanim_num[0] = serverTrees;
+    }
     if ( !cgs->localServer )
         GScr_LoadConsts();
-    CG_LoadingString(localClientNum, "collision map");
-    CL_CM_LoadMap(cgs->mapname);
+    if ( !loadedCollisionMap )
+    {
+        CG_LoadingString(localClientNum, "collision map");
+        CL_CM_LoadMap(cgs->mapname);
+    }
     Menu_Setup(&cgDC[localClientNum]);
     CG_LoadingString(localClientNum, "graphics");
     CG_ParsePlayerInfos();
@@ -3805,6 +3883,21 @@ int CGScr_LoadScriptsAndAnims()
     functions.address = address;
     mapname = Dvar_GetString("mapname");
     gametype = Dvar_GetString("g_gametype");
+    if ( Com_IsSPLevel() )
+    {
+        // co-op: a zombies server's scripts are SP scripts, not MP's maps/mp/... (see CGScr_SP_LoadServerScripts)
+        CGScr_SP_LoadServerScripts(&functions);
+        BG_LoadAnim(mapname);
+        G_SP_FindActorAnimTree(); // the actors' generic_human tree, as the server finds it (G_InitGame)
+        BG_PostLoadAnim(mapname);
+        if ( const char *difference = CGScr_SP_CheckServerAnimTrees() )
+        {
+            Com_PrintError(14, "co-op: %s\n", difference);
+            Com_Error(ERR_DROP, "This game's scripts differ from the host's: both need the same version of the game and the same mods");
+        }
+        Com_Printf(14, "co-op: the host's %u anim trees built\n", gScrAnimPub[SCRIPTINSTANCE_SERVER].xanim_num[0]);
+        return functions.count;
+    }
     CGScr_LoadScripts(mapname, gametype, &functions);
     BG_LoadAnim(mapname);
     BG_PostLoadAnim(mapname);
@@ -4012,7 +4105,18 @@ void __cdecl CG_ShutdownOnceForAllClients()
     Scr_ShutdownGameStrings(SCRIPTINSTANCE_CLIENT);
     Scr_FreeEntityList(SCRIPTINSTANCE_CLIENT);
     if ( !com_sv_running->current.enabled )
-        Scr_ShutdownGameStrings(SCRIPTINSTANCE_SERVER);
+    {
+        // co-op: an error in CG_Init can leave the server's scripts compiled (see cg_serverScriptsLoaded); freeing
+        // them shuts their strings down too, as Scr_ShutdownGameStrings does
+        if ( cg_serverScriptsLoaded )
+            Scr_FreeScripts(SCRIPTINSTANCE_SERVER, 1u);
+        else
+            Scr_ShutdownGameStrings(SCRIPTINSTANCE_SERVER);
+        cg_serverScriptsLoaded = false;
+        // co-op: forget the remote server's trees (CG_Init kept their count) before their hunk memory goes
+        gScrAnimPub[SCRIPTINSTANCE_SERVER].xanim_num[0] = 0;
+        Scr_ShutdownAnimTrees(0);
+    }
     BG_ShutdownFire();
     CG_ClearCompassPingData();
     CG_ShutdownConsoleCommands();

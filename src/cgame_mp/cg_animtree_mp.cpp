@@ -19,6 +19,8 @@ void __cdecl CGScr_LoadAnimTrees()
         string = CL_GetConfigString(i);
         if ( *string )
         {
+            // (a zombies level's entries are "<name> <anim count>" for joining clients, G_SP_PublishAnimTrees; not
+            // identifiers, so Scr_ClientUsingTree passes over them)
             if ( strcmp("multiplayer", string) )
             {
                 Scr_ClientUsingTree(SCRIPTINSTANCE_SERVER, string);

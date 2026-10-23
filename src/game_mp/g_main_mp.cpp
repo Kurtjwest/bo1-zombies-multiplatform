@@ -1008,6 +1008,8 @@ void __cdecl    G_InitGame(int levelTime, int randomSeed, int restart, int regis
             G_SP_FindActorAnimTree();
         BG_PostLoadAnim(mapname);
         G_LoadAnimTreeInstances();
+        if (G_SP_IsZombieMode())
+            G_SP_PublishAnimTrees(); // co-op: for clients joining from another computer
     }
 
     // zombies: SP 0x0051EC5B checks the three checksum words even when header +0x10 is false.

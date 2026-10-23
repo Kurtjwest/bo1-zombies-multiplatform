@@ -471,3 +471,26 @@ XAnim_s *G_SP_GetActorAnims()
 {
     return g_actorAnimsSP;
 }
+
+// co-op: a client joining from another computer builds the server's anim trees itself, by compiling the same server
+// scripts (CGScr_SP_LoadServerScripts): a tree holds only the anims those scripts use, and entities and the client
+// scripts name its anims by their index in it, so both sides have to end up with the same trees. The server lists
+// its trees in the CS_ANIMTREES config strings, in index order, as "<name> <anim count>", which the client checks
+// its own against (a different version of the game or of a mod's scripts would not match).
+void G_SP_PublishAnimTrees()
+{
+    extern ClientTreeStorage gGScrXAnimTreesForClient[2][MAX_XANIMTREE_NUM];
+    const unsigned int count = gScrAnimPub[SCRIPTINSTANCE_SERVER].xanim_num[1];
+    const unsigned int slots = CS_ANIMTREES_LAST - CS_ANIMTREES + 1;
+    if ( count > slots )
+        Com_PrintWarning(24, "co-op: %u anim trees, only the first %u can be checked by joining players\n", count, slots);
+    char list[1024] = "";
+    for ( unsigned int i = 0; i < slots; ++i )
+    {
+        const ClientTreeStorage *tree = &gGScrXAnimTreesForClient[1][i + 1];
+        const char *value = i < count && tree->strName ? va("%s %i", (const char *)tree->strName, tree->numIndices) : "";
+        I_strncat(list, sizeof(list), *value ? va(" %s", value) : "");
+        SV_SetConfigstring(CS_ANIMTREES + i, (char *)value);
+    }
+    Com_Printf(24, "co-op: %u anim trees for joining players:%s\n", count, list);
+}
