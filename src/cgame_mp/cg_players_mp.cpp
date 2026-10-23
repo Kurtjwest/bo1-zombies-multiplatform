@@ -272,7 +272,10 @@ void    CG_AddPlayerSpriteDrawSurf(
 }
 #endif
 
-// aislop
+// co-op: the icon over another player's head (a script head icon, the connection-problem and AFK icons). Rebuilt
+// from the decompiled original kept above (#if 0), whose FxSprite lies 12 bytes before the 'sprite' the decompiler
+// named: the previous reconstruction drew it with no material (an assert as soon as a second player was in view),
+// the height on y and the colour, radius and flags in the wrong fields.
 void CG_AddPlayerSpriteDrawSurf(
     int localClientNum,
     const centity_s *cent,
@@ -281,46 +284,33 @@ void CG_AddPlayerSpriteDrawSurf(
     int height,
     bool fixedScreenSize
 ) {
-    cg_s *cgameGlob = CG_GetLocalClientGlobals(localClientNum);
-    snapshot_s *nextSnap = cgameGlob->nextSnap;
-    bool renderFxFlags = (nextSnap->ps.otherFlags & 6) != 0 && cent->nextState.number == nextSnap->ps.clientNum;
+    iassert(additionalRadiusSize >= 0);
+    iassert(cg_headIconMinScreenRadius);
+    const cg_s *cgameGlob = CG_GetLocalClientGlobals(localClientNum);
+    const snapshot_s *nextSnap = cgameGlob->nextSnap;
+    // not over this client's own head in first person
+    const bool ownView = (nextSnap->ps.otherFlags & 6) != 0 && cent->nextState.number == nextSnap->ps.clientNum;
+    if (ownView && !cgameGlob->renderingThirdPerson)
+        return;
 
-    if (!renderFxFlags || cgameGlob->renderingThirdPerson) {
-        float radius = 0.0f;
-        float scale = 1.0f;
-
-        if (fixedScreenSize) {
-            radius = 3.0f;
-            scale = (additionalRadiusSize + 5.0f) * 0.0043f;
-        }
-        else {
-            scale = additionalRadiusSize + 5.0f;
-        }
-
-        float origin[3];
-        DObj *obj = Com_GetClientDObj(cent->nextState.number, localClientNum);
-
-        Material *spriteMaterial = NULL;
-        if (obj && CG_DObjGetWorldTagPos(&cent->pose, obj, scr_const.j_head, origin)) {
-            origin[1] += height + 21.0f;
-        }
-        else {
-            origin[0] = cent->pose.origin[0];
-            origin[1] = cent->pose.origin[1] + height + 82.0f;
-            origin[2] = cent->pose.origin[2];
-        }
-
-        FxSprite sprite;
-        sprite.material = spriteMaterial;
-        sprite.pos[0] = origin[0];
-        sprite.pos[1] = origin[1];
-        sprite.pos[2] = NAN; // original code had NaN for Z
-        sprite.rgbaColor[0] = *(int *)&scale; // original LODWORD(obj) hack
-        sprite.radius = cg_headIconMinScreenRadius->current.integer;
-        sprite.minScreenRadius = radius;
-
-        FX_SpriteAdd(&sprite);
+    FxSprite sprite;
+    sprite.material = material;
+    DObj *obj = Com_GetClientDObj(cent->nextState.number, localClientNum);
+    if (obj && CG_DObjGetWorldTagPos(&cent->pose, obj, scr_const.j_head, sprite.pos))
+    {
+        sprite.pos[2] += (float)height + 21.0f;
     }
+    else
+    {
+        sprite.pos[0] = cent->pose.origin[0];
+        sprite.pos[1] = cent->pose.origin[1];
+        sprite.pos[2] = cent->pose.origin[2] + (float)height + 82.0f;
+    }
+    sprite.rgbaColor[0] = sprite.rgbaColor[1] = sprite.rgbaColor[2] = sprite.rgbaColor[3] = 0xFF;
+    sprite.radius = fixedScreenSize ? (additionalRadiusSize + 5.0f) * 0.0043f : additionalRadiusSize + 5.0f;
+    sprite.minScreenRadius = cg_headIconMinScreenRadius->current.value;
+    sprite.flags = fixedScreenSize ? 3 : 0;
+    FX_SpriteAdd(&sprite);
 }
 
 

@@ -800,6 +800,10 @@ void __cdecl AimTarget_UpdateClientTargets(int localClientNum)
             {
                 if ( (cent->nextState.lerp.eFlags & 0x40000) != 0 )
                     continue;
+                // co-op: zombies players are all on one side (SP co-op has no player targets); another player's
+                // client DObj may not be built yet either, which AimTarget_GetTagPos treats as an error
+                if ( zombiemode && zombiemode->current.enabled )
+                    continue;
 LABEL_23:
                 AimTarget_ProcessEntity((int)localClientNum, cent);
                 continue;

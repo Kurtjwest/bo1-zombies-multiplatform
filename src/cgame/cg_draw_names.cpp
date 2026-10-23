@@ -131,7 +131,11 @@ void __cdecl CG_DrawOverheadNames(int localClientNum, const centity_s *cent, flo
                     {
                         CG_CalcVehicleNamePosition(localClientNum, cent, (float (*)[3])origin);
                     }
-                    else if ( CachedTag_GetTagPos(
+                    // co-op: another player's client DObj can be missing for a moment (as they spawn), which
+                    // CachedTag_GetTagPos treats as an error; the name then goes over the origin (as
+                    // CG_CanSeeFriendlyHead below does)
+                    else if ( !Com_GetClientDObj(cent->nextState.number, localClientNum)
+                              || CachedTag_GetTagPos(
                                             cent,
                                             scr_const.j_head,
                                             origin,
