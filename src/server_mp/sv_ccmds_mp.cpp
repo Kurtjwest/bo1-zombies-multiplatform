@@ -10,6 +10,7 @@
 #include <server/sv_game.h>
 #include <universal/com_files.h>
 #include "sv_init_mp.h"
+#include <win32/win_net.h>
 #include <live/live_storage_win.h>
 #include "sv_main_pc_mp.h"
 #include <game_mp/g_cmds_mp.h>
@@ -388,6 +389,13 @@ void __cdecl SV_Map_f()
         const dvar_s *onlinegame = Dvar_FindVar("onlinegame");
         if (!onlinegame || !onlinegame->current.enabled)
             cheat = 1;
+        // co-op: a zombies level has four player characters (and its scripts' per-player tables): at most four
+        // players can join (sv_maxclients defaults to MP's 18)
+        if (sv_maxclients->current.integer > 4)
+            Dvar_SetInt((dvar_s *)sv_maxclients, 4);
+        // co-op: a host waiting for others opens its network port (the default launch binds to 127.0.0.1)
+        if (!Com_IsSPFrontEndLevel(mapname) && bo1_coop_players->current.integer >= 2)
+            NET_OpenToNetwork();
     }
 
     Dvar_SetBool((dvar_s*)sv_cheats, cheat);
@@ -460,6 +468,15 @@ void __cdecl SV_MapRotate_f()
     parseInfo_t *tokenc; // [esp+0h] [ebp-4h]
 
     Com_Printf(0, "\n\nmap_rotate...\n\n");
+    // co-op: a zombies level that ends (exitlevel, e.g. when the last player of a dedicated server leaves) restarts
+    // as an empty rotation would, instead of going on to the default rotation's MP maps; a rotation the server's
+    // owner set with zombie maps in it still applies.
+    if ( Com_IsSPLevel() && !I_stristr(sv_mapRotation->current.string, "zombie") )
+    {
+        Com_Printf(0, "Zombies: no zombie map in sv_mapRotation - restarting the map.\n");
+        SV_FastRestart_f();
+        return;
+    }
     LicenseType = SV_GetLicenseType();
     if ( SV_IsServerRanked(LicenseType) )
         Dvar_SetBoolByName("playlist_enabled", 1);

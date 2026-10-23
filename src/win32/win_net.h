@@ -36,6 +36,7 @@ int __cdecl Sys_SocketPool_GetPacket(netadr_t *net_from, msg_t *net_message);
 void __cdecl NET_Config(int enableNetworking);
 bool __cdecl NET_GetDvars();
 void __cdecl NET_Restart();
+void __cdecl NET_OpenToNetwork(); // co-op: rebind a 127.0.0.1 socket to every interface
 void __cdecl NET_InitDebug();
 int NET_InitDebugStreams();
 void __cdecl NET_Init();

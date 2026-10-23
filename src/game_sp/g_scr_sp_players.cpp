@@ -134,22 +134,42 @@ static bool SP_IsFrontendMap()
     return !I_strnicmp(map, "menu_", 5) || !I_stricmp(map, "frontend");
 }
 
-// zombies: getnumexpectedplayers (SP 0x005e6b20).
-static void G_f_getnumexpectedplayers()
+// co-op: the players a zombies level waits for before it starts (its scripts wait until getnumconnectedplayers
+// reaches getnumexpectedplayers, then set all_players_connected). SP took that from the party (lobby) every player
+// joined before the host started; KB has no party, so the host names the count with bo1_coop_players. Clients
+// already connected or connecting count too, so the solo answer (1) is unchanged. A dedicated server (no player of
+// its own) waits for one player by default.
+static int G_SP_CoopExpectedPlayers()
 {
-    if (!SP_IsFrontendMap() && (Dvar_GetBool("onlinegame") || Dvar_GetBool("systemlink")))
-    {
-        // SP uses max(Party_CountMembers(&g_partyData), 1) here. KB has no party implementation.
-        Scr_Error("getnumexpectedplayers: SP party count is not ported (SP 0x005ae190)", false);
-        return;
-    }
     int count = 0;
     for (int i = 0; i < sv_maxclients->current.integer; ++i)
     {
         if (svs.clients[i].header.state > CS_ZOMBIE)
             ++count;
     }
-    Scr_AddInt(count, SCRIPTINSTANCE_SERVER);
+    int expected = SP_IsFrontendMap() ? 0 : bo1_coop_players->current.integer; // (the main menu is a level too)
+    if (expected > sv_maxclients->current.integer)
+        expected = sv_maxclients->current.integer;
+    if (expected < 1 && IsDedicatedServer())
+        expected = 1;
+    // the level's scripts ask every frame while they wait (all_players_connected); say so in the console now and then
+    static int lastWaitPrint = -1000000;
+    if (expected > count && (level.time < lastWaitPrint || level.time - lastWaitPrint >= 10000))
+    {
+        lastWaitPrint = level.time;
+        Com_Printf(15, "co-op: waiting for players to join: %d of %d (bo1_coop_players; set it lower to start without them)\n",
+            count, expected);
+    }
+    return count > expected ? count : expected;
+}
+
+// zombies: getnumexpectedplayers (SP 0x005e6b20).
+static void G_f_getnumexpectedplayers()
+{
+    // SP: an online or system link game (not the front end) answers max(Party_CountMembers(&g_partyData), 1)
+    // (SP 0x005ae190), the lobby's size; KB has no party, so those take the co-op count too (a dedicated server runs
+    // with onlinegame set).
+    Scr_AddInt(G_SP_CoopExpectedPlayers(), SCRIPTINSTANCE_SERVER);
 }
 
 // zombies: numremoteclients (SP 0x00642850).

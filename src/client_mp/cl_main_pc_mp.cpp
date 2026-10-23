@@ -371,8 +371,18 @@ void __cdecl CL_Connect_f()
         clc = CL_GetLocalClientConnection(0);
         clc->serverMessage[0] = 0;
         server = Cmd_Argv(1);
+        netadr_t joinAdr;
+        const bool joinServer = strcmp(server, "localhost") && NET_StringToAdr(server, &joinAdr)
+                                && !NET_IsLocalAddress(joinAdr);
         if ( !strcmp(server, "localhost") )
             SV_KillLocalServer();
+        // co-op: joining another game ends the level this one runs (the zombies main menu is a level, "frontend");
+        // cgame takes its listen-server paths whenever a local server is running. The game's network port is
+        // opened when that game is on another computer (the default launch binds to 127.0.0.1).
+        else if ( joinServer && Com_IsSPLevel() )
+            SV_KillLocalServer();
+        if ( joinServer && joinAdr.ip[0] != 127 )
+            NET_OpenToNetwork();
         cl_serverLoadingMap = 0;
         g_waitingForServer = 0;
         FS_DisablePureCheck(0);

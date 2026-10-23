@@ -898,6 +898,20 @@ void __cdecl NET_Restart()
     NET_Config(networkingEnabled);
 }
 
+// co-op: the default launch (Play.bat, and the Mac and Linux builds started without arguments) binds the game's
+// socket to 127.0.0.1, so nothing outside this computer reaches it. Hosting a co-op game or joining one on another
+// computer opens it to every network interface instead: net_ip "localhost", which NET_IPSocket binds to INADDR_ANY
+// (on the same port). A net_ip naming one interface is kept.
+void __cdecl NET_OpenToNetwork()
+{
+    if ( !ip || !networkingEnabled || strcmp(ip->current.string, "127.0.0.1") )
+        return;
+    Com_Printf(16, "co-op: opening the game's network port to other computers\n");
+    Dvar_SetString((dvar_s *)ip, "localhost");
+    NET_Config(0);
+    NET_Config(1);
+}
+
 void __cdecl NET_InitDebug()
 {
     g_debugClient = 0;

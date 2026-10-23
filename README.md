@@ -176,3 +176,44 @@ Settings for the Linux build, besides `BO1_DUMP_FAILED_SHADERS`, `BO1_SYNC_SHADE
 | `BO1_GL_LOG=1` | log what the renderer's start-up self-test measured (clip space and winding conventions) |
 | `SDL_VIDEODRIVER=wayland` / `x11` | the window system SDL uses (SDL's own setting) |
 | `SDL_AUDIODRIVER=pipewire` / `pulseaudio` / `alsa` | the sound system SDL uses (SDL's own setting) |
+
+## Co-op on a local network
+
+Two to four players, each on their own computer, play a zombies map together, as in the original game's co-op. The
+computers can be any mix of the Windows, Mac and Linux builds of this engine, as long as they are on the same local
+network, each has the map, and all run the same version of the game (and the same mods). One player hosts: the
+game runs on the host's computer, and the others join it.
+
+There is no lobby yet: hosting and joining are done in the console (the `~` key, below Esc).
+
+1. The host tells the game how many players there will be, counting the host, then starts a map, from the Zombies
+   menu as usual or with `map`:
+
+   ```
+   set bo1_coop_players 2
+   map zombie_theater
+   ```
+
+   The game waits at the start, on a black screen, until everyone has joined (the console says how many have).
+   `set bo1_coop_players 1` there starts it with the players who are in.
+2. Each of the others joins from the main menu with the host computer's IP address on the local network (its network
+   settings show it):
+
+   ```
+   connect 192.168.1.20
+   ```
+
+`bo1_coop_players` lasts until the game is closed; without it a map is a solo game, as before. The game uses UDP
+port 3074 (the next free one, 3075 and up, if it is taken: then `connect 192.168.1.20:3075`). Hosting or joining opens
+it to the local network, where it otherwise answers only on the computer itself, so the first time the system may ask
+whether the game may accept incoming connections: allow it. `disconnect` leaves a game, and the same `connect`
+joins it again (with no points, as anyone joining a game in progress); when the host leaves, the game ends for
+everyone. `name` sets the name the others see over your head (`name Kurt`). As in the original game the level runs on
+the host's computer at the host's frame rate, so the fastest computer should host.
+
+A computer can also host without playing, as a dedicated server:
+`BO1Zombies +set dedicated 1 +set bo1_coop_players 2 +map zombie_theater` (it waits for one player unless told more).
+It starts the map again when the game is over or the last player leaves.
+
+A joining player compiles the host's level scripts too, to build the same animation trees; if the two differ (another
+version of the game or of a mod), joining stops with a message saying so.

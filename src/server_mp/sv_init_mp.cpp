@@ -61,6 +61,7 @@ const dvar_t *sv_maxPhysExplosionSpheres;
 const dvar_t *ui_ranked;
 const dvar_t *sv_dedicatedmaxclients;
 const dvar_t *sv_maxclients;
+const dvar_t *bo1_coop_players; // co-op (getnumexpectedplayers, g_scr_sp_players.cpp)
 const dvar_t *sv_maxRate;
 const dvar_t *sv_minPing;
 const dvar_t *sv_maxPing;
@@ -1098,6 +1099,10 @@ void __cdecl SV_Init()
                                         5u,
                                         "The maximum number of clients that can connect to a server");
     sv_maxRate = _Dvar_RegisterInt("sv_maxRate", 5000, 0, 25000, 5u, "Maximum bit rate");
+    // co-op: not archived: a game started later in another session (solo, say) does not wait for players
+    bo1_coop_players = _Dvar_RegisterInt("bo1_coop_players", 0, 0, 4, 0,
+        "co-op: how many players a zombies game waits for before it starts (the host and those joining it); "
+        "2 or more also opens the host's network port to other computers");
     sv_minPing = _Dvar_RegisterInt("sv_minPing", 0, 0, 999, 5u, "Minimum ping allowed on the server");
     sv_maxPing = _Dvar_RegisterInt("sv_maxPing", 0, 0, 999, 5u, "Maximum ping allowed on the server");
     sv_timeout = _Dvar_RegisterInt("sv_timeout", 240, 0, 1800, 0, "seconds without any message");
