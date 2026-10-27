@@ -217,3 +217,8 @@ It starts the map again when the game is over or the last player leaves.
 
 A joining player compiles the host's level scripts too, to build the same animation trees; if the two differ (another
 version of the game or of a mod), joining stops with a message saying so.
+
+To try co-op on one computer, `./tools/coop-test.sh` (macOS and Linux) runs two copies of the game side by side, each
+in a window and on a game folder of its own (made the first time in `~/BO1Zombies-coop`, with links to your game
+files, so your own game folder and settings stay as they are), the first one set to host; it says what to type in
+each window. Cmd-Tab (Alt-Tab) switches between them: only the window in front gets the keyboard and mouse.
