@@ -40,8 +40,8 @@ void __cdecl NET_OpenToNetwork(); // co-op: rebind a 127.0.0.1 socket to every i
 // co-op: this computer's IPv4 addresses on its networks, local-network ones first, each followed by suffix (a
 // ":port", say), ", " between them; how many
 int __cdecl NET_GetNetworkAddresses(char *buf, int size, const char *suffix);
-// the game's UDP port (net_port, and the port connect uses when the address names none): CoD's usual one
-#define BO1_DEFAULT_NET_PORT 28960
+// the game's UDP port (net_port, and the port connect uses when the address names none): BO1's
+#define BO1_DEFAULT_NET_PORT 3074
 void __cdecl NET_InitDebug();
 int NET_InitDebugStreams();
 void __cdecl NET_Init();

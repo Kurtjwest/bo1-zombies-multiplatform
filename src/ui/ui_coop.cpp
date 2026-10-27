@@ -10,18 +10,19 @@
 #include <universal/dvar.h>
 #include <universal/q_shared.h>
 #include <win32/win_net.h>
+#include <server_mp/sv_init_mp.h>
 #include <cstdarg>
 #include <cstdio>
 #include <string>
 
 // co-op: the zombies menu's Online choice. The SP front end's TV menu (main_online) offers Online (the retail
-// game's online lobby, which needs its online service) and Solo. Online opens this port's popups instead: Host Game
-// (how many players, then Solo's mission select: the level waits for them, g_scr_sp_players.cpp) and Join Game (the
-// host's address). The popups are menus in the text format of the game's .menu files, parsed when the front end's
-// menus load (UI_LoadMenusFromMemory), in the look of the front end's own popups (error_netconnect_popmenu).
+// game's online lobby, which needs its online service) and Solo. Online opens this port's popup instead: Host Game
+// (Solo's mission select; the level waits for the others, g_scr_sp_players.cpp, and its screen shows the host's
+// address, CG_SP_DrawCoopWaiting) and Join Game (a popup for the host's address). The popups are menus in the text
+// format of the game's .menu files, parsed when the front end's menus load (UI_LoadMenusFromMemory), in the look of
+// the front end's own popups (error_netconnect_popmenu).
 
 static const dvar_t *bo1_coop_join_address; // the address typed in Join Game (kept in the config)
-static const dvar_t *bo1_coop_host_info;    // Host Game's text (this computer's address)
 static const dvar_t *bo1_coop_join_info;    // Join Game's text
 
 // (va's few buffers would be reused while a menu's text is put together)
@@ -96,43 +97,34 @@ static void Popup_End(CoopPopup &p)
     p.text += "} ";
 }
 
-// Host Game's choice of player count: Solo's mission select (main_online's Solo button), the count set first
-static std::string Coop_HostAction(int players)
+// Host Game: Solo's mission select (main_online's Solo button), the level set to wait for as many players as can join
+// (G_SP_CoopExpectedPlayers; the host can start it sooner)
+static std::string Coop_HostAction()
 {
     return Fmt("close self ; setDvar bo1_coop_players %d ; setDvar menu_parent_3d_tv_name \"main_online\" ; "
-              "setdvar next_menu_name \"levels_zombie\" ; exec \"set onlinegame 0; set systemlink 0\" ; "
-              "open blackout_3d_tv ;", players);
+               "setdvar next_menu_name \"levels_zombie\" ; exec \"set onlinegame 0; set systemlink 0\" ; "
+               "open blackout_3d_tv ;", BO1_COOP_MAX_PLAYERS);
 }
 
 static std::string UI_Coop_MenuText()
 {
-    CoopPopup online, host, join;
+    CoopPopup online, join;
 
-    Popup_Begin(online, "bo1_coop_online", 300.0f, 158.0f, "setfocus bo1_coop_online_host ;", "close self ;");
+    Popup_Begin(online, "bo1_coop_online", 300.0f, 166.0f, "setfocus bo1_coop_online_host ;", "close self ;");
     Popup_Text(online, 15.0f, 20.0f, "ONLINE", nullptr);
-    Popup_Text(online, 37.0f, 50.0f,
-        "Play zombies together on a network or over the internet: one player hosts the game, the others join it.",
-        nullptr);
-    Popup_Button(online, "bo1_coop_online_host", 86.0f, "HOST GAME", "close self ; open bo1_coop_host ;");
-    Popup_Button(online, "bo1_coop_online_join", 105.0f, "JOIN GAME", "close self ; open bo1_coop_join ;");
-    Popup_Button(online, "bo1_coop_online_back", 124.0f, "BACK", "close self ;");
+    Popup_Text(online, 37.0f, 50.0f, Fmt("Play zombies together, up to %d players on a network or over the internet: one "
+        "player hosts the game, the others join it.", BO1_COOP_MAX_PLAYERS).c_str(), nullptr);
+    Popup_Button(online, "bo1_coop_online_host", 94.0f, "HOST GAME", Coop_HostAction());
+    Popup_Button(online, "bo1_coop_online_join", 113.0f, "JOIN GAME", "close self ; open bo1_coop_join ;");
+    Popup_Button(online, "bo1_coop_online_back", 132.0f, "BACK", "close self ;");
     Popup_End(online);
-
-    Popup_Begin(host, "bo1_coop_host", 300.0f, 220.0f, "execNow \"bo1_coop_hostinfo\" ; setfocus bo1_coop_host_2 ;",
-        "close self ; open bo1_coop_online ;");
-    Popup_Text(host, 15.0f, 20.0f, "HOST GAME", nullptr);
-    Popup_Text(host, 37.0f, 110.0f, nullptr, "bo1_coop_host_info");
-    Popup_Button(host, "bo1_coop_host_2", 129.0f, "2 PLAYERS", Coop_HostAction(2));
-    Popup_Button(host, "bo1_coop_host_3", 148.0f, "3 PLAYERS", Coop_HostAction(3));
-    Popup_Button(host, "bo1_coop_host_4", 167.0f, "4 PLAYERS", Coop_HostAction(4));
-    Popup_Button(host, "bo1_coop_host_back", 186.0f, "BACK", "close self ; open bo1_coop_online ;");
-    Popup_End(host);
 
     Popup_Begin(join, "bo1_coop_join", 300.0f, 182.0f,
         "setDvar bo1_coop_join_info \"\" ; setfocus bo1_coop_join_address ;", "close self ; open bo1_coop_online ;");
     Popup_Text(join, 15.0f, 20.0f, "JOIN GAME", nullptr);
     Popup_Text(join, 37.0f, 30.0f,
-        "The host's address: an IP address or a name, with :port after it if the host's port isn't 28960.", nullptr);
+        Fmt("The host's address: an IP address or a name, with :port after it if the host's port isn't %d.",
+            BO1_DEFAULT_NET_PORT).c_str(), nullptr);
     // the address: typed at once (setfocus starts editing), Enter joins
     join.text += Fmt("itemDef { name \"bo1_coop_join_address\" type 5 rect 15 70 %g 20 2 2 style 1 backcolor 0 0 0 0.5 "
                     "border 1 bordersize 1 bordercolor 1 1 1 0.35 textfont 1 textscale 0.315 textalign 8 textalignx 6 "
@@ -143,25 +135,7 @@ static std::string UI_Coop_MenuText()
     Popup_Button(join, "bo1_coop_join_back", 148.0f, "BACK", "close self ; open bo1_coop_online ;");
     Popup_End(join);
 
-    return online.text + host.text + join.text;
-}
-
-// Host Game's text: what the count is for, and the address the others join
-static void UI_Coop_HostInfo_f()
-{
-    char addresses[256];
-    char port[16] = "";
-    const int netPort = Dvar_GetInt("net_port");
-    if ( netPort != BO1_DEFAULT_NET_PORT )
-        Com_sprintf(port, sizeof(port), ":%d", netPort);
-    std::string text = "How many players, counting you? The game starts when they have all joined. ";
-    if ( NET_GetNetworkAddresses(addresses, sizeof(addresses), port) )
-        text += va("On your network they join this computer's address: %s. ", addresses);
-    else
-        text += "On your network they join this computer's IP address (its network settings show it). ";
-    text += va("Over the internet: your public IP address, with UDP port %d forwarded to this computer by your router.",
-        netPort);
-    Dvar_SetString((dvar_s *)bo1_coop_host_info, text.c_str());
+    return online.text + join.text;
 }
 
 // Join Game's text says what is wrong with the address, and the address is typed again (Enter in it ended its editing)
@@ -198,23 +172,21 @@ static void UI_Coop_Join_f()
         }
     }
     Com_Printf(13, "co-op: joining %s\n", start);
-    Cbuf_AddText(0, va("connect %s\n", start));
+    // (as Host Game and Solo do: the zombies menu set onlinegame, which the client scripts and the scoreboard read)
+    Cbuf_AddText(0, va("set onlinegame 0; set systemlink 0; connect %s\n", start));
 }
 
 void UI_Coop_RegisterCommands()
 {
     static cmd_function_s joinCmd;
-    static cmd_function_s hostInfoCmd;
     static bool registered;
     if ( registered )
         return;
     registered = true;
     bo1_coop_join_address = _Dvar_RegisterString("bo1_coop_join_address", "", 1u,
         "co-op: the address typed in the zombies menu's Online > Join Game");
-    bo1_coop_host_info = _Dvar_RegisterString("bo1_coop_host_info", "", 0, "co-op: the text of Online > Host Game");
     bo1_coop_join_info = _Dvar_RegisterString("bo1_coop_join_info", "", 0, "co-op: the text of Online > Join Game");
     Cmd_AddCommandInternal("bo1_coop_join", UI_Coop_Join_f, &joinCmd);
-    Cmd_AddCommandInternal("bo1_coop_hostinfo", UI_Coop_HostInfo_f, &hostInfoCmd);
 }
 
 // the menus parsed into the hunk (with the front end's other menus, which a level's load clears) and their
@@ -313,7 +285,7 @@ void UI_Coop_LoadMenus(int localClientNum, UiContext *dc)
         s_coopMenus[s_coopMenuCount++] = menu;
         Menus_Close(localClientNum, dc, menu);
     }
-    if ( s_coopMenuCount != 3 )
+    if ( s_coopMenuCount != 2 )
         Com_PrintWarning(13, "co-op: %d of the Online menus loaded\n", s_coopMenuCount);
     UI_Coop_PatchMainOnline(dc);
 }

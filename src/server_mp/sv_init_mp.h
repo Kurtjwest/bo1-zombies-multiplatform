@@ -138,6 +138,9 @@ extern const dvar_t *ui_ranked;
 extern const dvar_t *sv_dedicatedmaxclients;
 extern const dvar_t *sv_maxclients;
 extern const dvar_t *bo1_coop_players;
+// co-op: the most players a zombies level takes (its four characters, and its scripts' tables of four: start
+// positions, Kino's teleporter destinations, each character's model, arms and voice)
+#define BO1_COOP_MAX_PLAYERS 4
 extern const dvar_t *bo1_coop_waiting;
 extern const dvar_t *sv_maxRate;
 extern const dvar_t *sv_minPing;

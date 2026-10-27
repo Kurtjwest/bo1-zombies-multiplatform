@@ -6,8 +6,9 @@
 #   ./tools/coop-test.sh host     only the host (to start one of them again)
 #   ./tools/coop-test.sh guest    only the copy that joins
 #
-# Then, in the host's window (on port 28960): Zombies, Online, Host Game, 2 Players, and a map (the level waits for
-# the second player on a black screen); in the other one (on port 28961): Zombies, Online, Join Game, 127.0.0.1, Enter.
+# Then, in the host's window (on port 3074): Zombies, Online, Host Game, and a map (the level waits for the others on
+# a black screen); in the other one (on port 3075): Zombies, Online, Join Game, 127.0.0.1, Enter. Once it has joined,
+# the Use key (F) in the host's window starts the game.
 # Cmd-Tab (macOS) or Alt-Tab switches between the two windows; only the one in front gets the keyboard and mouse,
 # so the other player stands still meanwhile. Ctrl-C here (or quitting both) ends the test.
 #
@@ -100,17 +101,17 @@ run() {
 
 trap 'kill "${pids[@]}" 2>/dev/null' INT TERM
 if [ "$which" != guest ]; then
-    run host 28960 0 Host
+    run host 3074 0 Host
 fi
 if [ "$which" = both ]; then
     sleep 3
 fi
 if [ "$which" != host ]; then
-    run guest 28961 730 Guest
+    run guest 3075 730 Guest
 fi
 echo
 if [ "$which" != guest ]; then
-    echo "Host window (left): Zombies > Online > Host Game > 2 Players > a map (it waits for the other player)"
+    echo "Host window (left): Zombies > Online > Host Game > a map (it waits for the others; F starts the game)"
 fi
 if [ "$which" != host ]; then
     echo "Guest window (right): Zombies > Online > Join Game > type 127.0.0.1 > Enter"

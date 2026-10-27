@@ -1102,7 +1102,7 @@ void __cdecl SV_Init()
                                         "The maximum number of clients that can connect to a server");
     sv_maxRate = _Dvar_RegisterInt("sv_maxRate", 5000, 0, 25000, 5u, "Maximum bit rate");
     // co-op: not archived: a game started later in another session (solo, say) does not wait for players
-    bo1_coop_players = _Dvar_RegisterInt("bo1_coop_players", 0, 0, 4, 0,
+    bo1_coop_players = _Dvar_RegisterInt("bo1_coop_players", 0, 0, BO1_COOP_MAX_PLAYERS, 0,
         "co-op: how many players a zombies game waits for before it starts (the host and those joining it); "
         "2 or more also opens the host's network port to other computers");
     // (in the server info, so the players' screens say how many are in, CG_SP_DrawCoopWaiting)

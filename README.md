@@ -186,31 +186,38 @@ runs on the host's computer, and the others join it.
 
 It is all in the Zombies menu's **Online** choice (**Solo** is a game alone, as before):
 
-1. The host picks **Host Game**, the number of players counting the host, then the map (Solo's mission select). The
-   level waits at its start, on a black screen, until everyone has joined: the screen says how many have, and the host
-   can start without the others with the Use key (the screen says which). Host Game also shows the address the
-   others join: the host computer's IP address on the local network.
-2. The others pick **Join Game**, type that address and press Enter. An address without a port (`192.168.1.20`) joins
-   port 28960, the game's; one with a port (`192.168.1.20:28961`) joins that one.
+1. The host picks **Host Game**, then the map (Solo's mission select). The level waits at its start, on a black
+   screen, for up to four players: the screen says how many have joined and shows the address the others join (the
+   host computer's IP address on the local network). It starts by itself once four are in, or when the host presses
+   the Use key (the screen says which: "Press F to start").
+2. The others pick **Join Game**, type that address and press Enter, once the host is on that waiting screen. An
+   address without a port (`192.168.1.20`) joins port 3074, the game's; one with a port (`192.168.1.20:3075`) joins
+   that one.
+
+Each player's points show at the bottom right, in that player's colour (white, blue, yellow, green), yours larger, as
+in the original game; the Tab scoreboard lists everyone.
 
 If no game answers at the address, joining stops after about half a minute with "Lost connection to host", and the
 zombies menu comes back when the message is closed (Esc, or its Exit).
 
-The game uses UDP port 28960 (the next free one, 28961 and up, if it is taken, as by a second copy of the game on the
-same computer: Host Game's address says so then). Hosting or joining opens it to the network, where it otherwise
-answers only on the computer itself, so the first time the system may ask whether the game may accept incoming
-connections: allow it. Over the internet the others join the host's public IP address (a site such as
-whatismyip.com shows it), and the host's router has to forward UDP port 28960 to the host's computer (its "port
-forwarding" settings); a virtual network that puts the computers on one network (ZeroTier, Tailscale) works too,
-with the address it gives the host. As in the original game the level runs on the host's computer at the host's
+Four is the most: the levels' scripts give each of four players a character (model, arms, voice), a start position
+and a place in tables such as Kino's teleporter destinations, so a fifth player would have no body and break them.
+
+The game uses UDP port 3074 (the next free one, 3075 and up, if it is taken, as by a second copy of the game on the
+same computer: the host's waiting screen shows the address with its port then). Hosting or joining opens it to the
+network, where it otherwise answers only on the computer itself, so the first time the system may ask whether the
+game may accept incoming connections: allow it. Over the internet the others join the host's public IP address (a
+site such as whatismyip.com shows it), and the host's router has to forward UDP port 3074 to the host's computer (its
+"port forwarding" settings); a virtual network that puts the computers on one network (ZeroTier, Tailscale) works
+too, with the address it gives the host. As in the original game the level runs on the host's computer at the host's
 frame rate, so the fastest computer, with the best connection, should host.
 
 In a game, the console (the `~` key, below Esc; its commands start with a `/`, what doesn't is sent as a chat
 message) has the rest: `/disconnect` leaves a game, and joining again comes back into it (with no points, as anyone
 joining a game in progress); when the host leaves, the game ends for everyone. `/name Kurt` sets the name the others
-see over your head. The console can also host and join without the menus: `/set bo1_coop_players 2` then
-`/map zombie_theater` hosts (the count lasts until the game is closed; Solo sets it back to 0), and
-`/connect 192.168.1.20` joins.
+see over your head. The console can also host and join without the menus: `/set bo1_coop_players 4` then
+`/map zombie_theater` hosts (a smaller number starts the level once that many are in; the number lasts until the
+game is closed, and Solo sets it back to 0), and `/connect 192.168.1.20` joins.
 
 A computer can also host without playing, as a dedicated server:
 `BO1Zombies +set dedicated 1 +set bo1_coop_players 2 +map zombie_theater` (it waits for one player unless told more).
@@ -221,6 +228,7 @@ version of the game or of a mod), joining stops with a message saying so.
 
 To try co-op on one computer, `./tools/coop-test.sh` (macOS and Linux) runs two copies of the game side by side, each
 in a window and on a game folder of its own (made the first time in `~/BO1Zombies-coop`, with links to your game
-files, so your own game folder and settings stay as they are), the left one on port 28960 and the right one on 28961.
-Host in the left window (Online, Host Game, 2 Players, a map) and join from the right one (Online, Join Game,
-`127.0.0.1`). Cmd-Tab (Alt-Tab) switches between them: only the window in front gets the keyboard and mouse.
+files, so your own game folder and settings stay as they are), the left one on port 3074 and the right one on 3075.
+Host in the left window (Online, Host Game, a map), join from the right one (Online, Join Game, `127.0.0.1`), then
+press F in the left one to start. Cmd-Tab (Alt-Tab) switches between them: only the window in front gets the keyboard
+and mouse.

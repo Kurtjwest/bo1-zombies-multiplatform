@@ -637,7 +637,6 @@ int NET_GetLocalAddress()
 void __cdecl NET_OpenIP()
 {
     ip = _Dvar_RegisterString("net_ip", "localhost", 0x20u, "Network IP Address");
-    // (co-op: 28960, the port of CoD's PC games, for BO1's Xbox Live port 3074)
     port = _Dvar_RegisterInt("net_port", BO1_DEFAULT_NET_PORT, 0, 0xFFFF, 0x20u, "Network port");
 
     // ADD - network augmentation to replace demonware net (cod4)

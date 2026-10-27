@@ -391,8 +391,8 @@ void __cdecl SV_Map_f()
             cheat = 1;
         // co-op: a zombies level has four player characters (and its scripts' per-player tables): at most four
         // players can join (sv_maxclients defaults to MP's 18)
-        if (sv_maxclients->current.integer > 4)
-            Dvar_SetInt((dvar_s *)sv_maxclients, 4);
+        if (sv_maxclients->current.integer > BO1_COOP_MAX_PLAYERS)
+            Dvar_SetInt((dvar_s *)sv_maxclients, BO1_COOP_MAX_PLAYERS);
         // co-op: a host waiting for others opens its network port (the default launch binds to 127.0.0.1)
         if (!Com_IsSPFrontEndLevel(mapname) && bo1_coop_players->current.integer >= 2)
             NET_OpenToNetwork();

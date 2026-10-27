@@ -1,5 +1,7 @@
 #include <cgame/cg_sp_hud.h>
 #include <win32/win_main.h>
+#include <win32/win_net.h>
+#include <win32/win_shared.h>
 #include <cgame/cg_sp_client_ext.h>
 #include "cg_draw_mp.h"
 #include <cgame/cg_hudelem.h>
@@ -390,7 +392,16 @@ bool __cdecl CG_AreAllPlayerNamesVisible()
 
 // co-op: while a zombies level waits for its players (the server info's bo1_coop_waiting, "<joined> <expected>",
 // G_SP_CoopExpectedPlayers), over the black screen it starts on: how many are in, and on the host's screen how to
-// start without the others
+// start the game and the address the others join
+static void CG_SP_DrawCoopWaitingLine(int localClientNum, char *text, float y, float scale, float brightness)
+{
+    const ScreenPlacement *scrPlace = &scrPlaceView[localClientNum];
+    float color[4] = { brightness, brightness, brightness, 1.0f };
+    Font_s *font = UI_GetFontHandle(scrPlace, 1, scale);
+    UI_DrawText(scrPlace, text, 0x7FFFFFFF, font, -0.5f * (float)UI_TextWidth(text, 0, font, scale), y, 2, 2, scale,
+        color, 3);
+}
+
 static void CG_SP_DrawCoopWaiting(int localClientNum)
 {
     int joined = 0;
@@ -398,28 +409,43 @@ static void CG_SP_DrawCoopWaiting(int localClientNum)
     const char *waiting = Info_ValueForKey(CL_GetConfigString(0), "bo1_coop_waiting");
     if ( !waiting || sscanf(waiting, "%d %d", &joined, &expected) != 2 || joined >= expected )
         return;
-    const ScreenPlacement *scrPlace = &scrPlaceView[localClientNum];
     char text[512];
-    float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    float scale = 0.45f;
-    Font_s *font = UI_GetFontHandle(scrPlace, 1, scale);
     Com_sprintf(text, sizeof(text), "Waiting for players to join: %d of %d", joined, expected);
-    UI_DrawText(scrPlace, text, 0x7FFFFFFF, font, -0.5f * (float)UI_TextWidth(text, 0, font, scale), 0.0f, 2, 2, scale,
-        color, 3);
+    CG_SP_DrawCoopWaitingLine(localClientNum, text, 0.0f, 0.45f, 1.0f);
     if ( !com_sv_running->current.enabled )
-        return; // (only the host can)
-    char binding[256];
-    if ( !UI_GetKeyBindingLocalizedString(localClientNum, "+activate", binding, 0)
-        && !UI_GetKeyBindingLocalizedString(localClientNum, "+usereload", binding, 0) )
+        return; // (the rest is the host's)
+    // the Use key's keys, the keyboard's and the gamepad's (UI_GetKeyBindingLocalizedString names only the gamepad's
+    // while gpad_enabled is set)
+    char keys[2][128];
+    int keyCount = CL_GetKeyBinding(localClientNum, "+activate", keys, 0);
+    if ( !keyCount )
+        keyCount = CL_GetKeyBinding(localClientNum, "+usereload", keys, 0);
+    const char *key0 = keyCount ? SEH_StringEd_GetString(keys[0]) : "the Use key";
+    const char *key1 = keyCount > 1 ? SEH_StringEd_GetString(keys[1]) : nullptr;
+    if ( !key0 )
+        key0 = keys[0];
+    if ( keyCount > 1 && !key1 )
+        key1 = keys[1];
+    if ( key1 )
+        Com_sprintf(text, sizeof(text), "Press %s or %s to start", key0, key1);
+    else
+        Com_sprintf(text, sizeof(text), "Press %s to start", key0);
+    CG_SP_DrawCoopWaitingLine(localClientNum, text, 26.0f, 0.3f, 0.85f);
+    // this computer's addresses (NET_GetNetworkAddresses), looked up again now and then
+    static char addresses[256];
+    static int addressesTime;
+    const int now = (int)Sys_Milliseconds();
+    if ( !addresses[0] || now - addressesTime > 5000 || now < addressesTime )
     {
-        I_strncpyz(binding, "the Use key", sizeof(binding));
+        char port[16] = "";
+        if ( Dvar_GetInt("net_port") != BO1_DEFAULT_NET_PORT )
+            Com_sprintf(port, sizeof(port), ":%d", Dvar_GetInt("net_port"));
+        if ( !NET_GetNetworkAddresses(addresses, sizeof(addresses), port) )
+            I_strncpyz(addresses, "this computer's IP address", sizeof(addresses));
+        addressesTime = now;
     }
-    Com_sprintf(text, sizeof(text), "Press %s to start without them", binding);
-    scale = 0.3f;
-    font = UI_GetFontHandle(scrPlace, 1, scale);
-    color[0] = color[1] = color[2] = 0.75f;
-    UI_DrawText(scrPlace, text, 0x7FFFFFFF, font, -0.5f * (float)UI_TextWidth(text, 0, font, scale), 26.0f, 2, 2, scale,
-        color, 3);
+    Com_sprintf(text, sizeof(text), "The others join %s", addresses);
+    CG_SP_DrawCoopWaitingLine(localClientNum, text, 46.0f, 0.3f, 0.65f);
 }
 
 void __cdecl CG_Draw2D(int localClientNum)
