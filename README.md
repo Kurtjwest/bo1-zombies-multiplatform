@@ -184,31 +184,32 @@ computers can be any mix of the Windows, Mac and Linux builds of this engine, as
 network, each has the map, and all run the same version of the game (and the same mods). One player hosts: the
 game runs on the host's computer, and the others join it.
 
-There is no lobby yet: hosting and joining are done in the console (the `~` key, below Esc).
+There is no lobby yet: hosting and joining are done in the console (the `~` key, below Esc), with commands that start
+with a `/` (what doesn't is sent as a chat message).
 
 1. The host tells the game how many players there will be, counting the host, then starts a map, from the Zombies
    menu as usual or with `map`:
 
    ```
-   set bo1_coop_players 2
-   map zombie_theater
+   /set bo1_coop_players 2
+   /map zombie_theater
    ```
 
    The game waits at the start, on a black screen, until everyone has joined (the console says how many have).
-   `set bo1_coop_players 1` there starts it with the players who are in.
+   `/set bo1_coop_players 1` there starts it with the players who are in.
 2. Each of the others joins from the main menu with the host computer's IP address on the local network (its network
    settings show it):
 
    ```
-   connect 192.168.1.20
+   /connect 192.168.1.20
    ```
 
 `bo1_coop_players` lasts until the game is closed; without it a map is a solo game, as before. The game uses UDP
-port 3074 (the next free one, 3075 and up, if it is taken: then `connect 192.168.1.20:3075`). Hosting or joining opens
+port 3074 (the next free one, 3075 and up, if it is taken: then `/connect 192.168.1.20:3075`). Hosting or joining opens
 it to the local network, where it otherwise answers only on the computer itself, so the first time the system may ask
-whether the game may accept incoming connections: allow it. `disconnect` leaves a game, and the same `connect`
+whether the game may accept incoming connections: allow it. `/disconnect` leaves a game, and the same `/connect`
 joins it again (with no points, as anyone joining a game in progress); when the host leaves, the game ends for
-everyone. `name` sets the name the others see over your head (`name Kurt`). As in the original game the level runs on
+everyone. `name` sets the name the others see over your head (`/name Kurt`). As in the original game the level runs on
 the host's computer at the host's frame rate, so the fastest computer should host.
 
 A computer can also host without playing, as a dedicated server:
@@ -221,4 +222,5 @@ version of the game or of a mod), joining stops with a message saying so.
 To try co-op on one computer, `./tools/coop-test.sh` (macOS and Linux) runs two copies of the game side by side, each
 in a window and on a game folder of its own (made the first time in `~/BO1Zombies-coop`, with links to your game
 files, so your own game folder and settings stay as they are), the first one set to host; it says what to type in
-each window. Cmd-Tab (Alt-Tab) switches between them: only the window in front gets the keyboard and mouse.
+each window (`/map zombie_theater` in the host's, `/connect 127.0.0.1:28960` in the other's, at its main menu).
+Cmd-Tab (Alt-Tab) switches between them: only the window in front gets the keyboard and mouse.

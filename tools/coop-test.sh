@@ -6,9 +6,10 @@
 #   ./tools/coop-test.sh host     only the host (to start one of them again)
 #   ./tools/coop-test.sh guest    only the copy that joins
 #
-# Then, in the host's window, open the console (the key below Esc) and start a map:  map zombie_theater
+# Then, in the host's window, open the console (the key below Esc) and start a map:  /map zombie_theater
 # (the host waits for the second player on a black screen), and in the other window, at the main menu (a key past
-# the title screen first):  connect 127.0.0.1:28960
+# the title screen first):  /connect 127.0.0.1:28960
+# (with the slash: the console sends what doesn't start with / or \ as a chat message)
 # Cmd-Tab (macOS) or Alt-Tab switches between the two windows; only the one in front gets the keyboard and mouse,
 # so the other player stands still meanwhile. Ctrl-C here (or quitting both) ends the test.
 #
@@ -111,10 +112,10 @@ if [ "$which" != host ]; then
 fi
 echo
 if [ "$which" != guest ]; then
-    echo "Host window: open the console and type   map zombie_theater   (it waits for the other player)"
+    echo "Host window: open the console and type   /map zombie_theater   (it waits for the other player)"
 fi
 if [ "$which" != host ]; then
-    echo "Guest window: at the main menu, open the console and type   connect 127.0.0.1:28960"
+    echo "Guest window: at the main menu, open the console and type   /connect 127.0.0.1:28960"
 fi
 echo "Ctrl-C here ends the test."
 wait
