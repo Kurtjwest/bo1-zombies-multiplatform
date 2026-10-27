@@ -62,6 +62,7 @@ const dvar_t *ui_ranked;
 const dvar_t *sv_dedicatedmaxclients;
 const dvar_t *sv_maxclients;
 const dvar_t *bo1_coop_players; // co-op (getnumexpectedplayers, g_scr_sp_players.cpp)
+const dvar_t *bo1_coop_waiting; // co-op: "<joined> <expected>" while a level waits for its players (server info)
 const dvar_t *sv_maxRate;
 const dvar_t *sv_minPing;
 const dvar_t *sv_maxPing;
@@ -593,6 +594,7 @@ void __cdecl    SV_SpawnServer(int controllerIndex, char *server, int mapIsPrelo
     iassert(!strstr(server, "\\"));
 
     Dvar_SetString((dvar_s*)sv_mapname, server);
+    Dvar_SetString((dvar_s *)bo1_coop_waiting, ""); // co-op: (a level left while it waited)
     LiveSteam_Server_Init();
     R_EndRemoteScreenUpdate(0);
 
@@ -1103,6 +1105,9 @@ void __cdecl SV_Init()
     bo1_coop_players = _Dvar_RegisterInt("bo1_coop_players", 0, 0, 4, 0,
         "co-op: how many players a zombies game waits for before it starts (the host and those joining it); "
         "2 or more also opens the host's network port to other computers");
+    // (in the server info, so the players' screens say how many are in, CG_SP_DrawCoopWaiting)
+    bo1_coop_waiting = _Dvar_RegisterString("bo1_coop_waiting", "", 4u,
+        "co-op: how many players have joined and how many the level waits for, while it waits");
     sv_minPing = _Dvar_RegisterInt("sv_minPing", 0, 0, 999, 5u, "Minimum ping allowed on the server");
     sv_maxPing = _Dvar_RegisterInt("sv_maxPing", 0, 0, 999, 5u, "Maximum ping allowed on the server");
     sv_timeout = _Dvar_RegisterInt("sv_timeout", 240, 0, 1800, 0, "seconds without any message");

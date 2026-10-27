@@ -2315,6 +2315,31 @@ int __cdecl PC_LoadSourceHandle(char *filename, const char **builtinDefines)
     return i;
 }
 
+// co-op (ui_coop.cpp): PC_LoadSourceHandle for text in memory (menus the port adds to the game's), named name in
+// error messages
+int __cdecl PC_LoadSourceMemoryHandle(const char *name, const char *text, const char **builtinDefines)
+{
+    int i;
+    for ( i = 1; i < 64 && sourceFiles[i]; ++i )
+        ;
+    if ( i >= 64 )
+        return 0;
+    script_s *script = LoadScriptMemory((char *)text, (unsigned int)strlen(text), name);
+    if ( !script )
+        return 0;
+    script->next = 0;
+    source_s *source = (source_s *)GetMemory(sizeof(source_s));
+    memset(source, 0, sizeof(source_s));
+    I_strncpyz(source->filename, name, sizeof(source->filename));
+    source->scriptstack = script;
+    source->definehash = (Ptr32<define_s> *)GetClearedMemory(0x1000u);
+    PC_AddGlobalDefinesToSource(source);
+    for ( int defineIter = 0; builtinDefines && builtinDefines[defineIter]; ++defineIter )
+        PC_AddDefine(source, (char *)builtinDefines[defineIter]);
+    sourceFiles[i] = source;
+    return i;
+}
+
 int __cdecl PC_FreeSourceHandle(int handle)
 {
     if ( handle < 1 || handle >= 64 )

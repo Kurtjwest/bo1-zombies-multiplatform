@@ -31,6 +31,7 @@
 #include <live/live_leaderboard.h>
 #include <client_mp/cl_main_pc_mp.h>
 #include "ui_feeders.h"
+#include "ui_coop.h"
 #include <live/live_groups_dw.h>
 #include <game_mp/ui_gameinfo_mp.h>
 #include <client_mp/cl_input_mp.h>
@@ -884,6 +885,7 @@ void __cdecl UI_Shutdown(int localClientNum)
     UILocalVar_Shutdown(&uiInfo->uiDC.localVars);
     if ( !useFastFile->current.enabled )
         Menus_FreeAllMemory(&uiInfo->uiDC);
+    UI_Coop_Shutdown(&uiInfo->uiDC); // co-op: its popups are text menus, in the hunk with fast files too
     UI_Project_Shutdown(localClientNum);
 }
 
@@ -4042,10 +4044,12 @@ static void UI_Port_PatchMainMenu(UiContext *dc)
         for ( script = handler->eventScript; script; script = script->next )
         {
             action = script->action;
-            if ( !action || !(found = strstr(action, "\"main_button1\"")) || s_portMainMenuFocus[0] )
+            if ( !action || !(found = strstr(action, "\"main_button1\"")) )
                 continue;
-            Com_sprintf(s_portMainMenuFocus, sizeof(s_portMainMenuFocus), "%.*s\"main_button3\"%s", (int)(found - action),
-                action, found + strlen("\"main_button1\""));
+            // (the front end's menus load again each time it does: the text is made once)
+            if ( !s_portMainMenuFocus[0] )
+                Com_sprintf(s_portMainMenuFocus, sizeof(s_portMainMenuFocus), "%.*s\"main_button3\"%s",
+                    (int)(found - action), action, found + strlen("\"main_button1\""));
             script->action = s_portMainMenuFocus;
         }
     }
@@ -4092,19 +4096,22 @@ void __cdecl UI_LoadIngameMenus(int contextIndex)
             }
             Menus_CloseAll(contextIndex, &uiInfo->uiDC);
             UI_Port_PatchMainMenu(&uiInfo->uiDC);
+            UI_Coop_LoadMenus(contextIndex, &uiInfo->uiDC); // co-op: the Online choice's popups
+        }
+        // (the front end's menus run update_sv_savegameavailable too: the front end loaded after an error, with
+        // zombiemode not set yet, sent it to the server, which printed "Unknown cmd" on the screen)
+        static cmd_function_s updateSaveGameAvailableCommand;
+        static bool commandRegistered;
+        if ( !commandRegistered && ((zombiemode && zombiemode->current.enabled) || Com_IsSPFrontEndRunning()) )
+        {
+            Cmd_AddCommandInternal("update_sv_savegameavailable", UI_SP_UpdateSaveGameAvailable_f,
+                &updateSaveGameAvailableCommand);
+            commandRegistered = true;
         }
         if ( zombiemode && zombiemode->current.enabled )
         {
             menuList = UI_LoadMenus("ui/ingame_options.txt", 3);
             UI_AddMenuList(contextIndex, &uiInfo->uiDC, menuList, 1);
-            static cmd_function_s updateSaveGameAvailableCommand;
-            static bool commandRegistered;
-            if ( !commandRegistered )
-            {
-                Cmd_AddCommandInternal("update_sv_savegameavailable", UI_SP_UpdateSaveGameAvailable_f,
-                    &updateSaveGameAvailableCommand);
-                commandRegistered = true;
-            }
         }
         UI_ModFov_PatchMenus(&uiInfo->uiDC); // mod: bo1_mod_fov
     }

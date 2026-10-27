@@ -138,6 +138,7 @@ extern const dvar_t *ui_ranked;
 extern const dvar_t *sv_dedicatedmaxclients;
 extern const dvar_t *sv_maxclients;
 extern const dvar_t *bo1_coop_players;
+extern const dvar_t *bo1_coop_waiting;
 extern const dvar_t *sv_maxRate;
 extern const dvar_t *sv_minPing;
 extern const dvar_t *sv_maxPing;

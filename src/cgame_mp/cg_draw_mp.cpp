@@ -388,6 +388,40 @@ bool __cdecl CG_AreAllPlayerNamesVisible()
     return Demo_IsMovieCamera();
 }
 
+// co-op: while a zombies level waits for its players (the server info's bo1_coop_waiting, "<joined> <expected>",
+// G_SP_CoopExpectedPlayers), over the black screen it starts on: how many are in, and on the host's screen how to
+// start without the others
+static void CG_SP_DrawCoopWaiting(int localClientNum)
+{
+    int joined = 0;
+    int expected = 0;
+    const char *waiting = Info_ValueForKey(CL_GetConfigString(0), "bo1_coop_waiting");
+    if ( !waiting || sscanf(waiting, "%d %d", &joined, &expected) != 2 || joined >= expected )
+        return;
+    const ScreenPlacement *scrPlace = &scrPlaceView[localClientNum];
+    char text[512];
+    float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    float scale = 0.45f;
+    Font_s *font = UI_GetFontHandle(scrPlace, 1, scale);
+    Com_sprintf(text, sizeof(text), "Waiting for players to join: %d of %d", joined, expected);
+    UI_DrawText(scrPlace, text, 0x7FFFFFFF, font, -0.5f * (float)UI_TextWidth(text, 0, font, scale), 0.0f, 2, 2, scale,
+        color, 3);
+    if ( !com_sv_running->current.enabled )
+        return; // (only the host can)
+    char binding[256];
+    if ( !UI_GetKeyBindingLocalizedString(localClientNum, "+activate", binding, 0)
+        && !UI_GetKeyBindingLocalizedString(localClientNum, "+usereload", binding, 0) )
+    {
+        I_strncpyz(binding, "the Use key", sizeof(binding));
+    }
+    Com_sprintf(text, sizeof(text), "Press %s to start without them", binding);
+    scale = 0.3f;
+    font = UI_GetFontHandle(scrPlace, 1, scale);
+    color[0] = color[1] = color[2] = 0.75f;
+    UI_DrawText(scrPlace, text, 0x7FFFFFFF, font, -0.5f * (float)UI_TextWidth(text, 0, font, scale), 26.0f, 2, 2, scale,
+        color, 3);
+}
+
 void __cdecl CG_Draw2D(int localClientNum)
 {
     CG_Draw2DInternal(localClientNum);
@@ -532,6 +566,7 @@ void __cdecl CG_Draw2DInternal(int localClientNum)
             if ( zombiemode && zombiemode->current.enabled )
             {
                 CG_SP_DrawScreenFade(localClientNum);
+                CG_SP_DrawCoopWaiting(localClientNum); // co-op: over the fade
                 // zombies (L4): then, while paused with cg_drawpaused, re-shows every faded HUD group
                 // (0x00655CF6..0x00655D0E -> CG_RefreshAllHudFades 0x004E31F0)
                 if ( cg_paused->current.integer && cg_drawpaused->current.enabled )

@@ -1486,7 +1486,11 @@ void __cdecl CL_CanNotConnect(int localClientNum, const char *msg)
     char *v2; // eax
     char *v3; // eax
 
-    if ( CL_GetLocalClientConnectionState(localClientNum) >= 6 || Dvar_GetBool("cl_wasconnected") )
+    // co-op: a game that the zombies menu could not join (its own level ended to join it) goes back to that menu as a
+    // game that dropped does: the message, then the menu (Com_AfterLevel_SP). The notice popup opened over the
+    // multiplayer menu, and the zombies menu never came back.
+    if ( CL_GetLocalClientConnectionState(localClientNum) >= 6 || Dvar_GetBool("cl_wasconnected")
+        || (bo1_zombies && bo1_zombies->current.enabled) )
     {
         Com_Error(ERR_DROP, "%s", msg);
     }

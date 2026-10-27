@@ -9,6 +9,9 @@
 #include <clientscript/cscr_debugger.h>
 #include <universal/com_memory.h>
 #include "win_main.h"
+#if !defined(_WIN32)
+#include <ifaddrs.h> // (co-op: NET_GetNetworkAddresses)
+#endif
 
 const dvar_t *ip;
 const dvar_t *port;
@@ -634,7 +637,8 @@ int NET_GetLocalAddress()
 void __cdecl NET_OpenIP()
 {
     ip = _Dvar_RegisterString("net_ip", "localhost", 0x20u, "Network IP Address");
-    port = _Dvar_RegisterInt("net_port", 3074, 0, 0xFFFF, 0x20u, "Network port");
+    // (co-op: 28960, the port of CoD's PC games, for BO1's Xbox Live port 3074)
+    port = _Dvar_RegisterInt("net_port", BO1_DEFAULT_NET_PORT, 0, 0xFFFF, 0x20u, "Network port");
 
     // ADD - network augmentation to replace demonware net (cod4)
     for (int i = 0; i < 10; ++i)
@@ -910,6 +914,54 @@ void __cdecl NET_OpenToNetwork()
     Dvar_SetString((dvar_s *)ip, "localhost");
     NET_Config(0);
     NET_Config(1);
+}
+
+// co-op: the addresses the zombies menu's Host Game shows (the others join one of them): this computer's IPv4
+// addresses but loopback (127.x) and link-local (169.254.x, no network's server gave one), local-network ones
+// (10.x, 172.16-31.x, 192.168.x) first. Windows: those NET_GetLocalAddress found (its host name's); elsewhere the
+// network interfaces' (the host name often names 127.0.1.1 or nothing there).
+int __cdecl NET_GetNetworkAddresses(char *buf, int size, const char *suffix)
+{
+    unsigned char found[16][4];
+    int count = 0;
+    auto add = [&](const unsigned char *b) {
+        if ( count >= 16 || b[0] == 0 || b[0] == 127 || (b[0] == 169 && b[1] == 254) )
+            return;
+        for ( int i = 0; i < count; ++i )
+            if ( !memcmp(found[i], b, 4) )
+                return;
+        memcpy(found[count++], b, 4);
+    };
+#if !defined(_WIN32)
+    ifaddrs *interfaces = nullptr;
+    if ( !getifaddrs(&interfaces) )
+    {
+        for ( const ifaddrs *a = interfaces; a; a = a->ifa_next )
+            if ( a->ifa_addr && a->ifa_addr->sa_family == AF_INET )
+                add((const unsigned char *)&((const sockaddr_in *)a->ifa_addr)->sin_addr);
+        freeifaddrs(interfaces);
+    }
+#else
+    for ( int i = 0; i < numIP && i < 16; ++i )
+        add(localIP[i]);
+#endif
+    auto isLocalNetwork = [](const unsigned char *b) {
+        return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168);
+    };
+    buf[0] = 0;
+    int written = 0;
+    for ( int pass = 0; pass < 2; ++pass )
+    {
+        for ( int i = 0; i < count; ++i )
+        {
+            if ( isLocalNetwork(found[i]) != (pass == 0) )
+                continue;
+            I_strncat(buf, size, va("%s%i.%i.%i.%i%s", written ? ", " : "", found[i][0], found[i][1], found[i][2],
+                found[i][3], suffix ? suffix : ""));
+            ++written;
+        }
+    }
+    return written;
 }
 
 void __cdecl NET_InitDebug()

@@ -77,6 +77,7 @@ void __cdecl PC_UnreadToken(source_s *source, token_s *token);
 source_s *__cdecl LoadSourceFile(char *filename);
 void __cdecl FreeSource(source_s *source);
 int __cdecl PC_LoadSourceHandle(char *filename, const char **builtinDefines);
+int __cdecl PC_LoadSourceMemoryHandle(const char *name, const char *text, const char **builtinDefines);
 int __cdecl PC_FreeSourceHandle(int handle);
 int __cdecl PC_ReadTokenHandle(int handle, pc_token_s *pc_token);
 int __cdecl PC_ReadLineHandle(int handle, pc_token_s *pc_token);

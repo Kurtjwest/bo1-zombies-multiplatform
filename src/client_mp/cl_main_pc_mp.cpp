@@ -280,7 +280,7 @@ void __cdecl CL_Connect(serverInfo_t *server)
     I_strncpyz(cls.servername, server->hostName, 256);
     clc->serverAddress = server->adr;
     if ( !clc->serverAddress.port )
-        clc->serverAddress.port = BigShort(3074);
+        clc->serverAddress.port = BigShort(BO1_DEFAULT_NET_PORT);
     v2 = BigShort(clc->serverAddress.port);
     Com_Printf(
         0,
@@ -394,7 +394,7 @@ void __cdecl CL_Connect_f()
         if ( NET_StringToAdr(cls.servername, &clc->serverAddress) )
         {
             if ( !clc->serverAddress.port )
-                clc->serverAddress.port = BigShort(3074);
+                clc->serverAddress.port = BigShort(BO1_DEFAULT_NET_PORT);
             v1 = BigShort(clc->serverAddress.port);
             Com_Printf(
                 0,
@@ -407,9 +407,13 @@ void __cdecl CL_Connect_f()
                 v1);
             if ( NET_IsLocalAddress(clc->serverAddress) || CL_CDKeyValidate(clc->serverAddress) ) // ADD CDKey for steam
             {
-                if ( Sys_IsLANAddress(clc->serverAddress) 
+                // (a game on the internet needed the online service's log-on. co-op: without the online service, any
+                // address is joined directly, as one on the local network)
+                if ( Sys_IsLANAddress(clc->serverAddress)
 #ifdef BO1_DW
-                    || dwGetLogOnStatus(0) == 4 
+                    || dwGetLogOnStatus(0) == 4
+#else
+                    || true
 #endif
                     )
                 {
@@ -845,7 +849,7 @@ void CL_RconHost()
                 __debugbreak();
             }
             if ( !rconGlob.host.port )
-                rconGlob.host.port = BigShort(3074);
+                rconGlob.host.port = BigShort(BO1_DEFAULT_NET_PORT);
         }
         else
         {

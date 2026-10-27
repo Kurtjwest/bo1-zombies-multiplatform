@@ -2626,6 +2626,8 @@ set(SRC_UI
 	"${SRC_DIR}/ui/ui_atoms.h"
 	"${SRC_DIR}/ui/ui_commands.cpp"
 	"${SRC_DIR}/ui/ui_commands.h"
+	"${SRC_DIR}/ui/ui_coop.cpp"
+	"${SRC_DIR}/ui/ui_coop.h"
 	"${SRC_DIR}/ui/ui_emblem.cpp"
 	"${SRC_DIR}/ui/ui_emblem.h"
 	"${SRC_DIR}/ui/ui_feeders.cpp"

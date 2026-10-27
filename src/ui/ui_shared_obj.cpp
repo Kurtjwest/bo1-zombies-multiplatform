@@ -576,15 +576,21 @@ int __cdecl PC_CndStackAddConditionsToScript(GenericEventScript **baseScript, ch
             }
         }
     }
-    v2 = &g_conditionStack.members[g_conditionStack.size - 1];
-    newEventScript->condition.filename = v2->condition.filename;
-    newEventScript->condition.line = v2->condition.line;
-    newEventScript->condition.numRpn = v2->condition.numRpn;
-    newEventScript->condition.rpn = v2->condition.rpn;
-    newEventScript->fireOnTrue = g_conditionStack.members[g_conditionStack.size - 1].fireOnTrue;
-    newEventScript->blockID = g_conditionStack.members[g_conditionStack.size - 1].blockID;
-    newEventScript->constructID = g_conditionStack.members[g_conditionStack.size - 1].constructID;
-    newEventScript->type = g_conditionStack.members[g_conditionStack.size - 1].type;
+    // (port: commands outside any if, the stack empty, run unconditionally: the script stays as UI_Alloc cleared it,
+    // blockID and constructID 0. The 32-bit build read members[-1], the bytes before the stack, here not zeros;
+    // text menus are parsed with fast files only for the co-op popups, ui_coop.cpp)
+    if ( g_conditionStack.size > 0 )
+    {
+        v2 = &g_conditionStack.members[g_conditionStack.size - 1];
+        newEventScript->condition.filename = v2->condition.filename;
+        newEventScript->condition.line = v2->condition.line;
+        newEventScript->condition.numRpn = v2->condition.numRpn;
+        newEventScript->condition.rpn = v2->condition.rpn;
+        newEventScript->fireOnTrue = g_conditionStack.members[g_conditionStack.size - 1].fireOnTrue;
+        newEventScript->blockID = g_conditionStack.members[g_conditionStack.size - 1].blockID;
+        newEventScript->constructID = g_conditionStack.members[g_conditionStack.size - 1].constructID;
+        newEventScript->type = g_conditionStack.members[g_conditionStack.size - 1].type;
+    }
     if ( *baseScript )
     {
         for ( eventScriptRunner = *baseScript; eventScriptRunner->next; eventScriptRunner = eventScriptRunner->next )
@@ -3698,6 +3704,35 @@ char    UI_ParseMenuInternal(char *menuFile, int imageTrack)
         Com_PrintError(13, "Couldn't find menu file '%s'\n", menuFile);
         return 0;
     }
+}
+
+// co-op (ui_coop.cpp): UI_LoadMenu_LoadObj for menus in a text in memory (menuDefs only), with the fast-file game:
+// parsed into the hunk (UI_Alloc) and Z memory (expressions) as the text menus of the game without fast files were.
+// The list returned is overwritten by the next load.
+MenuList *__cdecl UI_LoadMenusFromMemory(const char *name, const char *text, int imageTrack)
+{
+    const char *builtinDefines[2] = { "PC", 0 };
+    pc_token_s token;
+
+    memset((unsigned __int8 *)&g_load_0, 0, sizeof(g_load_0));
+    g_load_0.menuList.menus = g_load_0.menus;
+    const int handle = PC_LoadSourceMemoryHandle(name, text, builtinDefines);
+    if ( !handle )
+        return &g_load_0.menuList;
+    while ( PC_ReadTokenHandle(handle, &token) )
+    {
+        if ( !I_stricmp(token.string, "}") || !I_stricmp(token.string, "{") )
+            continue;
+        if ( I_stricmp(token.string, "menudef") )
+        {
+            PC_SourceError(handle, "Unknown token %s in menu file.    Expected \"menudef\".\n", token.string);
+            break;
+        }
+        if ( !Menu_New(handle, imageTrack) )
+            break;
+    }
+    PC_FreeSourceHandle(handle);
+    return &g_load_0.menuList;
 }
 
 int    Asset_Parse(int handle)

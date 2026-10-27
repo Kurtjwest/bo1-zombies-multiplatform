@@ -2809,7 +2809,10 @@ int __cdecl SV_WindowedRateMsec(client_t *client)
     rateTime = Sys_Milliseconds();
     accumSize = 0;
     rate = client->rate;
-    if ( sv_maxRate->current.integer )
+    // co-op: a zombies game sends a player over the internet as much as the player's rate asks (25000 bytes a second
+    // by default): sv_maxRate's default, 5000, made the snapshots of a level full of zombies come a few times a second
+    // (players on the local network get every one)
+    if ( sv_maxRate->current.integer && !(zombiemode && zombiemode->current.enabled) )
     {
         if ( sv_maxRate->current.integer < 1000 )
             Dvar_SetInt((dvar_s *)sv_maxRate, 1000);

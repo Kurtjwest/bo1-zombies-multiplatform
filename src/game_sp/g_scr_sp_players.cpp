@@ -152,6 +152,31 @@ static int G_SP_CoopExpectedPlayers()
         expected = sv_maxclients->current.integer;
     if (expected < 1 && IsDedicatedServer())
         expected = 1;
+    // the host's player (a game with one: the client on this computer) can start without the others with the Use
+    // key (+activate, or +usereload), as its screen says (CG_SP_DrawCoopWaiting): the count drops to the players in
+    if (expected > count && !IsDedicatedServer())
+    {
+        for (int i = 0; i < sv_maxclients->current.integer; ++i)
+        {
+            const client_t *client = &svs.clients[i];
+            if (client->header.state != CS_ACTIVE || client->header.netchan.remoteAddress.type != NA_LOOPBACK)
+                continue;
+            if (client->lastUsercmd.button_bits.testBit(3) || client->lastUsercmd.button_bits.testBit(5))
+            {
+                Com_Printf(15, "co-op: the host started the game with the %d player(s) in, without waiting for %d\n",
+                    count, expected);
+                Dvar_SetInt((dvar_s *)bo1_coop_players, count);
+                expected = count;
+            }
+            break;
+        }
+    }
+    // the players' screens say how many are in (the server info's bo1_coop_waiting)
+    char waiting[32] = "";
+    if (expected > count)
+        Com_sprintf(waiting, sizeof(waiting), "%d %d", count, expected);
+    if (strcmp(bo1_coop_waiting->current.string, waiting))
+        Dvar_SetString((dvar_s *)bo1_coop_waiting, waiting);
     // the level's scripts ask every frame while they wait (all_players_connected); say so in the console now and then
     static int lastWaitPrint = -1000000;
     if (expected > count && (level.time < lastWaitPrint || level.time - lastWaitPrint >= 10000))

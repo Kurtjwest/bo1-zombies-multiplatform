@@ -177,40 +177,40 @@ Settings for the Linux build, besides `BO1_DUMP_FAILED_SHADERS`, `BO1_SYNC_SHADE
 | `SDL_VIDEODRIVER=wayland` / `x11` | the window system SDL uses (SDL's own setting) |
 | `SDL_AUDIODRIVER=pipewire` / `pulseaudio` / `alsa` | the sound system SDL uses (SDL's own setting) |
 
-## Co-op on a local network
+## Co-op
 
-Two to four players, each on their own computer, play a zombies map together, as in the original game's co-op. The
-computers can be any mix of the Windows, Mac and Linux builds of this engine, as long as they are on the same local
-network, each has the map, and all run the same version of the game (and the same mods). One player hosts: the
-game runs on the host's computer, and the others join it.
+Two to four players, each on their own computer, play a zombies map together, as in the original game's co-op, on a
+local network or over the internet. The computers can be any mix of the Windows, Mac and Linux builds of this engine,
+as long as each has the map and all run the same version of the game (and the same mods). One player hosts: the game
+runs on the host's computer, and the others join it.
 
-There is no lobby yet: hosting and joining are done in the console (the `~` key, below Esc), with commands that start
-with a `/` (what doesn't is sent as a chat message).
+It is all in the Zombies menu's **Online** choice (**Solo** is a game alone, as before):
 
-1. The host tells the game how many players there will be, counting the host, then starts a map, from the Zombies
-   menu as usual or with `map`:
+1. The host picks **Host Game**, the number of players counting the host, then the map (Solo's mission select). The
+   level waits at its start, on a black screen, until everyone has joined: the screen says how many have, and the host
+   can start without the others with the Use key (the screen says which). Host Game also shows the address the
+   others join: the host computer's IP address on the local network.
+2. The others pick **Join Game**, type that address and press Enter. An address without a port (`192.168.1.20`) joins
+   port 28960, the game's; one with a port (`192.168.1.20:28961`) joins that one.
 
-   ```
-   /set bo1_coop_players 2
-   /map zombie_theater
-   ```
+If no game answers at the address, joining stops after about half a minute with "Lost connection to host", and the
+zombies menu comes back when the message is closed (Esc, or its Exit).
 
-   The game waits at the start, on a black screen, until everyone has joined (the console says how many have).
-   `/set bo1_coop_players 1` there starts it with the players who are in.
-2. Each of the others joins from the main menu with the host computer's IP address on the local network (its network
-   settings show it):
+The game uses UDP port 28960 (the next free one, 28961 and up, if it is taken, as by a second copy of the game on the
+same computer: Host Game's address says so then). Hosting or joining opens it to the network, where it otherwise
+answers only on the computer itself, so the first time the system may ask whether the game may accept incoming
+connections: allow it. Over the internet the others join the host's public IP address (a site such as
+whatismyip.com shows it), and the host's router has to forward UDP port 28960 to the host's computer (its "port
+forwarding" settings); a virtual network that puts the computers on one network (ZeroTier, Tailscale) works too,
+with the address it gives the host. As in the original game the level runs on the host's computer at the host's
+frame rate, so the fastest computer, with the best connection, should host.
 
-   ```
-   /connect 192.168.1.20
-   ```
-
-`bo1_coop_players` lasts until the game is closed; without it a map is a solo game, as before. The game uses UDP
-port 3074 (the next free one, 3075 and up, if it is taken: then `/connect 192.168.1.20:3075`). Hosting or joining opens
-it to the local network, where it otherwise answers only on the computer itself, so the first time the system may ask
-whether the game may accept incoming connections: allow it. `/disconnect` leaves a game, and the same `/connect`
-joins it again (with no points, as anyone joining a game in progress); when the host leaves, the game ends for
-everyone. `name` sets the name the others see over your head (`/name Kurt`). As in the original game the level runs on
-the host's computer at the host's frame rate, so the fastest computer should host.
+In a game, the console (the `~` key, below Esc; its commands start with a `/`, what doesn't is sent as a chat
+message) has the rest: `/disconnect` leaves a game, and joining again comes back into it (with no points, as anyone
+joining a game in progress); when the host leaves, the game ends for everyone. `/name Kurt` sets the name the others
+see over your head. The console can also host and join without the menus: `/set bo1_coop_players 2` then
+`/map zombie_theater` hosts (the count lasts until the game is closed; Solo sets it back to 0), and
+`/connect 192.168.1.20` joins.
 
 A computer can also host without playing, as a dedicated server:
 `BO1Zombies +set dedicated 1 +set bo1_coop_players 2 +map zombie_theater` (it waits for one player unless told more).
@@ -221,6 +221,6 @@ version of the game or of a mod), joining stops with a message saying so.
 
 To try co-op on one computer, `./tools/coop-test.sh` (macOS and Linux) runs two copies of the game side by side, each
 in a window and on a game folder of its own (made the first time in `~/BO1Zombies-coop`, with links to your game
-files, so your own game folder and settings stay as they are), the first one set to host; it says what to type in
-each window (`/map zombie_theater` in the host's, `/connect 127.0.0.1:28960` in the other's, at its main menu).
-Cmd-Tab (Alt-Tab) switches between them: only the window in front gets the keyboard and mouse.
+files, so your own game folder and settings stay as they are), the left one on port 28960 and the right one on 28961.
+Host in the left window (Online, Host Game, 2 Players, a map) and join from the right one (Online, Join Game,
+`127.0.0.1`). Cmd-Tab (Alt-Tab) switches between them: only the window in front gets the keyboard and mouse.

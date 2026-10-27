@@ -1041,7 +1041,7 @@ int __cdecl NET_StringToAdr(const char *s, netadr_t *a)
                 }
                 else
                 {
-                    v5 = BigShort(3074);
+                    v5 = BigShort(BO1_DEFAULT_NET_PORT); // (co-op: 28960, net_port's default, for 3074)
                 }
                 a->port = v5;
                 return 1;

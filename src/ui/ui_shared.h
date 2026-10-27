@@ -1370,3 +1370,4 @@ void __cdecl UI_SetLoadingScreenMaterial(const char *name);
 extern sharedUiInfo_t sharedUiInfo;
 
 extern int g_editingField;
+extern itemDef_s *g_editItem;

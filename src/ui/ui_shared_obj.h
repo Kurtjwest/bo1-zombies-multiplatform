@@ -249,6 +249,7 @@ int __cdecl ItemParse_state(itemDef_s *item, int handle);
 void __cdecl Item_SetupKeywordHash();
 MenuList *__cdecl UI_LoadMenu(const char *menuFile, int imageTrack);
 MenuList * UI_LoadMenu_LoadObj(char *menuFile, int imageTrack);
+MenuList *__cdecl UI_LoadMenusFromMemory(const char *name, const char *text, int imageTrack);
 char    UI_ParseMenuInternal(char *menuFile, int imageTrack);
 int    Asset_Parse(int handle);
 char __cdecl Menu_New(int handle, int imageTrack);
