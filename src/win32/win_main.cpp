@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <chrono>
+#include <vector>
 #if !defined(_WIN32)
 #include <dlfcn.h>
 #include <execinfo.h>
@@ -1237,9 +1240,100 @@ void __cdecl Sys_HeadlessLevelNotify(const char *name)
         name, s_quitNotifySeen, s_quitNotifyAt);
 }
 
+// mod (perf): bo1_benchmark 1 - the main loop's frame times (one client frame each, the frame limit's wait
+// included: com_maxfps 0 for an unlimited run) from bo1_benchmark_start ms after the local client is in the game,
+// summed up when bo1_benchmark_seconds of them are measured (the game then quits) or bo1_autoquit / bo1_quitnotify
+// ends the run: a repeatable measure of a scripted run (tools/benchmark.sh: the bo1_testclient harness playing a map
+// in a real window). Measures only.
+static const dvar_t *bo1_benchmark;
+static const dvar_t *bo1_benchmark_start;
+static const dvar_t *bo1_benchmark_seconds;
+static double s_benchMeasuredMs;
+static bool s_benchReported;
+static void Sys_BenchmarkReport();
+static std::vector<float> s_benchFrameMs;
+static std::chrono::steady_clock::time_point s_benchLast;
+static int s_benchActiveSince = -1; // ms after init the local client became active
+static bool s_benchStarted;
+static int s_benchLevelTimeStart;
+
+static void Sys_BenchmarkFrame(int elapsed)
+{
+    if (!bo1_benchmark || !bo1_benchmark->current.enabled)
+        return;
+    const auto now = std::chrono::steady_clock::now();
+    const bool active = CL_GetLocalClientConnectionState(0) == CA_ACTIVE && com_sv_running->current.enabled;
+    if (!active)
+    {
+        s_benchActiveSince = -1;
+    }
+    else if (s_benchActiveSince < 0)
+    {
+        s_benchActiveSince = elapsed;
+    }
+    else if (elapsed - s_benchActiveSince >= bo1_benchmark_start->current.integer)
+    {
+        if (!s_benchStarted)
+        {
+            s_benchStarted = true;
+            s_benchFrameMs.reserve(1 << 18);
+            s_benchLevelTimeStart = level.time;
+        }
+        else
+        {
+            const float frameMs = std::chrono::duration<float, std::milli>(now - s_benchLast).count();
+            s_benchFrameMs.push_back(frameMs);
+            s_benchMeasuredMs += frameMs;
+            if (bo1_benchmark_seconds->current.integer > 0 && !s_benchReported
+                && s_benchMeasuredMs >= 1000.0 * bo1_benchmark_seconds->current.integer)
+            {
+                Sys_BenchmarkReport();
+                Com_Quit_f();
+            }
+        }
+    }
+    s_benchLast = now;
+}
+
+static void Sys_BenchmarkReport()
+{
+    if (!bo1_benchmark || !bo1_benchmark->current.enabled || s_benchReported)
+        return;
+    s_benchReported = true;
+    std::vector<float> ms = s_benchFrameMs;
+    if (ms.size() < 10)
+    {
+        Com_Printf(16, "bo1_benchmark: too few frames measured (%d); is the map running?\n", (int)ms.size());
+        return;
+    }
+    double total = 0.0;
+    int over33 = 0, over50 = 0, over100 = 0;
+    for (float f : ms)
+    {
+        total += f;
+        over33 += f > 33.4f;
+        over50 += f > 50.0f;
+        over100 += f > 100.0f;
+    }
+    std::sort(ms.begin(), ms.end());
+    auto pct = [&](double p) { return ms[(std::min)(ms.size() - 1, (size_t)(p * (double)(ms.size() - 1) + 0.5))]; };
+    // "1% low": the frame rate of the slowest 1% of the frames
+    const size_t lowCount = (std::max<size_t>)(1, ms.size() / 100); // (parenthesized: the engine sees min/max macros)
+    double lowTotal = 0.0;
+    for (size_t i = ms.size() - lowCount; i < ms.size(); ++i)
+        lowTotal += ms[i];
+    Com_Printf(16,
+        "bo1_benchmark: %s, %d frames in %.1f s (level time %d s): average %.1f fps (%.2f ms), median %.2f ms, 95%% %.2f ms, "
+        "99%% %.2f ms, worst %.1f ms, 1%% low %.1f fps; frames over 33 ms %d, over 50 ms %d, over 100 ms %d\n",
+        Dvar_GetString("mapname"), (int)ms.size(), total / 1000.0, (level.time - s_benchLevelTimeStart) / 1000,
+        1000.0 * ms.size() / total, total / ms.size(), pct(0.5), pct(0.95), pct(0.99), ms.back(),
+        1000.0 * lowCount / lowTotal, over33, over50, over100);
+}
+
 static void Sys_AutoQuitFrame()
 {
     int elapsed = Sys_Milliseconds() - s_autoquitStartMs;
+    Sys_BenchmarkFrame(elapsed);
     Sys_HeadlessTimelineFrame(elapsed);
     Sys_HeadlessClientCommandsFrame(elapsed);
     Sys_HeadlessShotsFrame(elapsed);
@@ -1249,6 +1343,7 @@ static void Sys_AutoQuitFrame()
         Com_Printf(16, "bo1_quitnotify: %d ms after init; level.time %d, %d '%s' notifies. Quitting.\n", elapsed,
             level.time, s_quitNotifySeen, BO1_VA(bo1_quitnotify->current.string));
         s_quitNotifyAt = -1;
+        Sys_BenchmarkReport();
         Com_Quit_f();
         return;
     }
@@ -1263,6 +1358,7 @@ static void Sys_AutoQuitFrame()
         com_sv_running->current.enabled ? level.time : 0);
     if (bo1_dvardump && bo1_dvardump->current.enabled)
         Dvar_ForEach(Sys_DvarDumpOne, 0);
+    Sys_BenchmarkReport();
     Com_Quit_f();
 }
 
@@ -1512,6 +1608,12 @@ void    Sys_Error(char *error, ...)
 #endif
 }
 
+#if defined(BO1_PGO_GENERATE)
+// the instrumented build of --pgo (cmake/clang_flags.cmake): the profile runtime's write, which a normal exit() runs at
+// exit; the ports end the process with _exit (ExitProcess, src/platform/win32compat/kernel32_misc.cpp), which does not
+extern "C" int __llvm_profile_dump(void);
+#endif
+
 void __cdecl    Sys_Quit()
 {
     Sys_EnterCriticalSection(CRITSECT_COM_ERROR);
@@ -1535,6 +1637,9 @@ void __cdecl    Sys_Quit()
     if ( !com_errorEntered )
         track_shutdown(0);
     Con_ShutdownChannels();
+#if defined(BO1_PGO_GENERATE)
+    __llvm_profile_dump(); // (writes the counts once; the exit-time write then skips them)
+#endif
 #if BO1_PORT
     ExitProcess(0); // (not exit(): the engine's threads are still running, see ExitProcess in kernel32_misc.cpp)
 #else
@@ -1959,6 +2064,9 @@ void __cdecl Sys_Init()
     bo1_autoquit = _Dvar_RegisterInt("bo1_autoquit", 0, 0, 0x7FFFFFFF, 0, "zombies: quit this many ms after init (0 = off); for headless test runs");
     bo1_quitnotify = _Dvar_RegisterString("bo1_quitnotify", "", 0, "L20: headless - quit <level ms> of level time after level notify <name> fired <count> times (\"start_of_round,3,20000\"; empty = off)");
     bo1_dvardump = _Dvar_RegisterBool("bo1_dvardump", false, 0, "zombies: print every dvar (type, flags, reset, current) when bo1_autoquit fires");
+    bo1_benchmark = _Dvar_RegisterBool("bo1_benchmark", false, 0, "mod (perf): frame time statistics of the run, printed when bo1_autoquit ends it (tools/benchmark.sh)");
+    bo1_benchmark_start = _Dvar_RegisterInt("bo1_benchmark_start", 15000, 0, 0x7FFFFFFF, 0, "mod (perf): bo1_benchmark measures from this many ms after the local client is in the game");
+    bo1_benchmark_seconds = _Dvar_RegisterInt("bo1_benchmark_seconds", 0, 0, 0x7FFFFFFF, 0, "mod (perf): bo1_benchmark reports and quits after this many seconds of measured frames (0: at bo1_autoquit)");
     bo1_menudump = _Dvar_RegisterString("bo1_menudump", "", 0, "zombies: headless client - menus whose scripts bo1_shots prints");
     bo1_shots = _Dvar_RegisterString("bo1_shots", "", 0, "zombies: headless client - back buffer screenshots at these ms after init (\"20000 40000\")");
     bo1_menusweep_stepms = _Dvar_RegisterInt("bo1_menusweep_stepms", 150, 1, 60000, 0, "x6c35: headless client - real ms between bo1_menusweep steps");

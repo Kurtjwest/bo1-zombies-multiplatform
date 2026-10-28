@@ -504,8 +504,10 @@ void __cdecl Sys_WaitDiscReads()
 
 void __cdecl Sys_InitWorkerThreadContext()
 {
-    threadId[2] = jqWorkers[1].ThreadId;
-    threadId[3] = jqWorkers[2].ThreadId;
+    // jqWorkers[0] is the main thread's; retail had two more (WORKER0, WORKER1). mod (perf): as many as
+    // bo1_mod_workers started (R_InitWorkerCmds), up to WORKER7
+    for ( unsigned int n = 1; n < jqNWorkers && n <= THREAD_CONTEXT_WORKER7 - THREAD_CONTEXT_WORKER0 + 1; ++n )
+        threadId[THREAD_CONTEXT_WORKER0 + n - 1] = jqWorkers[n].ThreadId;
 }
 
 void __cdecl Sys_ResumeThread(unsigned int threadContext)
@@ -1207,24 +1209,28 @@ int __cdecl Sys_ModOnPCore()
 
 void __cdecl Sys_ModApplyPCore(int mode)
 {
+    // (mod (perf): every job worker bo1_mod_workers started, not only retail's two)
+    static const int s_contexts[] =
+        { THREAD_CONTEXT_SERVER, THREAD_CONTEXT_MAIN, THREAD_CONTEXT_BACKEND, THREAD_CONTEXT_WORKER0, THREAD_CONTEXT_WORKER1,
+          THREAD_CONTEXT_WORKER2, THREAD_CONTEXT_WORKER3, THREAD_CONTEXT_WORKER4, THREAD_CONTEXT_WORKER5,
+          THREAD_CONTEXT_WORKER6, THREAD_CONTEXT_WORKER7 };
+    constexpr int kContexts = ARRAYSIZE(s_contexts);
     static int s_appliedMode;
-    static HANDLE s_appliedHandles[5];
-    static const int s_contexts[5] =
-        { THREAD_CONTEXT_SERVER, THREAD_CONTEXT_MAIN, THREAD_CONTEXT_BACKEND, THREAD_CONTEXT_WORKER0, THREAD_CONTEXT_WORKER1 };
-    HANDLE wanted[5];
+    static HANDLE s_appliedHandles[kContexts];
+    HANDLE wanted[kContexts];
 
     Sys_ModPCoreInit();
     if ( !s_setCpuSets || !s_pcoreCount || s_pcoreCount >= s_cpuSetTotal )
         mode = 0;
     bool same = mode == s_appliedMode;
-    for ( int i = 0; i < 5; ++i )
+    for ( int i = 0; i < kContexts; ++i )
     {
         wanted[i] = (mode >= 1 && i == 0) || mode >= 2 ? threadHandle[s_contexts[i]] : NULL;
         same = same && wanted[i] == s_appliedHandles[i];
     }
     if ( same )
         return;
-    for ( int i = 0; i < 5; ++i )
+    for ( int i = 0; i < kContexts; ++i )
     {
         HANDLE want = wanted[i];
         if ( s_appliedHandles[i] && s_appliedHandles[i] != want )

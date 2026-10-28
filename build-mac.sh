@@ -9,6 +9,16 @@
 #   ./build-mac.sh --no-lto            without whole-program optimization (ThinLTO): a quicker link after a change
 #   ./build-mac.sh --asserts           keep the engine's assertion checks (a failed one stops the game with its text)
 #                                      in a Release build; Debug builds always have them
+#   ./build-mac.sh --cpu v3            Intel Macs (--arch x86_64, the Intel half of --universal): use the newer
+#                                      processors' instructions, a little faster (v2 SSE4.2 and v3 AVX2: every Intel Mac
+#                                      that runs macOS 13; v4 AVX-512: iMac Pro, Mac Pro 2019, the 2020 Ice Lake
+#                                      MacBooks); ignored for Apple silicon
+#   ./build-mac.sh --pgo               profile-guided optimization, a few percent faster still: builds the game
+#                                      instrumented (build-mac-pgo-gen/), lets its test bot play Kino and Five for 2
+#                                      minutes each in a window (tools/pgo-train.sh; needs the game files set up), then
+#                                      builds the game with the recorded profile (kept in pgo/). With --universal each
+#                                      processor's half is trained (the Intel one under Rosetta)
+#   ./build-mac.sh --pgo-profile FILE  the same with a profile recorded before (pgo/*.profdata), without training
 #
 # Needs: the Xcode command line tools (xcode-select --install), CMake 3.16+ and Ninja (brew install cmake ninja),
 # git and network access the first time (FFmpeg and libvpx are fetched from their official repositories and built).
@@ -18,6 +28,9 @@ cd "$(dirname "$0")"
 config="Release"
 lto=ON
 asserts=OFF
+cpu=""
+pgo=0
+pgo_profile=""
 arch=""
 universal=0
 while [ $# -gt 0 ]; do
@@ -29,10 +42,23 @@ while [ $# -gt 0 ]; do
             ;;
         --arch=*) arch="${1#--arch=}" ;;
         --universal) universal=1 ;;
+        --cpu)
+            [ $# -ge 2 ] || { echo "--cpu needs v2, v3 or v4" >&2; exit 1; }
+            cpu="$2"
+            shift
+            ;;
+        --cpu=*) cpu="${1#--cpu=}" ;;
+        --pgo) pgo=1 ;;
+        --pgo-profile)
+            [ $# -ge 2 ] || { echo "--pgo-profile needs a .profdata file" >&2; exit 1; }
+            pgo_profile="$2"
+            shift
+            ;;
+        --pgo-profile=*) pgo_profile="${1#--pgo-profile=}" ;;
         --no-lto) lto=OFF ;;
         --asserts) asserts=ON ;;
         -h | --help)
-            sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         -*)
@@ -47,6 +73,15 @@ case "$arch" in
     "" | arm64 | x86_64) ;;
     *)
         echo "--arch: arm64 or x86_64 (not '$arch')" >&2
+        exit 1
+        ;;
+esac
+
+case "$cpu" in
+    "" | v2 | v3 | v4) ;;
+    x86-64-v[234]) cpu="${cpu#x86-64-}" ;;
+    *)
+        echo "--cpu: v2, v3 or v4 (not '$cpu')" >&2
         exit 1
         ;;
 esac
@@ -70,11 +105,28 @@ suffix=""
 [ "$config" = "Release" ] || suffix="-$(echo "$config" | tr '[:upper:]' '[:lower:]')"
 dir="build-mac$suffix"
 
-# one architecture into one build folder
+if [ -n "$pgo_profile" ]; then
+    [ -f "$pgo_profile" ] || { echo "--pgo-profile: no file $pgo_profile" >&2; exit 1; }
+    pgo_profile="$(cd "$(dirname "$pgo_profile")" && pwd)/$(basename "$pgo_profile")"
+fi
+
+# one architecture into one build folder (with --pgo: first an instrumented build of it, and its training runs)
 build_arch() {
-    local a="$1" d="$2"
-    cmake -S . -B "$d" -G Ninja -DCMAKE_BUILD_TYPE="$config" -DCMAKE_OSX_ARCHITECTURES="$a" -DBO1_LTO="$lto" \
-        -DBO1_RELEASE_ASSERTS="$asserts"
+    local a="$1" d="$2" profile="$pgo_profile"
+    local common=(-G Ninja -DCMAKE_BUILD_TYPE="$config" -DCMAKE_OSX_ARCHITECTURES="$a"
+        -DBO1_RELEASE_ASSERTS="$asserts" -DBO1_X86_64_LEVEL="$cpu")
+    if [ "$pgo" -eq 1 ]; then
+        if [ "$a" = "arm64" ] && [ "$(uname -m)" != "arm64" ] \
+            && [ "$(sysctl -n sysctl.proc_translated 2> /dev/null || echo 0)" != "1" ]; then
+            echo "--pgo trains the game on this Mac, which cannot run the Apple silicon build: give --pgo-profile" >&2
+            exit 1
+        fi
+        cmake -S . -B "$d-pgo-gen" "${common[@]}" -DBO1_LTO=OFF -DBO1_PGO_GENERATE=ON -DBO1_PGO_PROFILE=
+        cmake --build "$d-pgo-gen"
+        profile="$(tools/pgo-train.sh "$d-pgo-gen/BO1Zombies.app" "pgo/mac-$a" | tail -1)"
+        profile="$PWD/$profile"
+    fi
+    cmake -S . -B "$d" "${common[@]}" -DBO1_LTO="$lto" -DBO1_PGO_GENERATE=OFF -DBO1_PGO_PROFILE="$profile"
     cmake --build "$d"
 }
 

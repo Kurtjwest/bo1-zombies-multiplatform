@@ -16,6 +16,19 @@ bool __cdecl MSG_EntityIsLinked(const entityState_s *ent)
     return ent->clientLinkInfo.parentEnt != 0;
 }
 
+// mod (perf, MSG_WriteEntityDelta): every field of the list compares its bytes first (MSG_ValuesAreEqual returns
+// equal for the same 1, 2 or 4 bytes before any rounding); a field of another size would not compare equal that way
+static bool MSG_FieldsCompareBytes(const NetField *fields, int numFields)
+{
+    for ( int i = 0; i < numFields; ++i )
+    {
+        const int size = fields[i].size;
+        if ( size != 1 && size != 2 && size != 4 )
+            return false;
+    }
+    return true;
+}
+
 void __cdecl MSG_WriteGroundEntityNum(int clientNum, msg_t *msg, int groundEntityNum)
 {
     int bits; // [esp+0h] [ebp-Ch]
@@ -265,6 +278,12 @@ int __cdecl MSG_WriteEntityDelta(
     }
     i = 0;
     field = stateFields;
+    // mod (perf): most entities did not change since the snapshot they are delta'd from, and then no field is sent:
+    // each compares equal (MSG_ValuesAreEqual: the same 1, 2 or 4 bytes), none is forced (the trajectory fields only
+    // when the trajectory type changed, the others only for an entity unlinked this frame), and a forced-hidden one is
+    // not sent either. Same bytes and no unlink: the field loop's result (lc -1, no field) without its calls.
+    if ( !snapInfo->entJustUnlinked && !memcmp(fromES, toES, sizeof(*toES)) && MSG_FieldsCompareBytes(stateFields, numFields) )
+        i = numFields;
     while ( i < numFields )
     {
         if ( MSG_ShouldSendEntityField(snapInfo, fromES, toES, field) )

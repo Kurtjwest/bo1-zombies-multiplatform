@@ -47,6 +47,7 @@ set(BO1_WINDOWS_PLATFORM_SOURCES
     "${PLATFORM_DIR}/common/xaudio2_soft.cpp"
     "${PLATFORM_DIR}/common/ffmpeg_media.cpp"
     "${PLATFORM_DIR}/common/nvapi_stub.cpp"
+    "${PLATFORM_DIR}/common/cpu_level_check.cpp"
     "${PLATFORM_DIR}/windows/audio_out_wasapi.cpp"
     "${PLATFORM_DIR}/windows/windows_platform.cpp"
 )
@@ -108,6 +109,8 @@ target_compile_options(${BIN_NAME} PRIVATE
     $<$<CONFIG:Release>:-O2>
 )
 bo1_release_tuning(${BIN_NAME}) # (Release: assertion checks compiled away, ThinLTO; cmake/clang_flags.cmake)
+bo1_cpu_level(${BIN_NAME}) # (--cpu v2|v3|v4: 64-bit Intel/AMD builds for a newer processor; cmake/clang_flags.cmake)
+bo1_pgo(${BIN_NAME}) # (--pgo: profile-guided optimization; cmake/clang_flags.cmake)
 
 # The engine's C++ sees what MSVC's headers make visible implicitly (src/platform/windows/include/bo1_mingw_prefix.h).
 # Not the platform layer, which is standard C++ over <windows.h> without min/max (NOMINMAX).
@@ -137,6 +140,10 @@ add_dependencies(${BIN_NAME} bo1_ffmpeg)
 include("${CMAKE_CURRENT_LIST_DIR}/libvpx.cmake")
 target_link_libraries(${BIN_NAME} PRIVATE bo1_libvpx_lib)
 add_dependencies(${BIN_NAME} bo1_libvpx)
+
+# zlib-ng for fastfile and .iwd decompression (src/qcommon/bo1_inflate.h)
+include("${CMAKE_CURRENT_LIST_DIR}/zlibng.cmake")
+bo1_add_zlibng(${BIN_NAME})
 
 target_link_libraries(${BIN_NAME} PRIVATE
     d3d9

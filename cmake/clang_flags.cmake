@@ -143,3 +143,82 @@ function(bo1_release_tuning target)
     target_compile_options(${target} PRIVATE -flto=thin)
     target_link_options(${target} PRIVATE ${_link})
 endfunction()
+
+# ---- BO1_X86_64_LEVEL: 64-bit Intel/AMD builds (Windows x64, Linux x86_64, Intel Macs) for a newer processor ----
+# generation (the build scripts' --cpu): the compiler may then use that generation's instructions anywhere (wider
+# vector code, BMI, POPCNT, ...), a few percent faster, and the game no longer starts on older processors (it says so
+# instead of crashing: src/platform/common/cpu_level_check.cpp). Empty, the default: any x86-64 processor, as before.
+#   v2  SSE4.2, POPCNT        Intel since 2009 (Nehalem), AMD since 2011 (Bulldozer)
+#   v3  AVX2, BMI2, FMA       Intel since 2013 (Haswell; many Pentium, Celeron and Atom models lack it), AMD since
+#                             2015 (Excavator) and every Zen; every Intel Mac that runs macOS 13
+#   v4  AVX-512               Intel Skylake-X / Ice Lake and later server and workstation parts, AMD Zen 4
+# The engine computes the same at every level: -ffp-contract=off keeps v3's FMA instructions out of its arithmetic, and
+# without -ffast-math a vectorized loop rounds as the plain one does. 32-bit and ARM builds ignore it.
+set(BO1_X86_64_LEVEL "" CACHE STRING
+    "64-bit Intel/AMD builds: the oldest processor generation the game runs on: empty (any x86-64), v2, v3 or v4")
+set_property(CACHE BO1_X86_64_LEVEL PROPERTY STRINGS "" v2 v3 v4)
+
+function(bo1_cpu_level target)
+    if(BO1_X86_64_LEVEL STREQUAL "")
+        return()
+    endif()
+    if(NOT BO1_X86_64_LEVEL MATCHES "^v[234]$")
+        message(FATAL_ERROR "BO1_X86_64_LEVEL is v2, v3, v4 or empty (any x86-64 processor), not '${BO1_X86_64_LEVEL}'")
+    endif()
+    include(CheckCXXSourceCompiles)
+    unset(CMAKE_GENERATOR_PLATFORM) # (CMakeLists.txt sets a Visual Studio platform for WIN32, which Ninja refuses)
+    check_cxx_source_compiles("#if !defined(__x86_64__)\n#error not a 64-bit Intel/AMD target\n#endif\nint main() { return 0; }"
+        BO1_TARGET_IS_X86_64)
+    if(NOT BO1_TARGET_IS_X86_64)
+        message(STATUS "CPU level: --cpu ${BO1_X86_64_LEVEL} ignored (only 64-bit Intel/AMD builds have levels)")
+        return()
+    endif()
+    string(SUBSTRING "${BO1_X86_64_LEVEL}" 1 1 _n)
+    target_compile_options(${target} PRIVATE -march=x86-64-${BO1_X86_64_LEVEL})
+    target_link_options(${target} PRIVATE -march=x86-64-${BO1_X86_64_LEVEL}) # (ThinLTO compiles at the link)
+    target_compile_definitions(${target} PRIVATE BO1_X86_64_LEVEL=${_n})
+    message(STATUS "CPU level: x86-64-${BO1_X86_64_LEVEL} (does not start on older processors)")
+endfunction()
+
+# ---- profile-guided optimization (the build scripts' --pgo) ----
+# BO1_PGO_GENERATE builds the game instrumented: it counts how often each branch and call runs and writes the counts
+# when it quits (src/win32/win_main.cpp Sys_Quit; LLVM_PROFILE_FILE says where). tools/pgo-train.sh plays maps with
+# the test bot in it and merges the counts (llvm-profdata) into a profile, and BO1_PGO_PROFILE builds the game with that
+# profile: the compiler lays the code out by what ran, inlines and unrolls the hot paths and keeps the cold ones small.
+# A compiler and linker setting only: the game computes the same. Code that never ran in the training counts as cold;
+# a profile older than the code still applies to what did not change (the warnings about the rest are off).
+option(BO1_PGO_GENERATE "Build the game instrumented, to record a profile when it quits (--pgo, first step)" OFF)
+set(BO1_PGO_PROFILE "" CACHE FILEPATH "Build the game with this profile (.profdata from llvm-profdata merge; --pgo)")
+
+function(bo1_pgo target)
+    if(BO1_PGO_GENERATE AND BO1_PGO_PROFILE)
+        message(FATAL_ERROR "BO1_PGO_GENERATE and BO1_PGO_PROFILE are two steps: set one of them")
+    endif()
+    if(BO1_PGO_GENERATE)
+        include(CheckCXXSourceCompiles)
+        unset(CMAKE_GENERATOR_PLATFORM) # (CMakeLists.txt sets a Visual Studio platform for WIN32, which Ninja refuses)
+        set(CMAKE_REQUIRED_FLAGS -fprofile-generate)
+        set(CMAKE_REQUIRED_LINK_OPTIONS -fprofile-generate)
+        check_cxx_source_compiles("int main() { return 0; }" BO1_PGO_GENERATE_LINKS)
+        unset(CMAKE_REQUIRED_FLAGS)
+        unset(CMAKE_REQUIRED_LINK_OPTIONS)
+        if(NOT BO1_PGO_GENERATE_LINKS)
+            message(FATAL_ERROR "PGO: this compiler cannot link an instrumented program: its profile runtime "
+                "(compiler-rt) is missing. Debian/Ubuntu: libclang-rt-<version>-dev; Windows: llvm-mingw or MSYS2's clang "
+                "toolchains have it; Xcode has it.")
+        endif()
+        target_compile_options(${target} PRIVATE -fprofile-generate)
+        target_link_options(${target} PRIVATE -fprofile-generate)
+        target_compile_definitions(${target} PRIVATE BO1_PGO_GENERATE)
+        message(STATUS "PGO: instrumented build (it writes its profile when it quits)")
+    elseif(BO1_PGO_PROFILE)
+        if(NOT EXISTS "${BO1_PGO_PROFILE}")
+            message(FATAL_ERROR "PGO: no profile at '${BO1_PGO_PROFILE}'")
+        endif()
+        set(_use "-fprofile-use=${BO1_PGO_PROFILE}")
+        target_compile_options(${target} PRIVATE ${_use} -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled
+            -Wno-profile-instr-missing -Wno-backend-plugin)
+        target_link_options(${target} PRIVATE ${_use}) # (ThinLTO optimizes at the link)
+        message(STATUS "PGO: optimized with ${BO1_PGO_PROFILE}")
+    endif()
+endfunction()

@@ -83,6 +83,8 @@ target_compile_options(${BIN_NAME} PRIVATE
     $<$<CONFIG:Release>:-O2>
 )
 bo1_release_tuning(${BIN_NAME}) # (Release: assertion checks compiled away, ThinLTO; cmake/clang_flags.cmake)
+bo1_cpu_level(${BIN_NAME}) # (--cpu v2|v3|v4: 64-bit Intel/AMD builds for a newer processor; cmake/clang_flags.cmake)
+bo1_pgo(${BIN_NAME}) # (--pgo: profile-guided optimization; cmake/clang_flags.cmake)
 
 # The bundled third-party libraries are portable C that never relied on MSVC's volatile semantics, and some of them
 # use volatile for unaligned access: minilzo reads and writes its match data through 'volatile uint32_t *' at any
@@ -145,6 +147,10 @@ add_dependencies(${BIN_NAME} bo1_ffmpeg)
 include("${CMAKE_CURRENT_LIST_DIR}/libvpx.cmake")
 target_link_libraries(${BIN_NAME} PRIVATE bo1_libvpx_lib)
 add_dependencies(${BIN_NAME} bo1_libvpx)
+
+# zlib-ng for fastfile and .iwd decompression (src/qcommon/bo1_inflate.h)
+include("${CMAKE_CURRENT_LIST_DIR}/zlibng.cmake")
+bo1_add_zlibng(${BIN_NAME})
 
 if(CMAKE_VERSION VERSION_LESS 3.17)
     set(BO1_RM_DIR remove_directory)

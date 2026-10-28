@@ -22,6 +22,7 @@
 //#include "../zlib32/zip.h"
 #include <universal/q_shared.h>
 #include <zlib/zlib.h>
+#include <qcommon/bo1_inflate.h>
 #include "unzip.h"
 //#include "com_fileaccess.h"
 #include <universal/com_fileaccess.h>
@@ -1030,7 +1031,7 @@ extern int unzOpenCurrentFile (unzFile file)
 	  // END
 	  
 	  //err=inflateInit(&pfile_in_zip_read_info->stream, Z_SYNC_FLUSH, 1);
-	  err = inflateInit2_(&pfile_in_zip_read_info->stream, -15, "1.1.4", sizeof(z_stream_s));
+	  err = Bo1_InflateInit2(&pfile_in_zip_read_info->stream, -MAX_WBITS); // mod (perf): retail inflateInit2_(.., -15, "1.1.4", ..); zlib-ng with BO1_ZLIB_NG
 	  if (err == Z_OK)
 	    pfile_in_zip_read_info->stream_initialised=1;
         /* windowBits is passed < 0 to tell that there is no zlib header.
@@ -1152,7 +1153,7 @@ extern int unzReadCurrentFile  (unzFile file, void *buf, unsigned len)
 
 			uTotalOutBefore = pfile_in_zip_read_info->stream.total_out;
 
-			err=inflate(&pfile_in_zip_read_info->stream, 2);
+			err=Bo1_Inflate(&pfile_in_zip_read_info->stream, 2); // mod (perf): retail inflate
 
 			uTotalOutAfter = pfile_in_zip_read_info->stream.total_out;
 
@@ -1296,7 +1297,7 @@ extern int unzCloseCurrentFile (unzFile file)
 	TRYFREE(pfile_in_zip_read_info->read_buffer);
 	pfile_in_zip_read_info->read_buffer = NULL;
 	if (pfile_in_zip_read_info->stream_initialised)
-		inflateEnd(&pfile_in_zip_read_info->stream);
+		Bo1_InflateEnd(&pfile_in_zip_read_info->stream); // mod (perf): retail inflateEnd
 
 	pfile_in_zip_read_info->stream_initialised = 0;
 	TRYFREE(pfile_in_zip_read_info);

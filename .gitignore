@@ -33,6 +33,9 @@ build-sp/
 build-mac*/
 build-linux*/
 build-windows*/
+# tools/benchmark.sh results, and the profiles of profile-guided builds (--pgo)
+benchmarks/
+pgo/
 [Oo]bj/
 [Oo]ut/
 [Ll]og/

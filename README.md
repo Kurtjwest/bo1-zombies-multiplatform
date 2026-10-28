@@ -20,11 +20,39 @@ armhf), each a native program of its platform; the sections below say how.
 A Release build (the scripts' default) is built as the retail game's release build was: without the engine's
 assertion checks (the decompiled code has about 13,900 of them, which the retail build compiled away) and with
 whole-program optimization (ThinLTO, with clang 20 or later or a recent Xcode; an older compiler builds without it,
-and the configure step says so; the retail game used MSVC's LTCG). On Windows the game keeps its server thread on
-the processor's performance cores on a hybrid Intel CPU (`bo1_mod_pcore 1`, the default there; `0`
-turns it off). Every script takes `--no-lto` (a much quicker link after a small change, for working on the engine)
-and `--asserts` (keep the assertion checks: a failed one stops the game with its text, as in Debug builds, which
-always have them). The Visual Studio project builds with its own settings, the checks included.
+and the configure step says so; the retail game used MSVC's LTCG). The Visual Studio project builds with its own
+settings, the checks included. The scripts' other options:
+
+- `--no-lto`: no whole-program optimization, a much quicker link after a small change (for working on the engine).
+- `--asserts`: keep the assertion checks in a Release build (a failed one stops the game with its text, as in Debug
+  builds, which always have them).
+- `--cpu v2|v3|v4` (64-bit Intel/AMD builds): compile for a newer processor generation, which makes the game a little
+  faster and stops it from starting on older processors (it says so instead of crashing): v2 SSE4.2 (Intel since
+  2009, AMD since 2011), v3 AVX2 (Intel Core since 2013, AMD since 2015, every Intel Mac that runs macOS 13), v4
+  AVX-512. Without it the game runs on any x86-64 processor, as before.
+- `--pgo` (macOS, Linux): profile-guided optimization. The script builds the game a second time with counters in it
+  (`build-<platform>-pgo-gen/`), lets its test bot play Kino der Toten and Five for two minutes each in a window
+  (`tools/pgo-train.sh`; the game files must be set up), and builds the game with what that recorded, so the compiler
+  lays out and inlines the code by what actually ran. It takes about three times as long as a normal build; the
+  profile is kept in `pgo/`, and `--pgo-profile pgo/<file>.profdata` builds with it again without the training. On
+  Windows the training runs on Windows: `build-windows.sh --pgo-generate`, then `tools\pgo-train.bat` in that build's
+  folder (after `setup.ps1 -Build build-windows-x64-pgo-gen`), then `build-windows.sh --pgo-profile
+  build-windows-x64-pgo-gen`; the toolchain needs its profile runtime (llvm-mingw and MSYS2's clang have it, Debian's
+  MinGW packages do not).
+
+None of these changes how the game plays (it computes the same; the scripted test bot plays a map out identically).
+Neither do the engine's own performance changes, in every build: idle job threads sleep until work comes (the retail
+engine woke each one a thousand times a second to look), up to six job threads run on processors with more than six
+logical cores (retail ran two everywhere; `+set bo1_mod_workers N` on the command line sets 1 to 8), map loads
+decompress with zlib-ng in the clang builds (about a third faster), the server skips comparing an unchanged entity's
+fields for every snapshot and writes snapshot bits a byte at a time, and on Windows the server thread stays on the
+performance cores of a hybrid Intel CPU (`bo1_mod_pcore 1`, the default there; `0` turns it off).
+
+`tools/benchmark.sh` (macOS, Linux) measures a build: the test bot plays a map in a window for three minutes (`--map`,
+`--seconds`), with no frame limit and no vsync for the run (your settings stay as they are), and the game prints its
+frame rate, frame time percentiles and slow frames into `benchmarks/<date>-<map>/summary.txt`; `--profile` also records
+where the time goes (macOS `sample`, Linux `perf`), and `--app` runs another build, so two builds compare on one
+computer. On Windows the same run is `BO1Zombies.exe` with the arguments `tools\pgo-train.bat` uses.
 
 ## Windows (64-bit and 32-bit)
 

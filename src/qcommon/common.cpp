@@ -3520,6 +3520,13 @@ void __cdecl Com_WriteConfiguration(int localClientNum)
     // zombies: a headless (dedicated) run would rewrite the player config without the client's key bindings, and a
     // headless -Client run would save the harness's command-line values (com_maxfps, r_customMode, ...) into the next
     // run; a -Client run writes only with the p1 TEST SWITCH bo1_writeconfig (the restart test)
+    // mod (perf): nor a benchmark or profile-training run (bo1_benchmark: tools/benchmark.sh, tools/pgo-train.sh), whose
+    // command line turns the frame limit and vsync off for the run only
+    static const dvar_s *s_benchmark;
+    if ( !s_benchmark )
+        s_benchmark = Dvar_FindVar("bo1_benchmark");
+    if ( s_benchmark && s_benchmark->current.enabled )
+        return;
     if ( com_fullyInitialized && (!Sys_IsHeadless() || (Sys_IsHeadlessClient() && bo1_writeconfig && bo1_writeconfig->current.enabled)) )
     {
         if ( (dvar_modifiedFlags & 1) != 0 )

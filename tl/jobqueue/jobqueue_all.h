@@ -503,3 +503,4 @@ void __cdecl jqStart();
 
 
 extern jqWorker *jqWorkers;
+extern volatile unsigned int jqNWorkers; // (jqWorkers[0] is the main thread's)

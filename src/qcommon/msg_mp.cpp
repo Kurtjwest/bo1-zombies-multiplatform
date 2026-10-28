@@ -2588,19 +2588,23 @@ void __cdecl MSG_WriteBits(msg_t *msg, int value, unsigned int bits)
     }
     if ( msg->maxsize - msg->cursize >= 4 )
     {
+        // mod (perf): the rest of the current byte at a time instead of a bit at a time (retail's loop set one bit per
+        // pass; snapshots write millions of bits). The same bytes, cursize and bit: a byte is started (realigning bit
+        // on cursize) exactly where the bit loop started one, and the bits of a byte are its value's next bits.
+        unsigned __int8 *data = msg->data;
         while ( bits )
         {
-            --bits;
             bit = msg->bit & 7;
             if ( !bit )
             {
                 msg->bit = 8 * msg->cursize;
-                msg->data[msg->cursize++] = 0;
+                data[msg->cursize++] = 0;
             }
-            if ( (value & 1) != 0 )
-                msg->data[msg->bit >> 3] |= 1 << bit;
-            ++msg->bit;
-            value >>= 1;
+            const unsigned int n = bits < (unsigned int)(8 - bit) ? bits : (unsigned int)(8 - bit);
+            data[msg->bit >> 3] |= (unsigned __int8)(((unsigned int)value & ((1u << n) - 1)) << bit);
+            msg->bit += n;
+            value >>= n;
+            bits -= n;
         }
     }
     else

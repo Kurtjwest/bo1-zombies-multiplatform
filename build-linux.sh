@@ -11,6 +11,15 @@
 #                                       quicker link after a change
 #   ./build-linux.sh --asserts          keep the engine's assertion checks (a failed one stops the game with its
 #                                       text) in a Release build; Debug builds always have them
+#   ./build-linux.sh --cpu v3           64-bit Intel/AMD (x86_64) builds: use a newer processor generation's
+#                                       instructions, a little faster; the game then does not start on older ones:
+#                                       v2 SSE4.2 (Intel 2009+, AMD 2011+), v3 AVX2 (Intel 2013+ Core, AMD 2015+),
+#                                       v4 AVX-512. Without --cpu: any x86_64 processor
+#   ./build-linux.sh --pgo              profile-guided optimization, a few percent faster still: builds the game
+#                                       instrumented (build-linux-pgo-gen/), lets its test bot play Kino and Five for
+#                                       2 minutes each in a window (tools/pgo-train.sh; needs the game files set up and
+#                                       a desktop session), then builds the game with the recorded profile (kept in pgo/)
+#   ./build-linux.sh --pgo-profile FILE the same with a profile recorded before (pgo/*.profdata), without training
 #
 # Needs: clang 14 or later and its lld, CMake 3.16+, Ninja, pkg-config, the SDL2 development files (Debian/Ubuntu:
 # sudo apt install clang lld cmake ninja-build pkg-config libsdl2-dev git make; Fedora: sudo dnf install clang lld cmake
@@ -23,6 +32,9 @@ cd "$(dirname "$0")"
 config="Release"
 lto=ON
 asserts=OFF
+cpu=""
+pgo=0
+pgo_profile=""
 arch=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -32,10 +44,23 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         --arch=*) arch="${1#--arch=}" ;;
+        --cpu)
+            [ $# -ge 2 ] || { echo "--cpu needs v2, v3 or v4" >&2; exit 1; }
+            cpu="$2"
+            shift
+            ;;
+        --cpu=*) cpu="${1#--cpu=}" ;;
+        --pgo) pgo=1 ;;
+        --pgo-profile)
+            [ $# -ge 2 ] || { echo "--pgo-profile needs a .profdata file" >&2; exit 1; }
+            pgo_profile="$2"
+            shift
+            ;;
+        --pgo-profile=*) pgo_profile="${1#--pgo-profile=}" ;;
         --no-lto) lto=OFF ;;
         --asserts) asserts=ON ;;
         -h | --help)
-            sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         -*)
@@ -46,6 +71,15 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+case "$cpu" in
+    "" | v2 | v3 | v4) ;;
+    x86-64-v[234]) cpu="${cpu#x86-64-}" ;;
+    *)
+        echo "--cpu: v2, v3 or v4 (not '$cpu')" >&2
+        exit 1
+        ;;
+esac
 
 if [ "$(uname -s)" != "Linux" ]; then
     echo "This script builds on Linux (build-mac.sh builds the macOS game)." >&2
@@ -96,7 +130,7 @@ fi
 suffix=""
 [ "$config" = "Release" ] || suffix="-$(echo "$config" | tr '[:upper:]' '[:lower:]')"
 args=(-G Ninja -DCMAKE_BUILD_TYPE="$config" -DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" -DBO1_LTO="$lto"
-    -DBO1_RELEASE_ASSERTS="$asserts")
+    -DBO1_RELEASE_ASSERTS="$asserts" -DBO1_X86_64_LEVEL="$cpu")
 if [ "$arch" = "$host" ]; then
     dir="build-linux$suffix"
     if ! pkg-config --exists sdl2; then
@@ -112,6 +146,24 @@ else
         args+=(-DCMAKE_SYSROOT="$BO1_SYSROOT")
     fi
 fi
+if [ "$pgo" -eq 1 ]; then
+    # profile-guided optimization: an instrumented build of the same configuration, its training runs, the profile
+    if [ "$arch" != "$host" ]; then
+        echo "--pgo trains the game on this computer: build for its own processor, or give --pgo-profile" >&2
+        exit 1
+    fi
+    gen="$dir-pgo-gen"
+    cmake -S . -B "$gen" "${args[@]}" -DBO1_LTO=OFF -DBO1_PGO_GENERATE=ON -DBO1_PGO_PROFILE=
+    cmake --build "$gen"
+    clang_version=""
+    case "$cxx" in clang++-[0-9]*) clang_version="${cxx#clang++-}" ;; esac
+    pgo_profile="$(BO1_PGO_CLANG_VERSION="$clang_version" tools/pgo-train.sh "$gen/BO1Zombies" "pgo/linux-$arch" | tail -1)"
+fi
+if [ -n "$pgo_profile" ]; then
+    [ -f "$pgo_profile" ] || { echo "--pgo-profile: no file $pgo_profile" >&2; exit 1; }
+    pgo_profile="$(cd "$(dirname "$pgo_profile")" && pwd)/$(basename "$pgo_profile")"
+fi
+args+=(-DBO1_PGO_GENERATE=OFF -DBO1_PGO_PROFILE="$pgo_profile")
 cmake -S . -B "$dir" "${args[@]}"
 cmake --build "$dir"
 echo

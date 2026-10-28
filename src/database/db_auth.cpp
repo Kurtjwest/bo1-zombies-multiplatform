@@ -1,6 +1,7 @@
 #include "db_auth.h"
 #include <universal/assertive.h>
 #include <qcommon/common.h>
+#include <qcommon/bo1_inflate.h>
 
 int __cdecl DB_AuthLoad_InflateInit(z_stream_s *stream, bool isSecure)
 {
@@ -9,17 +10,17 @@ int __cdecl DB_AuthLoad_InflateInit(z_stream_s *stream, bool isSecure)
     {
         __debugbreak();
     }
-    return inflateInit_(stream, "1.2.3", sizeof(z_stream_s));
+    return Bo1_InflateInit2(stream, MAX_WBITS); // mod (perf): retail inflateInit_(stream, "1.2.3", sizeof(z_stream_s)); zlib-ng with BO1_ZLIB_NG
 }
 
 void __cdecl DB_AuthLoad_InflateEnd(z_stream_s *stream)
 {
-    inflateEnd(stream);
+    Bo1_InflateEnd(stream); // mod (perf): retail inflateEnd
 }
 
 int __cdecl DB_AuthLoad_Inflate(z_stream_s *stream, int flush)
 {
-    return inflate(stream, flush);
+    return Bo1_Inflate(stream, flush); // mod (perf): retail inflate
 }
 
 void *__cdecl tom_game_malloc(unsigned int size)
