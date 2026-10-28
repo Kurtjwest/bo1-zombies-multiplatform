@@ -54,7 +54,7 @@ the entity limit") instead of ending the map, so a higher `horde_max_zombies` is
 The mod logs `horde: ...` lines (round starts, alive count every 5 s, limit changes) to
 `build\Release\mods\horde\games_mp.log`.
 
-`bo1_mod_pcore` (engine, default 0; the launcher's horde flags set 1): on a hybrid Intel CPU (P- and E-cores) the
+`bo1_mod_pcore` (engine, default 1 on Windows; the launcher's horde flags set it too): on a hybrid Intel CPU (P- and E-cores) the
 listen-server thread is kept on the P-cores at above-normal priority; 2 also keeps the client threads there. Windows 10
 otherwise often runs it on an E-core (Kino 1000: server frame p50 96 -> 78 ms). Does nothing on other CPUs.
 

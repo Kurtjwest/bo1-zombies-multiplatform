@@ -4,6 +4,9 @@
 #   ./build-windows.sh                  Release build of the 64-bit (x64) game
 #   ./build-windows.sh --arch i686      the 32-bit (x86) game, in build-windows-x86
 #   ./build-windows.sh Debug            Debug build (in build-windows-x64-debug)
+#   ./build-windows.sh --no-lto         without whole-program optimization (ThinLTO): a quicker link after a change
+#   ./build-windows.sh --asserts        keep the engine's assertion checks (a failed one stops the game with its
+#                                       text) in a Release build; Debug builds always have them
 #
 # Runs on Linux and macOS (cross-compiling) and on Windows in an MSYS2 or Git Bash shell. Needs clang and lld with the
 # MinGW-w64 headers and libraries: llvm-mingw on any of them (https://github.com/mstorsjo/llvm-mingw, its bin folder
@@ -15,6 +18,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 config="Release"
+lto=ON
+asserts=OFF
 arch="x86_64"
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -24,8 +29,10 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         --arch=*) arch="${1#--arch=}" ;;
+        --no-lto) lto=OFF ;;
+        --asserts) asserts=ON ;;
         -h | --help)
-            sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         -*)
@@ -78,7 +85,7 @@ suffix=""
 [ "$config" = "Release" ] || suffix="-$(echo "$config" | tr '[:upper:]' '[:lower:]')"
 dir="build-windows-$name$suffix"
 cmake -S . -B "$dir" -G Ninja -DCMAKE_BUILD_TYPE="$config" -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchain-mingw.cmake" \
-    -DBO1_WINDOWS_TARGET_ARCH="$arch"
+    -DBO1_WINDOWS_TARGET_ARCH="$arch" -DBO1_LTO="$lto" -DBO1_RELEASE_ASSERTS="$asserts"
 cmake --build "$dir"
 echo
 echo "Built $dir/BO1Zombies.exe ($name)."

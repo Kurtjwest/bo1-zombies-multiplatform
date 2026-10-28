@@ -1,3 +1,4 @@
+#define BO1_ASSERTIVE_IMPL // (the handler itself, also in builds that compile the checks away)
 #include <universal/bo1_ptrcast.h>
 #include "assertive.h"
 
@@ -582,6 +583,7 @@ void __cdecl Assert_SetMonkeyCallbackHandler(void (__cdecl *AssertCallbackFunc)(
     MonkeyAssertCallback = AssertCallbackFunc;
 }
 
+#undef Assert_MyHandler // (if a header included before this file's own defined it)
 bool Assert_MyHandler(const char *filename, int line, int type, const char *fmt, ...)
 {
 #if 0

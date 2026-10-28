@@ -26,6 +26,23 @@ set(BO1_CLANG_LANGUAGE_FLAGS
     # MSVC's char is signed on every processor; ARM Linux's is unsigned by default
     -fsigned-char
 )
+
+# The decompiled code also computes pointers outside their arrays (a copy loop starts one byte before both buffers,
+# I_strncpyz; a table is walked from its end, ...), which MSVC compiled as plain address arithmetic. clang marks
+# such arithmetic as staying inside the object, and once a function is inlined where that object is visible (a local
+# array, as ThinLTO inlines across files) the out-of-object pointer makes the code undefined: I_strncpyz into a
+# stack buffer lost its loop exits and ran off the stack. -fwrapv-pointer (clang 20 and later) keeps it plain
+# arithmetic; ThinLTO is only used with it (bo1_release_tuning).
+function(bo1_check_wrapv_pointer out)
+    include(CheckCXXCompilerFlag)
+    unset(CMAKE_GENERATOR_PLATFORM) # (CMakeLists.txt sets a Visual Studio platform for WIN32, which Ninja refuses)
+    check_cxx_compiler_flag(-fwrapv-pointer BO1_HAVE_WRAPV_POINTER)
+    set(${out} ${BO1_HAVE_WRAPV_POINTER} PARENT_SCOPE)
+endfunction()
+bo1_check_wrapv_pointer(BO1_WRAPV_POINTER)
+if(BO1_WRAPV_POINTER)
+    list(APPEND BO1_CLANG_LANGUAGE_FLAGS -fwrapv-pointer)
+endif()
 set(BO1_CLANG_COMMON_WARNING_FLAGS
     -Wno-ignored-attributes
     -Wno-microsoft
@@ -64,3 +81,65 @@ set(BO1_CLANG_CXX_FLAGS
     -Wno-comment
     -Werror=return-stack-address
 )
+
+# ---- Release builds (cmake/port.cmake, cmake/windows.cmake): what the retail game's release build had over the
+# port's plain -O2 ----
+# BO1_RELEASE_ASSERTS: the decompiled code's assertion checks (about 13,900; src/universal/assertive.h). The retail
+# release build had none; off, they compile away (BO1_NO_ASSERTS). On, a failed check logs itself and stops the game,
+# as in the Debug and RelWithDebInfo builds, which always keep them.
+option(BO1_RELEASE_ASSERTS "Keep the engine's assertion checks in Release builds" OFF)
+# BO1_LTO: ThinLTO, whole-program optimization across the engine's files (the retail game was built with MSVC's
+# whole-program optimization, LTCG). Off when the toolchain cannot link with it (Linux: needs lld).
+option(BO1_LTO "Whole-program optimization (ThinLTO) in Release builds" ON)
+
+function(bo1_release_tuning target)
+    if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+        return()
+    endif()
+    if(NOT BO1_RELEASE_ASSERTS)
+        target_compile_definitions(${target} PRIVATE BO1_NO_ASSERTS)
+    endif()
+    if(NOT BO1_LTO)
+        message(STATUS "ThinLTO: off (BO1_LTO)")
+        return()
+    endif()
+    if(NOT BO1_WRAPV_POINTER)
+        message(STATUS "ThinLTO: off (it needs clang 20 or later, for -fwrapv-pointer: see BO1_CLANG_LANGUAGE_FLAGS)")
+        return()
+    endif()
+    # the linker options: ThinLTO, its cache (an incremental link re-optimizes only what changed), and on Linux lld
+    # (the cross toolchains already link with it; a native build otherwise links with the system's linker, which needs
+    # the LLVM gold plugin for LTO, and the 64-bit build's --wrap of the malloc family is tested with lld)
+    set(_cache "${CMAKE_BINARY_DIR}/thinlto-cache")
+    if(APPLE)
+        set(_link -flto=thin "-Wl,-cache_path_lto,${_cache}")
+    else()
+        set(_link -flto=thin "-Wl,--thinlto-cache-dir=${_cache}")
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_EXE_LINKER_FLAGS MATCHES "fuse-ld=lld")
+            list(APPEND _link -fuse-ld=lld)
+        endif()
+    endif()
+    string(REGEX MATCH "^[0-9]+" CMAKE_CXX_COMPILER_VERSION_MAJOR "${CMAKE_CXX_COMPILER_VERSION}")
+    include(CheckCXXSourceCompiles)
+    # (CMakeLists.txt sets a Visual Studio platform for WIN32, which a test project with Ninja refuses)
+    unset(CMAKE_GENERATOR_PLATFORM)
+    set(CMAKE_REQUIRED_FLAGS -flto=thin)
+    set(CMAKE_REQUIRED_LINK_OPTIONS ${_link})
+    check_cxx_source_compiles("int main() { return 0; }" BO1_THINLTO_LINKS)
+    unset(CMAKE_REQUIRED_FLAGS)
+    unset(CMAKE_REQUIRED_LINK_OPTIONS)
+    if(NOT BO1_THINLTO_LINKS)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            # (clang uses the ld.lld next to it first: lld-<version> of the same LLVM version, as the ThinLTO
+            # summaries clang writes are those of its own LLVM)
+            message(STATUS "ThinLTO: off (it links with the lld of clang's LLVM version: Debian/Ubuntu lld, or "
+                           "lld-${CMAKE_CXX_COMPILER_VERSION_MAJOR} with a versioned clang; Fedora lld, Arch lld)")
+        else()
+            message(STATUS "ThinLTO: off (the toolchain cannot link with it: it needs the lld of clang's LLVM version)")
+        endif()
+        return()
+    endif()
+    message(STATUS "ThinLTO: on")
+    target_compile_options(${target} PRIVATE -flto=thin)
+    target_link_options(${target} PRIVATE ${_link})
+endfunction()

@@ -40,6 +40,12 @@ bool __cdecl QuitOnError();
 
 
 bool Assert_MyHandler(const char *filename, int line, int type, const char *fmt, ...);
+#if defined(BO1_NO_ASSERTS) && !defined(BO1_ASSERTIVE_IMPL)
+// Release builds of the clang ports (cmake/clang_flags.cmake, BO1_RELEASE_ASSERTS off): the decompiled code's checks,
+// "if ( !(condition) && !Assert_MyHandler(...) ) __debugbreak();" (about 13,900 of them), compile away, as they did in
+// the retail game's release build. (A condition with a call the compiler cannot see through is still evaluated.)
+#define Assert_MyHandler(...) true
+#endif
 
 #define IS_NAN(x) (isnan(x))
 

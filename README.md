@@ -17,6 +17,15 @@ armhf), each a native program of its platform; the sections below say how.
 | macOS Apple silicon / Intel / both | `./build-mac.sh [--arch x86_64 \| --universal]` | `build-mac/BO1Zombies.app` (`build-mac-x86_64/`, `build-mac-universal/`) |
 | Linux x86_64 / x86 / arm64 / armhf | `./build-linux.sh [--arch i686 \| aarch64 \| armhf]` | `build-linux/BO1Zombies` (`build-linux-<arch>/` for another processor) |
 
+A Release build (the scripts' default) is built as the retail game's release build was: without the engine's
+assertion checks (the decompiled code has about 13,900 of them, which the retail build compiled away) and with
+whole-program optimization (ThinLTO, with clang 20 or later or a recent Xcode; an older compiler builds without it,
+and the configure step says so; the retail game used MSVC's LTCG). On Windows the game keeps its server thread on
+the processor's performance cores on a hybrid Intel CPU (`bo1_mod_pcore 1`, the default there; `0`
+turns it off). Every script takes `--no-lto` (a much quicker link after a small change, for working on the engine)
+and `--asserts` (keep the assertion checks: a failed one stops the game with its text, as in Debug builds, which
+always have them). The Visual Studio project builds with its own settings, the checks included.
+
 ## Windows (64-bit and 32-bit)
 
 The engine is a Windows program, and runs on Windows' own APIs there: Win32, Direct3D 9, DirectSound, XInput and
@@ -134,11 +143,12 @@ the Win32 calls go to `src/platform/win32compat` (POSIX), the window, keyboard, 
 (`src/platform/linux`), and Direct3D 9 runs on OpenGL 4.5 (`src/platform/d3d9mtl` over `src/platform/opengl`, with
 the game's shaders translated to GLSL by MojoShader). Bink videos and xWMA sounds are decoded with FFmpeg.
 
-Needs clang 14 or later, CMake 3.16+, Ninja, pkg-config and the SDL2 development files, git and make (Debian/Ubuntu:
-`sudo apt install clang cmake ninja-build pkg-config libsdl2-dev git make`; Fedora:
-`sudo dnf install clang cmake ninja-build pkgconf SDL2-devel git make`; Arch: `sudo pacman -S clang cmake ninja pkgconf
-sdl2 git make`), an OpenGL 4.5 driver to run (Mesa 20 or later for Intel, AMD and the software renderer, or NVIDIA's),
-and the game files of a Call of Duty: Black Ops PC install (Steam or retail).
+Needs clang 14 or later and its lld (the linker of the same LLVM version, for whole-program optimization; without it
+the build links without), CMake 3.16+, Ninja, pkg-config and the SDL2 development files, git and make (Debian/Ubuntu:
+`sudo apt install clang lld cmake ninja-build pkg-config libsdl2-dev git make`; Fedora:
+`sudo dnf install clang lld cmake ninja-build pkgconf SDL2-devel git make`; Arch: `sudo pacman -S clang lld cmake ninja
+pkgconf sdl2 git make`), an OpenGL 4.5 driver to run (Mesa 20 or later for Intel, AMD and the software renderer, or
+NVIDIA's), and the game files of a Call of Duty: Black Ops PC install (Steam or retail).
 
 ```sh
 ./build-linux.sh                                       # builds build-linux/BO1Zombies for this computer's processor

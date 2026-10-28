@@ -2418,8 +2418,15 @@ void Com_InitDvars()
                                             0,
                                             0,
                                             "Prevents threads from changing CPUs; improves profiling and may fix some bugs, but can hurt performance");
-    // mod (L64): listen-server thread on the P-cores of a hybrid CPU (Sys_ModApplyPCore, threads.cpp); no-op elsewhere
-    bo1_mod_pcore = _Dvar_RegisterInt("bo1_mod_pcore", 0, 0, 2, 0,
+    // mod (L64): listen-server thread on the P-cores of a hybrid CPU (Sys_ModApplyPCore, threads.cpp); no-op elsewhere.
+    // On by default on Windows (Windows 10 often ran the server thread on an efficiency core: Kino with a big horde,
+    // server frame p50 96 -> 78 ms); macOS and Linux have no CPU set API, it does nothing there
+#if defined(_WIN32)
+    const int pcoreDefault = 1;
+#else
+    const int pcoreDefault = 0;
+#endif
+    bo1_mod_pcore = _Dvar_RegisterInt("bo1_mod_pcore", pcoreDefault, 0, 2, 0,
         "mod: hybrid CPUs: 1 = server thread on P-cores + above-normal priority, 2 = also the client threads; no-op on non-hybrid CPUs");
     bo1_mod_priority = _Dvar_RegisterInt("bo1_mod_priority", 0, 0, 2, 0,
         "mod: 1 = process priority class above normal + main thread above normal, 2 = high class; 0 = as started");

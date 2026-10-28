@@ -6,6 +6,9 @@
 #   ./build-mac.sh --arch x86_64       for Intel Macs, from any Mac (build-mac-x86_64/; --arch arm64: Apple silicon)
 #   ./build-mac.sh --universal         one app for both (each processor built in build-mac-<arch>, then joined into
 #                                      build-mac-universal/BO1Zombies.app)
+#   ./build-mac.sh --no-lto            without whole-program optimization (ThinLTO): a quicker link after a change
+#   ./build-mac.sh --asserts           keep the engine's assertion checks (a failed one stops the game with its text)
+#                                      in a Release build; Debug builds always have them
 #
 # Needs: the Xcode command line tools (xcode-select --install), CMake 3.16+ and Ninja (brew install cmake ninja),
 # git and network access the first time (FFmpeg and libvpx are fetched from their official repositories and built).
@@ -13,6 +16,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 config="Release"
+lto=ON
+asserts=OFF
 arch=""
 universal=0
 while [ $# -gt 0 ]; do
@@ -24,8 +29,10 @@ while [ $# -gt 0 ]; do
             ;;
         --arch=*) arch="${1#--arch=}" ;;
         --universal) universal=1 ;;
+        --no-lto) lto=OFF ;;
+        --asserts) asserts=ON ;;
         -h | --help)
-            sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         -*)
@@ -66,7 +73,8 @@ dir="build-mac$suffix"
 # one architecture into one build folder
 build_arch() {
     local a="$1" d="$2"
-    cmake -S . -B "$d" -G Ninja -DCMAKE_BUILD_TYPE="$config" -DCMAKE_OSX_ARCHITECTURES="$a"
+    cmake -S . -B "$d" -G Ninja -DCMAKE_BUILD_TYPE="$config" -DCMAKE_OSX_ARCHITECTURES="$a" -DBO1_LTO="$lto" \
+        -DBO1_RELEASE_ASSERTS="$asserts"
     cmake --build "$d"
 }
 

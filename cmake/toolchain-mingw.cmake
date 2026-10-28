@@ -33,8 +33,11 @@ if(NOT CMAKE_C_COMPILER)
         set(CMAKE_C_COMPILER "${_bo1_cc}")
         set(CMAKE_CXX_COMPILER "${_bo1_cxx}")
     else()
-        find_program(CMAKE_C_COMPILER NAMES clang clang-20 clang-19 clang-18 clang-17 clang-16 clang-15 REQUIRED)
-        find_program(CMAKE_CXX_COMPILER NAMES clang++ clang++-20 clang++-19 clang++-18 clang++-17 clang++-16 clang++-15 REQUIRED)
+        # (clang 20 and later first: whole-program optimization needs it, cmake/clang_flags.cmake)
+        find_program(CMAKE_C_COMPILER NAMES clang-22 clang-21 clang-20 clang clang-19 clang-18 clang-17 clang-16 clang-15
+            REQUIRED)
+        find_program(CMAKE_CXX_COMPILER NAMES clang++-22 clang++-21 clang++-20 clang++ clang++-19 clang++-18 clang++-17
+            clang++-16 clang++-15 REQUIRED)
     endif()
 endif()
 set(CMAKE_C_COMPILER_TARGET ${_bo1_triple})

@@ -107,6 +107,7 @@ target_compile_options(${BIN_NAME} PRIVATE
     $<$<CONFIG:RelWithDebInfo>:-O2 -g>
     $<$<CONFIG:Release>:-O2>
 )
+bo1_release_tuning(${BIN_NAME}) # (Release: assertion checks compiled away, ThinLTO; cmake/clang_flags.cmake)
 
 # The engine's C++ sees what MSVC's headers make visible implicitly (src/platform/windows/include/bo1_mingw_prefix.h).
 # Not the platform layer, which is standard C++ over <windows.h> without min/max (NOMINMAX).

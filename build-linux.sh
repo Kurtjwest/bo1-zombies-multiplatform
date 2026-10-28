@@ -7,16 +7,22 @@
 #                                       aarch64 (64-bit ARM) or armhf (32-bit ARM, hard float). Cross-compiles with
 #                                       clang and that processor's SDL2 development files (cmake/toolchain-linux.cmake
 #                                       says where it looks for them)
+#   ./build-linux.sh --no-lto           without whole-program optimization (ThinLTO, which links with lld): a
+#                                       quicker link after a change
+#   ./build-linux.sh --asserts          keep the engine's assertion checks (a failed one stops the game with its
+#                                       text) in a Release build; Debug builds always have them
 #
-# Needs: clang 14 or later, CMake 3.16+, Ninja, pkg-config, the SDL2 development files (Debian/Ubuntu:
-# sudo apt install clang cmake ninja-build pkg-config libsdl2-dev git make; Fedora: sudo dnf install clang cmake
-# ninja-build pkgconf SDL2-devel git make; Arch: sudo pacman -S clang cmake ninja pkgconf sdl2 git make), and git and
+# Needs: clang 14 or later and its lld, CMake 3.16+, Ninja, pkg-config, the SDL2 development files (Debian/Ubuntu:
+# sudo apt install clang lld cmake ninja-build pkg-config libsdl2-dev git make; Fedora: sudo dnf install clang lld cmake
+# ninja-build pkgconf SDL2-devel git make; Arch: sudo pacman -S clang lld cmake ninja pkgconf sdl2 git make), and git and
 # network access the first time (FFmpeg and libvpx are fetched from their official repositories and built).
 # Running the game needs an OpenGL 4.5 driver (Mesa 20 or later, NVIDIA, AMD).
 set -euo pipefail
 cd "$(dirname "$0")"
 
 config="Release"
+lto=ON
+asserts=OFF
 arch=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -26,8 +32,10 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         --arch=*) arch="${1#--arch=}" ;;
+        --no-lto) lto=OFF ;;
+        --asserts) asserts=ON ;;
         -h | --help)
-            sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         -*)
@@ -66,7 +74,8 @@ esac
 cc="${CC:-}"
 cxx="${CXX:-}"
 if [ -z "$cxx" ]; then
-    for v in "" -20 -19 -18 -17 -16 -15 -14; do
+    # (clang 20 and later first: whole-program optimization needs it, cmake/clang_flags.cmake)
+    for v in -22 -21 -20 "" -19 -18 -17 -16 -15 -14; do
         if command -v "clang++$v" > /dev/null && command -v "clang$v" > /dev/null; then
             cc="clang$v"
             cxx="clang++$v"
@@ -80,13 +89,14 @@ for tool in cmake ninja pkg-config git make; do
     command -v "$tool" > /dev/null || missing+=("$tool")
 done
 if [ ${#missing[@]} -gt 0 ]; then
-    echo "Missing: ${missing[*]}. Debian/Ubuntu: sudo apt install clang cmake ninja-build pkg-config libsdl2-dev git make" >&2
+    echo "Missing: ${missing[*]}. Debian/Ubuntu: sudo apt install clang lld cmake ninja-build pkg-config libsdl2-dev git make" >&2
     exit 1
 fi
 
 suffix=""
 [ "$config" = "Release" ] || suffix="-$(echo "$config" | tr '[:upper:]' '[:lower:]')"
-args=(-G Ninja -DCMAKE_BUILD_TYPE="$config" -DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx")
+args=(-G Ninja -DCMAKE_BUILD_TYPE="$config" -DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" -DBO1_LTO="$lto"
+    -DBO1_RELEASE_ASSERTS="$asserts")
 if [ "$arch" = "$host" ]; then
     dir="build-linux$suffix"
     if ! pkg-config --exists sdl2; then

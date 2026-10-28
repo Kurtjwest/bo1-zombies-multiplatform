@@ -82,6 +82,7 @@ target_compile_options(${BIN_NAME} PRIVATE
     $<$<CONFIG:RelWithDebInfo>:-O2 -g>
     $<$<CONFIG:Release>:-O2>
 )
+bo1_release_tuning(${BIN_NAME}) # (Release: assertion checks compiled away, ThinLTO; cmake/clang_flags.cmake)
 
 # The bundled third-party libraries are portable C that never relied on MSVC's volatile semantics, and some of them
 # use volatile for unaligned access: minilzo reads and writes its match data through 'volatile uint32_t *' at any
