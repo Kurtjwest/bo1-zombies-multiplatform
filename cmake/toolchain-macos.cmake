@@ -29,8 +29,9 @@ endif()
 set(CMAKE_OSX_SYSROOT "${MACOS_SDK}" CACHE PATH "" FORCE)
 
 # (clang 20 and later first: whole-program optimization needs it, cmake/clang_flags.cmake)
-find_program(BO1_CLANG NAMES clang-22 clang-21 clang-20 clang clang-18 clang-17 REQUIRED)
-find_program(BO1_CLANGXX NAMES clang++-22 clang++-21 clang++-20 clang++ clang++-18 clang++-17 REQUIRED)
+find_program(BO1_CLANG NAMES clang-22 clang-21 clang-20 clang clang-19 clang-18 clang-17 REQUIRED)
+find_program(BO1_CLANGXX NAMES clang++-22 clang++-21 clang++-20 clang++ clang++-19 clang++-18 clang++-17
+    REQUIRED)
 set(CMAKE_C_COMPILER "${BO1_CLANG}")
 set(CMAKE_CXX_COMPILER "${BO1_CLANGXX}")
 set(CMAKE_OBJC_COMPILER "${BO1_CLANG}")
@@ -41,10 +42,11 @@ set(CMAKE_CXX_COMPILER_TARGET ${BO1_TARGET_TRIPLE})
 set(CMAKE_OBJC_COMPILER_TARGET ${BO1_TARGET_TRIPLE})
 set(CMAKE_OBJCXX_COMPILER_TARGET ${BO1_TARGET_TRIPLE})
 
-find_program(BO1_LLVM_AR NAMES llvm-ar-22 llvm-ar-21 llvm-ar-20 llvm-ar llvm-ar-18 REQUIRED)
-find_program(BO1_LLVM_RANLIB NAMES llvm-ranlib-22 llvm-ranlib-21 llvm-ranlib-20 llvm-ranlib llvm-ranlib-18 REQUIRED)
+find_program(BO1_LLVM_AR NAMES llvm-ar-22 llvm-ar-21 llvm-ar-20 llvm-ar llvm-ar-19 llvm-ar-18 REQUIRED)
+find_program(BO1_LLVM_RANLIB NAMES llvm-ranlib-22 llvm-ranlib-21 llvm-ranlib-20 llvm-ranlib llvm-ranlib-19
+    llvm-ranlib-18 REQUIRED)
 find_program(BO1_LLVM_INSTALL_NAME_TOOL NAMES llvm-install-name-tool-22 llvm-install-name-tool-21
-    llvm-install-name-tool-20 llvm-install-name-tool llvm-install-name-tool-18)
+    llvm-install-name-tool-20 llvm-install-name-tool llvm-install-name-tool-19 llvm-install-name-tool-18)
 set(CMAKE_AR "${BO1_LLVM_AR}" CACHE FILEPATH "" FORCE)
 set(CMAKE_RANLIB "${BO1_LLVM_RANLIB}" CACHE FILEPATH "" FORCE)
 if(BO1_LLVM_INSTALL_NAME_TOOL)

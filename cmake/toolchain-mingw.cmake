@@ -34,8 +34,8 @@ if(NOT CMAKE_C_COMPILER)
         set(CMAKE_CXX_COMPILER "${_bo1_cxx}")
     else()
         # (clang 20 and later first: whole-program optimization needs it, cmake/clang_flags.cmake)
-        find_program(CMAKE_C_COMPILER NAMES clang-22 clang-21 clang-20 clang clang-19 clang-18 clang-17 clang-16 clang-15
-            REQUIRED)
+        find_program(CMAKE_C_COMPILER NAMES clang-22 clang-21 clang-20 clang clang-19 clang-18 clang-17 clang-16
+            clang-15 REQUIRED)
         find_program(CMAKE_CXX_COMPILER NAMES clang++-22 clang++-21 clang++-20 clang++ clang++-19 clang++-18 clang++-17
             clang++-16 clang++-15 REQUIRED)
     endif()
@@ -56,10 +56,12 @@ set(CMAKE_CXX_FLAGS_INIT "${BO1_TARGET_CFLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "-fuse-ld=lld")
 set(CMAKE_MODULE_LINKER_FLAGS_INIT "-fuse-ld=lld")
-find_program(CMAKE_AR NAMES ${_bo1_triple}-ar llvm-ar llvm-ar-20 llvm-ar-19 llvm-ar-18)
-find_program(CMAKE_RANLIB NAMES ${_bo1_triple}-ranlib llvm-ranlib llvm-ranlib-20 llvm-ranlib-19 llvm-ranlib-18)
-find_program(CMAKE_NM NAMES ${_bo1_triple}-nm llvm-nm llvm-nm-20 llvm-nm-19 llvm-nm-18)
-find_program(CMAKE_RC_COMPILER NAMES ${_bo1_triple}-windres llvm-windres llvm-windres-20 llvm-windres-19 llvm-windres-18)
+find_program(CMAKE_AR NAMES ${_bo1_triple}-ar llvm-ar llvm-ar-22 llvm-ar-21 llvm-ar-20 llvm-ar-19 llvm-ar-18)
+find_program(CMAKE_RANLIB NAMES ${_bo1_triple}-ranlib llvm-ranlib llvm-ranlib-22 llvm-ranlib-21 llvm-ranlib-20
+    llvm-ranlib-19 llvm-ranlib-18)
+find_program(CMAKE_NM NAMES ${_bo1_triple}-nm llvm-nm llvm-nm-22 llvm-nm-21 llvm-nm-20 llvm-nm-19 llvm-nm-18)
+find_program(CMAKE_RC_COMPILER NAMES ${_bo1_triple}-windres llvm-windres llvm-windres-22 llvm-windres-21
+    llvm-windres-20 llvm-windres-19 llvm-windres-18)
 
 set(CMAKE_FIND_ROOT_PATH "/usr/${_bo1_triple}")
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

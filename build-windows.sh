@@ -60,7 +60,8 @@ for tool in cmake ninja git make; do
 done
 if ! command -v "$triple-clang++" > /dev/null; then
     found=""
-    for v in "" -20 -19 -18 -17 -16 -15; do
+    # (the names cmake/toolchain-mingw.cmake looks for: a versioned clang 21 or 22 alone is enough)
+    for v in -22 -21 -20 "" -19 -18 -17 -16 -15; do
         if command -v "clang++$v" > /dev/null; then
             found=1
             break

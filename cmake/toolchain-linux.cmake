@@ -46,11 +46,13 @@ set(CMAKE_TRY_COMPILE_PLATFORM_VARIABLES BO1_LINUX_TARGET_ARCH)
 
 set(CMAKE_SYSTEM_NAME Linux)
 if(NOT CMAKE_C_COMPILER)
-    find_program(CMAKE_C_COMPILER NAMES clang clang-20 clang-19 clang-18 clang-17 clang-16 clang-15 clang-14 REQUIRED)
+    # (clang 20 and later first: whole-program optimization needs it, cmake/clang_flags.cmake)
+    find_program(CMAKE_C_COMPILER NAMES clang-22 clang-21 clang-20 clang clang-19 clang-18 clang-17 clang-16 clang-15
+                 clang-14 REQUIRED)
 endif()
 if(NOT CMAKE_CXX_COMPILER)
-    find_program(CMAKE_CXX_COMPILER NAMES clang++ clang++-20 clang++-19 clang++-18 clang++-17 clang++-16 clang++-15 clang++-14
-                 REQUIRED)
+    find_program(CMAKE_CXX_COMPILER NAMES clang++-22 clang++-21 clang++-20 clang++ clang++-19 clang++-18 clang++-17
+                 clang++-16 clang++-15 clang++-14 REQUIRED)
 endif()
 set(CMAKE_C_COMPILER_TARGET ${_bo1_triple})
 set(CMAKE_CXX_COMPILER_TARGET ${_bo1_triple})
@@ -65,9 +67,10 @@ set(CMAKE_CXX_FLAGS_INIT "${_bo1_flags}")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "-fuse-ld=lld")
 set(CMAKE_MODULE_LINKER_FLAGS_INIT "-fuse-ld=lld")
-find_program(CMAKE_AR NAMES llvm-ar llvm-ar-20 llvm-ar-19 llvm-ar-18 ar)
-find_program(CMAKE_RANLIB NAMES llvm-ranlib llvm-ranlib-20 llvm-ranlib-19 llvm-ranlib-18 ranlib)
-find_program(CMAKE_NM NAMES llvm-nm llvm-nm-20 llvm-nm-19 llvm-nm-18 nm)
+find_program(CMAKE_AR NAMES llvm-ar llvm-ar-22 llvm-ar-21 llvm-ar-20 llvm-ar-19 llvm-ar-18 ar)
+find_program(CMAKE_RANLIB NAMES llvm-ranlib llvm-ranlib-22 llvm-ranlib-21 llvm-ranlib-20 llvm-ranlib-19 llvm-ranlib-18
+    ranlib)
+find_program(CMAKE_NM NAMES llvm-nm llvm-nm-22 llvm-nm-21 llvm-nm-20 llvm-nm-19 llvm-nm-18 nm)
 
 # pkg-config: the target's .pc files only
 if(CMAKE_SYSROOT)
