@@ -20,6 +20,7 @@
 #                                       2 minutes each in a window (tools/pgo-train.sh; needs the game files set up and
 #                                       a desktop session), then builds the game with the recorded profile (kept in pgo/)
 #   ./build-linux.sh --pgo-profile FILE the same with a profile recorded before (pgo/*.profdata), without training
+#                                       (functions changed since it was recorded go without their part of it)
 #
 # Needs: clang 14 or later and its lld, CMake 3.16+, Ninja, pkg-config, the SDL2 development files (Debian/Ubuntu:
 # sudo apt install clang lld cmake ninja-build pkg-config libsdl2-dev git make; Fedora: sudo dnf install clang lld cmake
@@ -60,7 +61,7 @@ while [ $# -gt 0 ]; do
         --no-lto) lto=OFF ;;
         --asserts) asserts=ON ;;
         -h | --help)
-            sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         -*)

@@ -34,7 +34,9 @@ settings, the checks included. The scripts' other options:
   (`build-<platform>-pgo-gen/`), lets its test bot play Kino der Toten and Five for two minutes each in a window
   (`tools/pgo-train.sh`; the game files must be set up), and builds the game with what that recorded, so the compiler
   lays out and inlines the code by what actually ran. It takes about three times as long as a normal build; the
-  profile is kept in `pgo/`, and `--pgo-profile pgo/<file>.profdata` builds with it again without the training. On
+  profile is kept in `pgo/`, and `--pgo-profile pgo/<file>.profdata` builds with it again without the training
+  (after a change to the code, the functions it changed go without their part of the profile until the next `--pgo`;
+  `--cpu` makes no difference to it). On
   Windows the training runs on Windows: `build-windows.sh --pgo-generate`, then `tools\pgo-train.bat` in that build's
   folder (after `setup.ps1 -Build build-windows-x64-pgo-gen`), then `build-windows.sh --pgo-profile
   build-windows-x64-pgo-gen`; the toolchain needs its profile runtime (llvm-mingw and MSYS2's clang have it, Debian's

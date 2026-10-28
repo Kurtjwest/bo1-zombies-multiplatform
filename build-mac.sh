@@ -19,6 +19,7 @@
 #                                      builds the game with the recorded profile (kept in pgo/). With --universal each
 #                                      processor's half is trained (the Intel one under Rosetta)
 #   ./build-mac.sh --pgo-profile FILE  the same with a profile recorded before (pgo/*.profdata), without training
+#                                      (functions changed since it was recorded go without their part of it)
 #
 # Needs: the Xcode command line tools (xcode-select --install), CMake 3.16+ and Ninja (brew install cmake ninja),
 # git and network access the first time (FFmpeg and libvpx are fetched from their official repositories and built).
@@ -58,7 +59,7 @@ while [ $# -gt 0 ]; do
         --no-lto) lto=OFF ;;
         --asserts) asserts=ON ;;
         -h | --help)
-            sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         -*)
@@ -121,7 +122,10 @@ build_arch() {
             echo "--pgo trains the game on this Mac, which cannot run the Apple silicon build: give --pgo-profile" >&2
             exit 1
         fi
-        cmake -S . -B "$d-pgo-gen" "${common[@]}" -DBO1_LTO=OFF -DBO1_PGO_GENERATE=ON -DBO1_PGO_PROFILE=
+        # (the instrumented build for any Intel processor: --universal trains its Intel half under Rosetta, which has
+        # no AVX-512 and, before macOS 15, no AVX2; the profile applies the same to a --cpu build)
+        cmake -S . -B "$d-pgo-gen" "${common[@]}" -DBO1_X86_64_LEVEL= -DBO1_LTO=OFF -DBO1_PGO_GENERATE=ON \
+            -DBO1_PGO_PROFILE=
         cmake --build "$d-pgo-gen"
         profile="$(tools/pgo-train.sh "$d-pgo-gen/BO1Zombies.app" "pgo/mac-$a" | tail -1)"
         profile="$PWD/$profile"
