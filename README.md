@@ -42,17 +42,23 @@ settings, the checks included. The scripts' other options:
 
 None of these changes how the game plays (it computes the same; the scripted test bot plays a map out identically).
 Neither do the engine's own performance changes, in every build: idle job threads sleep until work comes (the retail
-engine woke each one a thousand times a second to look), up to six job threads run on processors with more than six
-logical cores (retail ran two everywhere; `+set bo1_mod_workers N` on the command line sets 1 to 8), map loads
-decompress with zlib-ng in the clang builds (about a third faster), the server skips comparing an unchanged entity's
-fields for every snapshot and writes snapshot bits a byte at a time, and on Windows the server thread stays on the
-performance cores of a hybrid Intel CPU (`bo1_mod_pcore 1`, the default there; `0` turns it off).
+engine woke each one a thousand times a second to look), map loads decompress with zlib-ng in the clang builds (about
+a third faster), the server skips comparing an unchanged entity's fields for every snapshot and writes snapshot bits a
+byte at a time, and on Windows the server thread stays on the performance cores of a hybrid Intel CPU
+(`bo1_mod_pcore 1`, the default there; `0` turns it off). In the 64-bit builds a null pointer in the engine's 32-bit
+pointer fields is stored and read without a function call (millions a second). In the macOS and Linux builds the
+renderer waits for the GPU instead of spinning while the engine waits for a query (the sun and coronas read their
+visibility two frames later), and a big dynamic buffer that is refilled every frame (the 8 MB skinned vertex cache)
+keeps its memory instead of getting new pages each frame. `+set bo1_mod_workers N` on the command line starts 1 to 8
+job threads instead of retail's two (a profile on an eight-core Mac found two plenty: the frame waits for the render
+thread and the GPU, not for the jobs).
 
 `tools/benchmark.sh` (macOS, Linux) measures a build: the test bot plays a map in a window for three minutes (`--map`,
 `--seconds`), with no frame limit and no vsync for the run (your settings stay as they are), and the game prints its
-frame rate, frame time percentiles and slow frames into `benchmarks/<date>-<map>/summary.txt`; `--profile` also records
-where the time goes (macOS `sample`, Linux `perf`), and `--app` runs another build, so two builds compare on one
-computer. On Windows the same run is `BO1Zombies.exe` with the arguments `tools\pgo-train.bat` uses.
+frame rate, frame time percentiles, slow frames and the GPU's time a frame (which says whether the GPU or the CPU side
+sets the frame rate) into `benchmarks/<date>-<map>/summary.txt`; `--profile` also records where the time goes (macOS
+`sample`, Linux `perf`), and `--app` runs another build, so two builds compare on one computer. On Windows the same
+run is `BO1Zombies.exe` with the arguments `tools\pgo-train.bat` uses.
 
 ## Windows (64-bit and 32-bit)
 

@@ -50,6 +50,7 @@ function(bo1_add_zlibng target)
     set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
     set(BUILD_SHARED_LIBS OFF)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    unset(CMAKE_GENERATOR_PLATFORM) # (CMakeLists.txt sets a Visual Studio platform for WIN32, which Ninja refuses)
     add_subdirectory("${_src}" "${CMAKE_BINARY_DIR}/zlib-ng" EXCLUDE_FROM_ALL)
 
     target_sources(${target} PRIVATE "${SRC_DIR}/platform/zlibng/zlibng_inflate.cpp")

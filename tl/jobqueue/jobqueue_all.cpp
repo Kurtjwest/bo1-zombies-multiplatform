@@ -940,8 +940,10 @@ bool s_jqWakeStayAwake;          // (under s_jqWakeLock) _jqStop until its worke
 constexpr std::chrono::milliseconds kJqSleepSafety(50);
 } // namespace
 
-// retail PulseEvent(jqNewJobAdded): after a batch was added (its counts are up), or after something a sleeper checks
-static void jqWakeWorkers()
+// retail PulseEvent(jqNewJobAdded): after a batch was added (its counts are up), or after something a sleeper checks.
+// One batch for any worker wakes one sleeper (a woken worker takes batches until none is left, and the others only
+// sleep while none is queued); a batch for a given worker's queue, and the rest, wake them all.
+static void jqWakeWorkers(bool one = false)
 {
     std::atomic_thread_fence(std::memory_order_seq_cst); // (between the caller's counts and the sleeper count)
     if (!s_jqWakeSleepers.load(std::memory_order_relaxed))
@@ -950,7 +952,16 @@ static void jqWakeWorkers()
         std::lock_guard<std::mutex> g(s_jqWakeLock);
         ++s_jqWakeGeneration;
     }
-    s_jqWakeCv.notify_all();
+    if (one)
+        s_jqWakeCv.notify_one();
+    else
+        s_jqWakeCv.notify_all();
+}
+
+// a batch added to this queue can go to any worker
+static bool jqIsSharedQueue(const jqQueue *queue)
+{
+    return queue == &jqGlobalQueue || queue == &jqHighPriorityQueue;
 }
 
 // retail SetEvent(jqNewJobAdded) (true) and ResetEvent (false) around _jqStop
@@ -1339,7 +1350,7 @@ void __cdecl jqAddBatchToQueue(jqBatch *Batch, jqQueue *Queue)
   _InterlockedExchangeAdd(&Queue->QueuedBatchCount, 1u);
   //jqAtomicQueue<jqBatch,32>::Push(&Queue->Queue, Batch);
   Queue->Queue.Push(Batch);
-  jqWakeWorkers(); // mod (perf): retail PulseEvent(jqNewJobAdded)
+  jqWakeWorkers(jqIsSharedQueue(Queue)); // mod (perf): retail PulseEvent(jqNewJobAdded)
 }
 
 void __cdecl jqAddBatch(jqBatch *Batch, jqQueue *Queue)
@@ -1362,7 +1373,7 @@ void __cdecl jqAddBatch(jqBatch *Batch, jqQueue *Queue)
   _InterlockedExchangeAdd(&p_queue->QueuedBatchCount, 1u);
   //jqAtomicQueue<jqBatch,32>::Push(&v2->Queue, Data);
   p_queue->Queue.Push(Batch);
-  jqWakeWorkers(); // mod (perf): retail PulseEvent(jqNewJobAdded)
+  jqWakeWorkers(jqIsSharedQueue(p_queue)); // mod (perf): retail PulseEvent(jqNewJobAdded)
 }
 
 void __cdecl jqAddBatch(
@@ -1636,7 +1647,7 @@ void __cdecl jqWorkerLoop(jqWorker *Worker, jqBatchGroup *GroupID, bool BreakWhe
                         _InterlockedExchangeAdd(&CurBatch.GroupID->QueuedBatchCount, 1u);
                     }
                     jqCurQueue->Queue.Push(&CurBatch);
-                    jqWakeWorkers(); // mod (perf): a sleeping worker may take it (retail's polled every 1 ms)
+                    jqWakeWorkers(jqIsSharedQueue(jqCurQueue)); // mod (perf): a sleeping worker may take it (retail's polled every 1 ms)
 #if 0
                     p_Queue = (jqAtomicQueue<jqBatch,32> *)&jqCurQueue->Queue;
                     //tlSharedAtomicMutex::Lock(&jqCurQueue->Queue.FreeLock);
@@ -1863,7 +1874,7 @@ void __cdecl jqTempWorkerLoop(jqWorker *Worker, jqBatchGroup *GroupID, bool (__c
         p_queue->ThisPtr->Tail = freeList;
 
         p_queue->TailLock.Unlock();
-        jqWakeWorkers(); // mod (perf): a sleeping worker may take it (retail's polled every 1 ms)
+        jqWakeWorkers(jqIsSharedQueue(jqCurQueue)); // mod (perf): a sleeping worker may take it (retail's polled every 1 ms)
 
         //v15 = (*(unsigned int *)(p_queue + 64))-- == 1;
         //if ( v15 )

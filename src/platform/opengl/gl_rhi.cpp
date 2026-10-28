@@ -3073,7 +3073,7 @@ void EndVisibility(Visibility *v)
     }
 }
 
-bool GetVisibilityResult(Visibility *v, uint64_t *count, bool flush)
+bool GetVisibilityResult(Visibility *v, uint64_t *count, bool flush, bool wait)
 {
     if (!v || v->active || !RenderContext("GetVisibilityResult"))
         return false;
@@ -3087,7 +3087,9 @@ bool GetVisibilityResult(Visibility *v, uint64_t *count, bool flush)
             {
                 if (flush)
                     CommitCurrent();
-                return false;
+                // (the engine's readers loop until the result comes, yielding: GL_QUERY_RESULT below waits instead)
+                if (!(flush && wait))
+                    return false;
             }
         }
         uint64_t total = 0;

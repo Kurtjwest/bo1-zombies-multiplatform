@@ -11,7 +11,8 @@
 #   tools/benchmark.sh --gamedir DIR         the game on another game folder (the game's own --gamedir)
 #
 # The results go to benchmarks/<date>-<map>/ (not part of the repository): summary.txt (frame rate, frame time
-# percentiles, slow frames), game-output.txt (the game's console output) and with --profile the profile. The same map,
+# percentiles, slow frames, and the GPU's time a frame, which says whether the GPU or the CPU side sets the frame
+# rate), game-output.txt (the game's console output) and with --profile the profile. The same map,
 # length and settings give comparable numbers on one computer; compare builds by running each the same way. The game
 # needs its game files set up first (setup-mac.sh, setup-linux.sh). Close heavy programs, and leave the game's window
 # in front: a hidden window draws less.
@@ -76,7 +77,7 @@ log="$out/game-output.txt"
 # the bot's level starts, then bo1_benchmark measures from 15 s later for --seconds and quits the game;
 # bo1_autoquit is only the safety for a run that never gets into the map
 safety_ms=$(( (seconds + 300) * 1000 ))
-"$exe" ${gamedir[@]+"${gamedir[@]}"} +set bo1_zombies 1 +set logfile 2 \
+BO1_PERF_LOG=1 "$exe" ${gamedir[@]+"${gamedir[@]}"} +set bo1_zombies 1 +set logfile 2 \
     +set bo1_testclient_realwindow 1 +set bo1_testclient 1 +set bo1_testclient_fight 1 +set bo1_testclient_god 1 \
     +set bo1_testclient_seed 1 +set bo1_benchmark 1 +set bo1_benchmark_start 15000 +set bo1_benchmark_seconds "$seconds" \
     +set com_maxfps 0 +set r_vsync 0 +set bo1_autoquit "$safety_ms" ${extra[@]+"${extra[@]}"} +devmap "$map" \
@@ -118,6 +119,19 @@ fi
 wait "$pid" || true
 if grep -q "^bo1_benchmark:" "$log"; then
     grep "^bo1_benchmark:" "$log" | tail -1 | tee "$out/summary.txt"
+    # the renderer's line a second (BO1_PERF_LOG): its GPU time a frame over the measured part (the last lines),
+    # against the measured frame time
+    frame_ms="$(sed -n 's/.*average [0-9.]* fps (\([0-9.]*\) ms).*/\1/p' "$out/summary.txt" | head -1)"
+    grep -E "^\[(metal|gl)\] [0-9]+ fps" "$log" | tail -n "$seconds" | awk -v ft="${frame_ms:-0}" '
+        { got = 0
+          for (i = 1; i <= NF; ++i) {
+              if ($i == "GPU" && !got) { gpu += $(i + 1); got = 1 }
+              if ($i == "draws,") { draws += $(i - 1) } }
+          ++n }
+        END { if (n && ft > 0) { g = gpu / n;
+                  printf "GPU: %.2f ms a frame on average, of %.2f ms a frame (%.0f draws a frame): %s\n", g, ft, draws / n,
+                      (g >= 0.9 * ft) ? "the GPU sets the frame rate (a lower resolution or settings raise it)" \
+                                      : "the CPU side sets the frame rate" } }' | tee -a "$out/summary.txt"
 else
     echo "No benchmark result: the game ended before the measured part finished (see $log)." >&2
     exit 1

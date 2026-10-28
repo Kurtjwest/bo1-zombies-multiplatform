@@ -87,6 +87,9 @@ uint32_t EncodeSlow(const volatile void *p); // anything outside the arena (or b
 void *DecodeSlow(uint32_t v);                // any handle outside the arena range
 void InitArena();                            // reserves the arena; idempotent
 
+// (null and the other small integers are their own handles here too, without the call: null pointers are stored and
+// tested all the time - a profile of the Mac build found millions of EncodeSlow/DecodeSlow calls a second, nearly
+// all of them for null)
 inline uint32_t Encode(const volatile void *p)
 {
     uintptr_t d = (uintptr_t)p - (uintptr_t)g_arenaBase;
@@ -95,6 +98,8 @@ inline uint32_t Encode(const volatile void *p)
     const uintptr_t di = (uintptr_t)p - g_imageWindowStart;
     if (__builtin_expect(di < g_imageWindowSize, 1))
         return kWindowBase + (uint32_t)di;
+    if ((uintptr_t)p < kSmallLimit)
+        return (uint32_t)(uintptr_t)p;
     return EncodeSlow(p);
 }
 
@@ -104,6 +109,8 @@ inline void *Decode(uint32_t v)
         return g_arenaBase + v;
     if (__builtin_expect(v - kWindowBase < g_imageWindowSize, 1))
         return (void *)(g_imageWindowStart + (v - kWindowBase));
+    if (v < kSmallLimit)
+        return (void *)(uintptr_t)v;
     return DecodeSlow(v);
 }
 } // namespace bo1ptr

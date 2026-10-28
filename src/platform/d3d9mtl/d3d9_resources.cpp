@@ -785,6 +785,14 @@ struct Slab
 };
 
 std::vector<Slab *> g_slabs;
+// Dedicated slabs (buffers over half a slab) whose buffer the GPU is done with, kept for the next buffer of their
+// size instead of released. A big dynamic buffer that is locked with D3DLOCK_DISCARD every frame (the skinned vertex
+// cache, 8 MB) got a new dedicated slab each time: fresh pages (zero-filled at the first write), a new Metal buffer
+// wrapping them, and the old ones released a few frames later, every frame (a Mac profile: the render thread's copy
+// into the new pages was 7% of its time). At most kSpareSlabBytes are kept.
+std::vector<Slab *> g_spareSlabs;
+size_t g_spareSlabBytes;
+constexpr size_t kSpareSlabBytes = 64u << 20;
 
 struct DeferredFree
 {
@@ -862,9 +870,16 @@ void FreeNow(const BufferAlloc &a)
     s->used -= std::min(s->used, a.size);
     if (s->dedicated)
     {
+        g_slabs[a.slab] = nullptr;
+        // (the GPU is done with it: FreeNow runs once its last use completed) kept for the next buffer of its size
+        if (g_spareSlabBytes + s->size <= kSpareSlabBytes)
+        {
+            g_spareSlabs.push_back(s);
+            g_spareSlabBytes += s->size;
+            return;
+        }
         // the pages go back to the arena once Metal releases the buffer
         rhi::ReleaseBuffer(s->buffer);
-        g_slabs[a.slab] = nullptr;
         delete s;
         return;
     }
@@ -904,6 +919,29 @@ bool AllocBufferMemory(uint32_t size, BufferAlloc *out)
     size = std::max<uint32_t>((size + kBufferAlign - 1) & ~(kBufferAlign - 1), kBufferAlign);
     if (size > kSlabSize / 2)
     {
+        // a spare dedicated slab of this size first (NewSlab rounds sizes to 64 KiB)
+        const uint32_t slabSize = (size + 0xFFFF) & ~0xFFFFu;
+        for (size_t i = 0; i < g_spareSlabs.size(); ++i)
+        {
+            Slab *spare = g_spareSlabs[i];
+            if (spare->size != slabSize)
+                continue;
+            g_spareSlabs.erase(g_spareSlabs.begin() + (ptrdiff_t)i);
+            g_spareSlabBytes -= spare->size;
+            spare->freeBlocks.clear();
+            spare->freeBlocks[0] = spare->size;
+            spare->used = 0;
+            for (size_t j = 0; j < g_slabs.size(); ++j)
+            {
+                if (!g_slabs[j])
+                {
+                    g_slabs[j] = spare;
+                    return CarveFrom(spare, size, out);
+                }
+            }
+            g_slabs.push_back(spare);
+            return CarveFrom(spare, size, out);
+        }
         Slab *s = NewSlab(size, true);
         return s && CarveFrom(s, size, out);
     }
@@ -1207,8 +1245,13 @@ HRESULT Query::GetData(void *pData, DWORD dwSize, DWORD dwGetDataFlags)
             // waiting on this event without D3DGETDATA_FLUSH still sees it complete.
             if (m_serial == rhi::CurrentSerial())
                 rhi::Flush();
-            (void)flush;
-            return S_FALSE;
+            if (!flush)
+                return S_FALSE;
+            // mod (perf): with D3DGETDATA_FLUSH the engine loops until the event completes (R_HW_FlushGpu); wait for
+            // the GPU here instead of returning S_FALSE to that spin
+            rhi::WaitForSerial(m_serial);
+            if (m_serial > rhi::CompletedSerial())
+                return S_FALSE;
         }
         if (m_type == D3DQUERYTYPE_EVENT)
         {
@@ -1229,7 +1272,10 @@ HRESULT Query::GetData(void *pData, DWORD dwSize, DWORD dwGetDataFlags)
         if (!m_issued)
             return S_FALSE;
         uint64_t count = 0;
-        if (!rhi::GetVisibilityResult(m_vis, &count, flush))
+        // mod (perf): with D3DGETDATA_FLUSH the engine loops until the result comes (RB_HW_ReadOcclusionQuery: the sun
+        // and coronas, two frames after their draw), yielding all the while; the wait blocks on the GPU instead
+        // (a Mac profile: the render thread's spin there was 11% of its time)
+        if (!rhi::GetVisibilityResult(m_vis, &count, flush, flush))
             return S_FALSE;
         if (pData && dwSize >= sizeof(DWORD))
             *(DWORD *)pData = (DWORD)std::min<uint64_t>(count, 0xFFFFFFFFu);

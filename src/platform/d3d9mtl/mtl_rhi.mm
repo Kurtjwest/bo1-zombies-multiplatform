@@ -2212,7 +2212,7 @@ void EndVisibility(Visibility *v)
     }
 }
 
-bool GetVisibilityResult(Visibility *v, uint64_t *count, bool flush)
+bool GetVisibilityResult(Visibility *v, uint64_t *count, bool flush, bool wait)
 {
     if (!v || v->active)
         return false;
@@ -2222,14 +2222,20 @@ bool GetVisibilityResult(Visibility *v, uint64_t *count, bool flush)
             *count = v->result;
         return true;
     }
-    const uint64_t done = G->completedSerial.load(std::memory_order_acquire);
+    uint64_t done = G->completedSerial.load(std::memory_order_acquire);
     for (const VisSegment &s : v->segments)
     {
         if (s.serial > done)
         {
             if (flush && s.serial == G->recordingSerial)
                 CommitCurrent();
-            return false;
+            if (!(flush && wait))
+                return false;
+            // (the engine's readers loop until the result comes, yielding: block on the command buffer instead)
+            WaitForSerial(s.serial);
+            done = G->completedSerial.load(std::memory_order_acquire);
+            if (s.serial > done)
+                return false;
         }
     }
     uint64_t total = 0;

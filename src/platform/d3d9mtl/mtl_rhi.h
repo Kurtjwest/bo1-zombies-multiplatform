@@ -319,8 +319,9 @@ Visibility *CreateVisibility();
 void ReleaseVisibility(Visibility *v);
 void BeginVisibility(Visibility *v);
 void EndVisibility(Visibility *v);
-// true once the result is known; *count receives the number of samples that passed
-bool GetVisibilityResult(Visibility *v, uint64_t *count, bool flush);
+// true once the result is known; *count receives the number of samples that passed. flush commits the command buffer
+// the query is in; wait (with flush) waits for the GPU to finish it instead of returning false meanwhile
+bool GetVisibilityResult(Visibility *v, uint64_t *count, bool flush, bool wait = false);
 
 // ---- submission ----
 uint64_t CurrentSerial();   // serial of the command buffer being recorded

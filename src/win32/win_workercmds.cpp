@@ -58,21 +58,16 @@ void __cdecl IW_task_manager_flush()
 }
 
 // mod (perf): how many job worker threads to start. Retail started two on every PC (jqEnableWorkers(12): processors 2
-// and 3, the thread contexts WORKER0 and WORKER1), sized for the quad-core processors of 2010; the job system and the
-// engine have contexts for eight (THREAD_CONTEXT_WORKER0..7), and the jobs that do the most work (model skinning,
-// physics) split into batches that any number of workers share. bo1_mod_workers (on the command line; read once):
-// 1-8 workers, 0 = by the processor: two (retail) up to six logical processors, then one more for each further one
-// (the main, render and server threads keep theirs), at most six.
+// and 3, the thread contexts WORKER0 and WORKER1); the job system and the engine have contexts for eight
+// (THREAD_CONTEXT_WORKER0..7), and the jobs that do the most work (model skinning, physics) split into batches that
+// any number of workers share. bo1_mod_workers (on the command line; read once): 1-8 workers, 0 = retail's two. Two
+// stay the default: a profile of Kino on an 8-core Mac with four workers had each of them busy 14% of the time (the
+// frame waited for the render thread and the GPU, not for the jobs), and the extra workers only added spinning.
 static int R_ModWorkerCount()
 {
     const int wanted = _Dvar_RegisterInt("bo1_mod_workers", 0, 0, 8, 0,
-        "mod (perf): job worker threads, set on the command line: 1-8, 0 = by the processor (retail: 2)")->current.integer;
-    if ( wanted > 0 )
-        return wanted;
-    const int cpus = (int)Sys_GetCpuCount();
-    if ( cpus <= 6 )
-        return 2;
-    return cpus - 4 < 6 ? cpus - 4 : 6;
+        "mod (perf): job worker threads, set on the command line: 1-8, 0 = retail's 2")->current.integer;
+    return wanted > 0 ? wanted : 2;
 }
 
 void __cdecl R_InitWorkerCmds()
