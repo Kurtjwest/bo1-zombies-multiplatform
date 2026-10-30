@@ -11,11 +11,11 @@
 #   tools/benchmark.sh --gamedir DIR         the game on another game folder (the game's own --gamedir)
 #
 # The results go to benchmarks/<date>-<map>/ (not part of the repository): summary.txt (frame rate, frame time
-# percentiles, slow frames, and the GPU's time a frame, which says whether the GPU or the CPU side sets the frame
-# rate), game-output.txt (the game's console output) and with --profile the profile. The same map,
-# length and settings give comparable numbers on one computer; compare builds by running each the same way. The game
-# needs its game files set up first (setup-mac.sh, setup-linux.sh). Close heavy programs, and leave the game's window
-# in front: a hidden window draws less.
+# percentiles, slow frames, and how long the render thread waits for the GPU a frame and on Metal how busy the GPU is,
+# which say whether the GPU or the CPU side sets the frame rate), game-output.txt (the game's console output) and
+# with --profile the profile. The same map, length and settings give comparable numbers on one computer; compare
+# builds by running each the same way. The game needs its game files set up first (setup-mac.sh, setup-linux.sh).
+# Close heavy programs, and leave the game's window in front: a hidden window draws less.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -42,7 +42,7 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         -h | --help)
-            sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -119,19 +119,31 @@ fi
 wait "$pid" || true
 if grep -q "^bo1_benchmark:" "$log"; then
     grep "^bo1_benchmark:" "$log" | tail -1 | tee "$out/summary.txt"
-    # the renderer's line a second (BO1_PERF_LOG): its GPU time a frame over the measured part (the last lines),
-    # against the measured frame time
+    # the renderer's line a second (BO1_PERF_LOG) over the measured part (the last lines), against the measured frame
+    # time: how long the render thread waited for the GPU each frame (the frame limit, the occlusion queries, and with
+    # r_vsync 0 a drawable or the swap: the GPU still busy with earlier frames), and on Metal how long the GPU was busy
     frame_ms="$(sed -n 's/.*average [0-9.]* fps (\([0-9.]*\) ms).*/\1/p' "$out/summary.txt" | head -1)"
     grep -E "^\[(metal|gl)\] [0-9]+ fps" "$log" | tail -n "$seconds" | awk -v ft="${frame_ms:-0}" '
-        { got = 0
-          for (i = 1; i <= NF; ++i) {
-              if ($i == "GPU" && !got) { gpu += $(i + 1); got = 1 }
-              if ($i == "draws,") { draws += $(i - 1) } }
-          ++n }
-        END { if (n && ft > 0) { g = gpu / n;
-                  printf "GPU: %.2f ms a frame on average, of %.2f ms a frame (%.0f draws a frame): %s\n", g, ft, draws / n,
-                      (g >= 0.9 * ft) ? "the GPU sets the frame rate (a lower resolution or settings raise it)" \
-                                      : "the CPU side sets the frame rate" } }' | tee -a "$out/summary.txt"
+        function after(text,    v) {
+            if (!match($0, text " [0-9.]+")) return -1
+            v = substr($0, RSTART + length(text) + 1, RLENGTH - length(text) - 1)
+            return v + 0 }
+        { ++n
+          b = after("GPU busy"); if (b >= 0) { busy += b; ++nb }
+          w = after("waited for the GPU"); if (w >= 0) wait += w
+          d = after("for a drawable"); if (d >= 0) wait += d
+          s = after("in the swap"); if (s >= 0) wait += s
+          if (match($0, "[0-9.]+ draws,")) draws += substr($0, RSTART, RLENGTH - 7) + 0 }
+        END { if (!n || ft <= 0) exit
+              w = wait / n
+              gpu_bound = (w >= 0.15 * ft)
+              text = sprintf("GPU: the render thread waits %.2f ms of each %.2f ms frame for it", w, ft)
+              if (nb) { b = busy / nb
+                  text = text sprintf(", busy %.2f ms a frame (%.0f%%)", b, 100 * b / ft)
+                  if (b >= 0.85 * ft) gpu_bound = 1 }
+              printf "%s; %.0f draws a frame: %s\n", text, draws / n,
+                  gpu_bound ? "the GPU sets the frame rate (a lower resolution or settings raise it)" \
+                            : "the CPU side sets the frame rate" }' | tee -a "$out/summary.txt"
 else
     echo "No benchmark result: the game ended before the measured part finished (see $log)." >&2
     exit 1

@@ -1065,6 +1065,11 @@ void CommitCurrent()
     PollFences();
 }
 
+double SecondsSince(std::chrono::steady_clock::time_point t)
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
+}
+
 void WaitSerial(uint64_t serial)
 {
     if (!serial)
@@ -1074,7 +1079,11 @@ void WaitSerial(uint64_t serial)
     while (!G->fences.empty() && G->completedSerial.load(std::memory_order_acquire) < serial)
     {
         auto &f = G->fences.front();
+        // (every wait counts for BO1_PERF_LOG's "waited for the GPU": the frame limit's in Present, and the others')
+        const auto waitStart = std::chrono::steady_clock::now();
         const GLenum r = glClientWaitSync(f.second, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ull);
+        if (G->perfLog)
+            G->perf.gpuWait += SecondsSince(waitStart);
         if (r == GL_TIMEOUT_EXPIRED)
             continue;
         G->completedSerial.store(f.first, std::memory_order_release);
@@ -3093,12 +3102,15 @@ bool GetVisibilityResult(Visibility *v, uint64_t *count, bool flush, bool wait)
             }
         }
         uint64_t total = 0;
+        const auto waitStart = std::chrono::steady_clock::now();
         for (GLuint q : v->segments)
         {
             GLuint64 n = 0;
             glGetQueryObjectui64v(q, GL_QUERY_RESULT, &n);
             total += n;
         }
+        if (G->perfLog)
+            G->perf.gpuWait += SecondsSince(waitStart); // (the results are there, or the render thread waited for them)
         ReleaseQueries(v);
         v->resolved = true;
         v->result = total;
@@ -3146,11 +3158,6 @@ double LastFrameGpuTime() { return G ? G->lastFrameGpuTime : 0.0; }
 
 namespace
 {
-double SecondsSince(std::chrono::steady_clock::time_point t)
-{
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
-}
-
 // BO1_PERF_LOG=1: a line a second
 void PerfFrame()
 {
@@ -3291,10 +3298,7 @@ void Present(Texture *backBuffer, const uint16_t *gammaRamp)
     if (frame + 1 > (uint64_t)kMaxFramesInFlight)
     {
         const uint64_t oldest = frame + 1 - kMaxFramesInFlight - 1;
-        const auto waitStart = std::chrono::steady_clock::now();
         WaitSerial(G->frameSerials[oldest % (kMaxFramesInFlight + 1)]);
-        if (G->perfLog)
-            G->perf.gpuWait += SecondsSince(waitStart);
     }
     if (G->perfLog)
         PerfFrame();

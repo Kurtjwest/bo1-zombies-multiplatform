@@ -57,10 +57,11 @@ thread and the GPU, not for the jobs).
 
 `tools/benchmark.sh` (macOS, Linux) measures a build: the test bot plays a map in a window for three minutes (`--map`,
 `--seconds`), with no frame limit and no vsync for the run (your settings stay as they are), and the game prints its
-frame rate, frame time percentiles, slow frames and the GPU's time a frame (which says whether the GPU or the CPU side
-sets the frame rate) into `benchmarks/<date>-<map>/summary.txt`; `--profile` also records where the time goes (macOS
-`sample`, Linux `perf`), and `--app` runs another build, so two builds compare on one computer. On Windows the same
-run is `BO1Zombies.exe` with the arguments `tools\pgo-train.bat` uses.
+frame rate, frame time percentiles, slow frames, and how long the render thread waits for the GPU each frame (and on
+Metal how busy the GPU is), which says whether the GPU or the CPU side sets the frame rate, into
+`benchmarks/<date>-<map>/summary.txt`; `--profile` also records where the time goes (macOS `sample`, Linux `perf`),
+and `--app` runs another build, so two builds compare on one computer. On Windows the same run is `BO1Zombies.exe`
+with the arguments `tools\pgo-train.bat` uses.
 
 ## Windows (64-bit and 32-bit)
 
@@ -168,7 +169,7 @@ Settings for the Mac build:
 | `BO1_SYNC_SHADERS=1` | draws wait for their shaders to compile instead of being skipped (no pop-in, but stalls) |
 | `BO1_SHADER_LOG=1` | log what the shader compiler does in every frame that compiled something |
 | `BO1_METAL_INTEL_GPU_PATH=1` | use an Apple GPU the way the Intel and AMD GPUs of Intel Macs are used (textures in private memory, written through the GPU; no 16-bit 5:6:5 format): to test that path on Apple silicon |
-| `BO1_PERF_LOG=1` | log once a second where the frames' time went: frame rate, GPU time, waits for the GPU and for the display (v-sync), draws and render passes per frame |
+| `BO1_PERF_LOG=1` | log once a second where the frames' time went: frame rate, GPU time (Metal: the time the GPU was busy), waits for the GPU and for the display (v-sync), draws and render passes per frame |
 
 Cross-compiling from Linux (clang, lld and a macOS SDK) works too: see `cmake/toolchain-macos.cmake` (`toolchain-macos-arm64.cmake`, `toolchain-macos-x86_64.cmake`).
 

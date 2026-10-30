@@ -295,6 +295,7 @@ struct Globals
     std::atomic<uint64_t> handlersRun{0}; // completed handlers that have finished (Shutdown waits for all)
     std::mutex timeLock;
     double frameGpuAccum[8] = {};
+    double gpuBusyEnd = 0; // (the latest GPUEndTime counted, for the busy time; timeLock)
     double lastFrameGpuTime = 0;
     std::atomic<uint64_t> lastErrorReportSerial{0};
 
@@ -428,11 +429,22 @@ void EnsureCmdBuf()
                         cb.error ? cb.error.localizedDescription.UTF8String : "?");
             }
         }
-        const double t = cb.GPUEndTime - cb.GPUStartTime;
+        // the GPU's busy time: the part of the command buffer's span no earlier one already covers. Apple's GPUs start
+        // a frame's vertex work while the previous frame's pixels are still being shaded, so the spans overlap (their
+        // sum came to ~1.8x the frame time on an M2 at 100 fps); without the overlap it is at most the wall time, and
+        // close to the frame time when the GPU sets the frame rate.
+        const double start = cb.GPUStartTime, end = cb.GPUEndTime;
         {
             std::lock_guard<std::mutex> lock(g->timeLock);
-            if (t > 0 && t < 10.0)
-                g->frameGpuAccum[frame & 7] += t;
+            if (start > 0 && end > start && end - start < 10.0)
+            {
+                const double from = std::max(start, g->gpuBusyEnd);
+                if (end > from)
+                {
+                    g->frameGpuAccum[frame & 7] += end - from;
+                    g->gpuBusyEnd = end;
+                }
+            }
         }
         PublishCompleted(g, serial); // g, not G: the handler runs on Metal's thread
         g->handlersRun.fetch_add(1, std::memory_order_acq_rel);
@@ -2266,6 +2278,11 @@ void Flush()
     }
 }
 
+static double SecondsSince(std::chrono::steady_clock::time_point t)
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
+}
+
 void WaitForSerial(uint64_t serial)
 {
     if (!G || serial == 0)
@@ -2278,7 +2295,12 @@ void WaitForSerial(uint64_t serial)
     {
         if (f.first >= serial)
         {
+            // (every wait counts for BO1_PERF_LOG's "waited for the GPU": the frame limit's in Present, and the
+            // occlusion and event queries', where the render thread waits when the GPU is behind)
+            const auto waitStart = std::chrono::steady_clock::now();
             [f.second waitUntilCompleted];
+            if (G->perfLog)
+                G->perf.gpuWait += SecondsSince(waitStart);
             PublishCompleted(G, f.first);
             break;
         }
@@ -2296,13 +2318,9 @@ double LastFrameGpuTime() { return G ? G->lastFrameGpuTime : 0.0; }
 static thread_local void *t_framePool;
 static void PresentFrame(Texture *backBuffer, const uint16_t *gammaRamp);
 
-static double SecondsSince(std::chrono::steady_clock::time_point t)
-{
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
-}
-
-// BO1_PERF_LOG=1: a line a second. A frame rate held down by "waited for a drawable" is the display's (v-sync); by
-// "waited for the GPU" the GPU's (a lower r_mode helps); with neither, the CPU's (the engine's threads, the draws).
+// BO1_PERF_LOG=1: a line a second. A frame rate held down by "waited for a drawable" is the display's (v-sync) or,
+// without v-sync, the GPU's; by "waited for the GPU" (and "GPU busy" close to the frame time) the GPU's (a lower r_mode
+// helps); with neither, the CPU's (the engine's threads, the draws).
 static void PerfFrame()
 {
     Globals::Perf &p = G->perf;
@@ -2322,8 +2340,8 @@ static void PerfFrame()
         return;
     const double n = p.frames ? (double)p.frames : 1.0;
     fprintf(stderr,
-            "[metal] %.0f fps, worst frame %.1f ms | GPU %.1f ms a frame (worst %.1f) | waited for the GPU %.1f ms a "
-            "frame, for a drawable %.1f (worst %.1f) | a frame: %.0f draws, %.1f render passes, %.1f blit passes, "
+            "[metal] %.0f fps, worst frame %.1f ms | GPU busy %.1f ms a frame (worst %.1f) | waited for the GPU %.1f "
+            "ms a frame, for a drawable %.1f (worst %.1f) | a frame: %.0f draws, %.1f render passes, %.1f blit passes, "
             "%.1f command buffers\n",
             p.frames / span, p.frameMax * 1000.0, p.gpuFrames ? p.gpuSum / p.gpuFrames * 1000.0 : 0.0,
             p.gpuMax * 1000.0, p.gpuWait / n * 1000.0, p.drawableWait / n * 1000.0, p.drawableWaitMax * 1000.0,
@@ -2424,10 +2442,7 @@ static void PresentFrame(Texture *backBuffer, const uint16_t *gammaRamp)
         if (frame + 1 > (uint64_t)kMaxFramesInFlight)
         {
             const uint64_t oldest = frame + 1 - kMaxFramesInFlight - 1;
-            const auto waitStart = std::chrono::steady_clock::now();
             WaitForSerial(G->frameSerials[oldest % (kMaxFramesInFlight + 1)]);
-            if (G->perfLog)
-                G->perf.gpuWait += SecondsSince(waitStart);
             std::lock_guard<std::mutex> lock(G->timeLock);
             G->lastFrameGpuTime = G->frameGpuAccum[oldest & 7];
             ++G->perf.gpuFrames;
