@@ -55,7 +55,10 @@ keeps its memory instead of getting new pages each frame. On the Mac, the anti-a
 resolves several times a frame while it keeps drawing into it, is resolved by the render pass that drew it instead of
 a pass of its own that reloads and stores every sample again (at 2880x1800 with 4x MSAA, 83 MB each way), and a
 resolve repeated with nothing drawn in between is skipped (`BO1_METAL_RESOLVE_IN_PASS=0` turns both off, to compare;
-`BO1_METAL_CHECK_RESOLVES=1` compares their results with separate resolves once a second). `+set bo1_mod_workers N` on the command line starts 1 to 8
+`BO1_METAL_CHECK_RESOLVES=1` compares their results with separate resolves once a second); and a render pass whose
+draws do not use the depth buffer (the bloom passes, the post effects, the HUD: Direct3D 9 leaves the scene's depth
+buffer bound for them) runs without it instead of loading and storing it again (`BO1_METAL_DEPTHLESS_PASSES=0` turns
+that off). `+set bo1_mod_workers N` on the command line starts 1 to 8
 job threads instead of retail's two (a profile on an eight-core Mac found two plenty: the frame waits for the render
 thread and the GPU, not for the jobs).
 
@@ -174,6 +177,7 @@ Settings for the Mac build:
 | `BO1_SHADER_LOG=1` | log what the shader compiler does in every frame that compiled something |
 | `BO1_METAL_INTEL_GPU_PATH=1` | use an Apple GPU the way the Intel and AMD GPUs of Intel Macs are used (textures in private memory, written through the GPU; no 16-bit 5:6:5 format): to test that path on Apple silicon |
 | `BO1_METAL_RESOLVE_IN_PASS=0` | resolve the anti-aliased back buffer with a render pass of its own, as before, instead of at the end of the pass that drew it (to compare) |
+| `BO1_METAL_DEPTHLESS_PASSES=0` | keep the depth buffer attached to every render pass it is bound for, as before, instead of leaving it out of passes whose draws do not use it (to compare) |
 | `BO1_METAL_CHECK_RESOLVES=1` | once a second, compare each resolve made at the end of a pass (and each skipped repeat) with a separate resolve of the same buffer, and print the count of identical and different ones (slow while it compares) |
 | `BO1_PERF_LOG=1` | log once a second where the frames' time went: frame rate, GPU time (Metal: the time the GPU was busy), waits for the GPU and for the display (v-sync), draws and render passes per frame |
 

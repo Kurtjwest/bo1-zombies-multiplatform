@@ -153,6 +153,11 @@ if grep -q "^bo1_benchmark:" "$log"; then
           inpass += v[1]; copied += v[2]; separate += v[3]; skipped += v[4]; ++n }
         END { if (n) printf "Resolves a frame: %.1f at the end of the pass, %.1f the same through a copy, %.1f separate, %.1f repeats skipped\n",
                   inpass / n, copied / n, separate / n, skipped / n }' | tee -a "$out/summary.txt" || true
+    grep -E "^\[metal\] [0-9]+ fps.*depth buffer bound a frame:" "$log" | tail -n "$seconds" | awk '
+        { split($0, part, "depth buffer bound a frame: "); split(part[2], v, /[^0-9.]+/)
+          bound += v[1]; without += v[2]; reopened += v[3]; ++n }
+        END { if (n) printf "Render passes with the depth buffer bound a frame: %.1f, %.1f of them without it (their draws do not use it), %.1f reopened with it\n",
+                  bound / n, without / n, reopened / n }' | tee -a "$out/summary.txt" || true
     grep "^\[metal\] resolve check:" "$log" | tail -1 | sed 's/^\[metal\] //' | tee -a "$out/summary.txt" || true
 else
     echo "No benchmark result: the game ended before the measured part finished (see $log)." >&2
