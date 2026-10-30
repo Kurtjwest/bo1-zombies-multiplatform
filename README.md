@@ -51,7 +51,11 @@ byte at a time, and on Windows the server thread stays on the performance cores 
 pointer fields is stored and read without a function call (millions a second). In the macOS and Linux builds the
 renderer waits for the GPU instead of spinning while the engine waits for a query (the sun and coronas read their
 visibility two frames later), and a big dynamic buffer that is refilled every frame (the 8 MB skinned vertex cache)
-keeps its memory instead of getting new pages each frame. `+set bo1_mod_workers N` on the command line starts 1 to 8
+keeps its memory instead of getting new pages each frame. On the Mac, the anti-aliased back buffer, which the engine
+resolves several times a frame while it keeps drawing into it, is resolved by the render pass that drew it instead of
+a pass of its own that reloads and stores every sample again (at 2880x1800 with 4x MSAA, 83 MB each way), and a
+resolve repeated with nothing drawn in between is skipped (`BO1_METAL_RESOLVE_IN_PASS=0` turns both off, to compare;
+`BO1_METAL_CHECK_RESOLVES=1` compares their results with separate resolves once a second). `+set bo1_mod_workers N` on the command line starts 1 to 8
 job threads instead of retail's two (a profile on an eight-core Mac found two plenty: the frame waits for the render
 thread and the GPU, not for the jobs).
 
@@ -169,6 +173,8 @@ Settings for the Mac build:
 | `BO1_SYNC_SHADERS=1` | draws wait for their shaders to compile instead of being skipped (no pop-in, but stalls) |
 | `BO1_SHADER_LOG=1` | log what the shader compiler does in every frame that compiled something |
 | `BO1_METAL_INTEL_GPU_PATH=1` | use an Apple GPU the way the Intel and AMD GPUs of Intel Macs are used (textures in private memory, written through the GPU; no 16-bit 5:6:5 format): to test that path on Apple silicon |
+| `BO1_METAL_RESOLVE_IN_PASS=0` | resolve the anti-aliased back buffer with a render pass of its own, as before, instead of at the end of the pass that drew it (to compare) |
+| `BO1_METAL_CHECK_RESOLVES=1` | once a second, compare each resolve made at the end of a pass (and each skipped repeat) with a separate resolve of the same buffer, and print the count of identical and different ones (slow while it compares) |
 | `BO1_PERF_LOG=1` | log once a second where the frames' time went: frame rate, GPU time (Metal: the time the GPU was busy), waits for the GPU and for the display (v-sync), draws and render passes per frame |
 
 Cross-compiling from Linux (clang, lld and a macOS SDK) works too: see `cmake/toolchain-macos.cmake` (`toolchain-macos-arm64.cmake`, `toolchain-macos-x86_64.cmake`).

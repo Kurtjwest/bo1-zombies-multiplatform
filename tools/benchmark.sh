@@ -144,6 +144,16 @@ if grep -q "^bo1_benchmark:" "$log"; then
               printf "%s; %.0f draws a frame: %s\n", text, draws / n,
                   gpu_bound ? "the GPU sets the frame rate (a lower resolution or settings raise it)" \
                             : "the CPU side sets the frame rate" }' | tee -a "$out/summary.txt"
+    # the anti-aliasing the game ran with, and on Metal how the multisampled back buffer was resolved a frame and
+    # what BO1_METAL_CHECK_RESOLVES=1 found
+    grep -m1 "^Using [0-9]*x anti-aliasing" "$log" | sed 's/^Using \([0-9]*\)x.*/Anti-aliasing: \1x MSAA/' \
+        | tee -a "$out/summary.txt" || true
+    grep -E "^\[metal\] [0-9]+ fps.*resolves a frame:" "$log" | tail -n "$seconds" | awk '
+        { split($0, part, "resolves a frame: "); split(part[2], v, /[^0-9.]+/)
+          inpass += v[1]; copied += v[2]; separate += v[3]; skipped += v[4]; ++n }
+        END { if (n) printf "Resolves a frame: %.1f at the end of the pass, %.1f the same through a copy, %.1f separate, %.1f repeats skipped\n",
+                  inpass / n, copied / n, separate / n, skipped / n }' | tee -a "$out/summary.txt" || true
+    grep "^\[metal\] resolve check:" "$log" | tail -1 | sed 's/^\[metal\] //' | tee -a "$out/summary.txt" || true
 else
     echo "No benchmark result: the game ended before the measured part finished (see $log)." >&2
     exit 1

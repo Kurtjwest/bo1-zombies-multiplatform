@@ -112,6 +112,15 @@ namespace rhi
 // ======================================================================================================================
 // objects
 // ======================================================================================================================
+// where a multisampled render target was resolved to (ResolveTexture), and whether the pass that ended with it
+// sampled that texture
+struct ResolveTarget
+{
+    Texture *dst = nullptr;
+    uint32_t slice = 0, level = 0;
+    bool sampled = false;
+};
+
 struct Texture
 {
     id<MTLTexture> tex;
@@ -119,6 +128,19 @@ struct Texture
     TextureType type = TEX_2D;
     uint32_t width = 1, height = 1, depth = 1, levels = 1, samples = 1;
     bool privateStorage = false;
+    bool renderTarget = false;
+    Texture *root = nullptr; // a view's texture (they share the texels); nullptr: this is one
+
+    // Resolves (ResolveTexture). writes counts the commands that may have changed the texels (render passes with it
+    // attached, copies, uploads): a resolve repeated with neither texture written since is skipped.
+    uint64_t writes = 0;
+    Texture *lastResolveDst = nullptr;
+    uint32_t lastResolveSlice = 0, lastResolveLevel = 0;
+    uint64_t lastResolveSrcWrites = 0, lastResolveDstWrites = 0;
+    // A multisampled render target: the resolves its render passes ended with, by the pass's order in the frame (the
+    // last frame's and this one's). The next frame's pass in that place gets the resolve as its store action, which
+    // saves the separate pass that reloaded and stored all the samples.
+    std::vector<ResolveTarget> resolvesLast, resolvesNow;
 };
 
 struct Buffer
@@ -269,6 +291,31 @@ struct Globals
     std::vector<std::unique_ptr<TransientChunk>> chunks;
     TransientChunk *chunk = nullptr;
 
+    // what the draws sample (roots of the bound textures), for the resolve at the end of the pass
+    Texture *vtexRoot[kMaxVertexTextures] = {};
+    Texture *ftexRoot[kMaxFragmentTextures] = {};
+
+    // resolves at the end of the render pass (ResolveTexture)
+    bool resolveInPass = true; // BO1_METAL_RESOLVE_IN_PASS=0: always a separate pass, as before
+    std::vector<Texture *> resolveTracked; // textures with resolve state (multisampled targets, resolve sources)
+    std::unordered_map<uint64_t, Texture *> resolveScratch; // in-pass resolve targets for textures the pass samples
+    // the current render pass: its multisampled color attachment (if any) and the resolve it is set up for
+    Texture *passMs = nullptr;
+    int passMsIndex = -1;
+    uint32_t passMsSlot = 0;
+    bool passStoreDeferred = false; // its store action is chosen at the end (MTLStoreActionUnknown)
+    ResolveTarget passResolve;      // the predicted resolve (dst nullptr: none)
+    Texture *passResolveInto = nullptr; // the pass's resolve texture: passResolve.dst or a scratch texture
+    bool passResolveSampled = false;    // a draw of the pass sampled passResolve.dst
+    bool passResolveNow = false;        // EndRenderEncoder: resolve
+    // BO1_METAL_CHECK_RESOLVES=1: compares each in-pass resolve and skipped repeat with a separate resolve, once a
+    // second
+    bool checkResolves = false;
+    bool checkThisFrame = false;
+    uint64_t checkOk = 0, checkBad = 0;
+    std::chrono::steady_clock::time_point lastCheck;
+    id<MTLBuffer> checkA, checkB;
+
     // occlusion queries
     std::vector<std::unique_ptr<VisBuffer>> visBuffers;
     VisBuffer *vis = nullptr; // buffer of the current/next render pass
@@ -303,6 +350,9 @@ struct Globals
     struct Perf
     {
         uint32_t frames = 0, draws = 0, passes = 0, blits = 0, commits = 0, gpuFrames = 0;
+        // resolves (ResolveTexture): at the end of the pass, the same through a scratch texture and a copy, separate
+        // passes, repeats skipped
+        uint32_t resolvesInPass = 0, resolvesCopied = 0, resolvesSeparate = 0, resolvesSkipped = 0;
         double frameMax = 0, gpuSum = 0, gpuMax = 0, gpuWait = 0, drawableWait = 0, drawableWaitMax = 0;
     } perf;
     bool perfLog = false;
@@ -451,15 +501,21 @@ void EnsureCmdBuf()
     }];
 }
 
+void ResetPassResolve();
+
 void EndRenderEncoder()
 {
     if (!G->renc)
         return;
     if (G->activeVis)
         [G->renc setVisibilityResultMode:MTLVisibilityResultModeDisabled offset:0];
+    if (G->passStoreDeferred)
+        [G->renc setColorStoreAction:G->passResolveNow ? MTLStoreActionStoreAndMultisampleResolve : MTLStoreActionStore
+                             atIndex:(NSUInteger)G->passMsIndex];
     [G->renc endEncoding];
     G->renc = nil;
     G->haveValid = false;
+    ResetPassResolve();
 }
 
 void EndBlitEncoder()
@@ -650,6 +706,86 @@ void ConfigureAttachment(MTLRenderPassAttachmentDescriptor *a, Texture *t, uint3
         a.slice = slice;
 }
 
+// ---- resolves at the end of the render pass ----
+// The engine resolves its multisampled back buffer several times a frame (StretchRect to a single-sample texture,
+// then Present) and keeps drawing into it in between. A separate resolve pass reloads all the samples of the color
+// buffer and stores them again (at 2880x1800 with 4x MSAA, 83 MB each way) only to write the resolved image. Metal
+// can resolve as the store action of the pass that drew into the buffer instead, but the resolve texture must be
+// named when the pass begins, before the engine says it wants one: so each multisampled target remembers, by the
+// order of its passes in the frame, which texture each pass was resolved to, and the same pass of the next frame
+// is set up for it with its store action left open (MTLStoreActionUnknown). ResolveTexture then ends that pass
+// with the resolve; a different request (or none) ends it with a plain store and resolves separately, as before.
+//
+// The resolve at the end of the pass writes each tile as the tile finishes, while the draws of other tiles still
+// run: a pass whose draws sample the destination (the engine reads its last resolved frame while it draws the next)
+// resolves into a scratch texture and copies that over the destination after the pass. Either way the destination
+// gets the same texels as before (BO1_METAL_CHECK_RESOLVES=1 compares them).
+Texture *Root(Texture *t) { return t && t->root ? t->root : t; }
+
+void TrackResolves(Texture *t)
+{
+    if (std::find(G->resolveTracked.begin(), G->resolveTracked.end(), t) == G->resolveTracked.end())
+        G->resolveTracked.push_back(t);
+}
+
+// the texture goes away: nothing may keep its address (a texture created later can get it)
+void ForgetResolves(Texture *tex)
+{
+    for (Texture *t : G->resolveTracked)
+    {
+        if (t->lastResolveDst == tex)
+            t->lastResolveDst = nullptr;
+        for (ResolveTarget &r : t->resolvesLast)
+            if (r.dst == tex)
+                r = ResolveTarget{};
+        for (ResolveTarget &r : t->resolvesNow)
+            if (r.dst == tex)
+                r = ResolveTarget{};
+    }
+    G->resolveTracked.erase(std::remove(G->resolveTracked.begin(), G->resolveTracked.end(), tex),
+                            G->resolveTracked.end());
+    if (G->passMs == tex)
+        G->passMs = nullptr; // (the open pass keeps it attached; it ends with a plain store)
+    if (G->passResolve.dst == tex)
+        G->passResolve = ResolveTarget{};
+}
+
+// whether dst (level, slice) can be the resolve texture of a pass that draws into src
+bool ResolveFits(const Texture *src, const Texture *dst, uint32_t slice, uint32_t level)
+{
+    return dst && dst != src && !dst->root && dst->samples == 1 && dst->format == src->format && dst->renderTarget &&
+           level < dst->levels && std::max<uint32_t>(dst->width >> level, 1) == src->width &&
+           std::max<uint32_t>(dst->height >> level, 1) == src->height &&
+           (dst->type == TEX_2D || (dst->type == TEX_CUBE && slice < 6));
+}
+
+// a single-sample texture like src (key bit 63: the reference textures of BO1_METAL_CHECK_RESOLVES)
+Texture *ScratchLike(const Texture *src, bool check)
+{
+    const uint64_t key = ((uint64_t)check << 63) | ((uint64_t)src->format << 40) | ((uint64_t)src->width << 20) |
+                         src->height;
+    auto it = G->resolveScratch.find(key);
+    if (it != G->resolveScratch.end())
+        return it->second;
+    const TextureDesc d{TEX_2D, src->format, src->width, src->height, 1, 1, 1, USAGE_SHADER_READ | USAGE_RENDER_TARGET,
+                        check ? "bo1 resolve check" : "bo1 resolve scratch"};
+    Texture *t = CreateTexture(d);
+    G->resolveScratch[key] = t;
+    return t;
+}
+
+void ResetPassResolve()
+{
+    G->passMs = nullptr;
+    G->passMsIndex = -1;
+    G->passMsSlot = 0;
+    G->passStoreDeferred = false;
+    G->passResolve = ResolveTarget{};
+    G->passResolveInto = nullptr;
+    G->passResolveSampled = false;
+    G->passResolveNow = false;
+}
+
 id<MTLRenderCommandEncoder> EnsureRenderEncoder()
 {
     if (G->renc)
@@ -679,10 +815,44 @@ id<MTLRenderCommandEncoder> EnsureRenderEncoder()
             a.loadAction = MTLLoadActionLoad;
         }
         a.storeAction = MTLStoreActionStore;
+        Texture *const src = Root(t);
+        ++src->writes;
+        // the first multisampled target: set up for the resolve its pass in this place ended with last frame
+        if (src->samples > 1 && !G->passMs && G->resolveInPass)
+        {
+            const uint32_t slot = (uint32_t)src->resolvesNow.size();
+            src->resolvesNow.push_back(ResolveTarget{});
+            TrackResolves(src);
+            G->passMs = src;
+            G->passMsIndex = i;
+            G->passMsSlot = slot;
+            if (slot < src->resolvesLast.size())
+            {
+                const ResolveTarget &r = src->resolvesLast[slot];
+                if (ResolveFits(src, r.dst, r.slice, r.level))
+                {
+                    Texture *into = r.sampled ? ScratchLike(src, false) : r.dst;
+                    for (int j = 0; j < 4; ++j)
+                        if (G->rt.color[j] && Root(G->rt.color[j]) == into)
+                            into = nullptr; // (not one of the pass's own attachments)
+                    if (into)
+                    {
+                        a.resolveTexture = into->tex;
+                        a.resolveLevel = into == r.dst ? r.level : 0;
+                        a.resolveSlice = into == r.dst && r.dst->type == TEX_CUBE ? r.slice : 0;
+                        a.storeAction = MTLStoreActionUnknown; // (EndRenderEncoder chooses it)
+                        G->passStoreDeferred = true;
+                        G->passResolve = r;
+                        G->passResolveInto = into;
+                    }
+                }
+            }
+        }
     }
     if (Texture *d = G->rt.depth)
     {
         any = true;
+        ++Root(d)->writes;
         ConfigureAttachment(pd.depthAttachment, d, G->rt.depthLevel, G->rt.depthSlice);
         pd.depthAttachment.loadAction = (G->pendingClear & CLEAR_DEPTH) ? MTLLoadActionClear : MTLLoadActionLoad;
         pd.depthAttachment.clearDepth = G->clearDepth;
@@ -1173,6 +1343,10 @@ bool Init(void *caMetalLayer, char *err, size_t errSize)
         G->queue.label = @"bo1 queue";
         const char *perf = getenv("BO1_PERF_LOG");
         G->perfLog = perf && *perf && strcmp(perf, "0") != 0;
+        if (const char *e = getenv("BO1_METAL_RESOLVE_IN_PASS"))
+            G->resolveInPass = !(*e && strcmp(e, "0") == 0);
+        if (const char *e = getenv("BO1_METAL_CHECK_RESOLVES"))
+            G->checkResolves = *e && strcmp(e, "0") != 0;
         if (!BuildUtilities(err, errSize))
         {
             delete G;
@@ -1198,6 +1372,8 @@ void Shutdown()
         const uint64_t created = G->nextSerial - 1;
         for (int i = 0; i < 20000 && G->handlersRun.load(std::memory_order_acquire) < created; ++i)
             std::this_thread::sleep_for(std::chrono::microseconds(100));
+        for (auto &kv : G->resolveScratch)
+            delete kv.second;
         delete G;
         G = nullptr;
     }
@@ -1320,6 +1496,7 @@ Texture *CreateTexture(const TextureDesc &desc)
         t->levels = (uint32_t)d.mipmapLevelCount;
         t->samples = samples;
         t->privateStorage = priv;
+        t->renderTarget = (desc.usage & USAGE_RENDER_TARGET) != 0;
         return t;
     }
 }
@@ -1353,9 +1530,18 @@ Texture *CreateTextureView(Texture *base, uint32_t format, const uint8_t *swizzl
         }
         if (!view)
             return nullptr;
-        Texture *t = new Texture(*base);
+        Texture *t = new Texture();
         t->tex = view;
         t->format = format;
+        t->type = base->type;
+        t->width = base->width;
+        t->height = base->height;
+        t->depth = base->depth;
+        t->levels = base->levels;
+        t->samples = base->samples;
+        t->privateStorage = base->privateStorage;
+        t->renderTarget = base->renderTarget;
+        t->root = base->root ? base->root : base;
         return t;
     }
 }
@@ -1370,6 +1556,13 @@ void ReleaseTexture(Texture *tex)
             G->rt.color[i] = nullptr;
     if (G->rt.depth == tex)
         G->rt.depth = nullptr;
+    for (uint32_t i = 0; i < kMaxVertexTextures; ++i)
+        if (G->vtexRoot[i] == tex)
+            G->vtexRoot[i] = nullptr;
+    for (uint32_t i = 0; i < kMaxFragmentTextures; ++i)
+        if (G->ftexRoot[i] == tex)
+            G->ftexRoot[i] = nullptr;
+    ForgetResolves(tex);
     delete tex;
 }
 
@@ -1390,6 +1583,7 @@ void UploadTexture(Texture *tex, uint32_t slice, uint32_t level, uint32_t x, uin
 {
     if (!tex || !data || !w || !h)
         return;
+    ++Root(tex)->writes;
     d = std::max<uint32_t>(d, 1);
     @autoreleasepool
     {
@@ -1474,7 +1668,7 @@ void ReadTexture(Texture *tex, uint32_t slice, uint32_t level, uint32_t x, uint3
         for (uint32_t r = 0; r < rows; ++r)
             memcpy((uint8_t *)dst + (size_t)r * rowPitch, s + (size_t)r * tight, std::min(tight, rowPitch));
         if (resolved)
-            delete resolved;
+            ReleaseTexture(resolved); // (not delete: the resolve bookkeeping must forget it)
     }
 }
 
@@ -1512,6 +1706,7 @@ void GenerateMipmaps(Texture *tex)
 {
     if (!tex || tex->levels < 2 || IsCompressed(tex->format) || IsDepthFormat(tex->format) || tex->samples > 1)
         return;
+    ++Root(tex)->writes;
     [Blit() generateMipmapsForTexture:tex->tex];
 }
 
@@ -1520,6 +1715,7 @@ void CopyTexture(Texture *src, uint32_t srcSlice, uint32_t srcLevel, uint32_t sx
 {
     if (!src || !dst || !w || !h)
         return;
+    ++Root(dst)->writes;
     [Blit() copyFromTexture:src->tex
                 sourceSlice:srcSlice
                 sourceLevel:srcLevel
@@ -1531,16 +1727,11 @@ void CopyTexture(Texture *src, uint32_t srcSlice, uint32_t srcLevel, uint32_t sx
           destinationOrigin:MTLOriginMake(dx, dy, 0)];
 }
 
-void ResolveTexture(Texture *src, Texture *dst, uint32_t dstSlice, uint32_t dstLevel)
+namespace
 {
-    if (!src || !dst)
-        return;
-    if (src->samples <= 1)
-    {
-        CopyTexture(src, 0, 0, 0, 0, std::min(src->width, dst->width >> dstLevel),
-                    std::min(src->height, dst->height >> dstLevel), dst, dstSlice, dstLevel, 0, 0);
-        return;
-    }
+// a resolve as a pass of its own: it loads the samples and stores them again with the resolve
+void ResolvePass(Texture *src, Texture *dst, uint32_t dstSlice, uint32_t dstLevel)
+{
     @autoreleasepool
     {
         EnsureCmdBuf();
@@ -1569,6 +1760,133 @@ void ResolveTexture(Texture *src, Texture *dst, uint32_t dstSlice, uint32_t dstL
         id<MTLRenderCommandEncoder> enc = [G->cmd renderCommandEncoderWithDescriptor:pd];
         [enc endEncoding];
     }
+}
+
+// BO1_METAL_CHECK_RESOLVES: what the resolve (or the skipped repeat) left in dst against src resolved again into a
+// texture of its own with a separate pass, as before; waits for the GPU (once a second)
+void CheckResolve(Texture *src, Texture *dst, uint32_t dstSlice, uint32_t dstLevel, const char *what)
+{
+    if (IsDepthFormat(src->format) || IsCompressed(src->format) || dst->format != src->format ||
+        std::max<uint32_t>(dst->width >> dstLevel, 1) != src->width ||
+        std::max<uint32_t>(dst->height >> dstLevel, 1) != src->height)
+        return;
+    Texture *ref = ScratchLike(src, true);
+    if (!ref)
+        return;
+    if (src->samples > 1)
+        ResolvePass(src, ref, 0, 0);
+    else
+        CopyTexture(src, 0, 0, 0, 0, src->width, src->height, ref, 0, 0, 0, 0);
+    const uint32_t rowBytes = RowBytes(src->format, src->width);
+    const size_t bytes = (size_t)rowBytes * src->height;
+    if (!G->checkA || G->checkA.length < bytes)
+    {
+        G->checkA = [G->device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+        G->checkB = [G->device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+    }
+    id<MTLBlitCommandEncoder> b = Blit();
+    [b copyFromTexture:dst->tex
+                     sourceSlice:dstSlice
+                     sourceLevel:dstLevel
+                    sourceOrigin:MTLOriginMake(0, 0, 0)
+                      sourceSize:MTLSizeMake(src->width, src->height, 1)
+                        toBuffer:G->checkA
+               destinationOffset:0
+          destinationBytesPerRow:rowBytes
+        destinationBytesPerImage:bytes];
+    [b copyFromTexture:ref->tex
+                     sourceSlice:0
+                     sourceLevel:0
+                    sourceOrigin:MTLOriginMake(0, 0, 0)
+                      sourceSize:MTLSizeMake(src->width, src->height, 1)
+                        toBuffer:G->checkB
+               destinationOffset:0
+          destinationBytesPerRow:rowBytes
+        destinationBytesPerImage:bytes];
+    const uint64_t serial = G->recordingSerial;
+    CommitCurrent();
+    WaitForSerial(serial);
+    if (memcmp(G->checkA.contents, G->checkB.contents, bytes) == 0)
+    {
+        ++G->checkOk;
+        return;
+    }
+    ++G->checkBad;
+    fprintf(stderr, "[metal] resolve check: %s of a %ux%u texture into %s differs from a separate resolve\n", what,
+            src->width, src->height, dst->tex.label ? dst->tex.label.UTF8String : "a texture");
+}
+} // namespace
+
+void ResolveTexture(Texture *src, Texture *dst, uint32_t dstSlice, uint32_t dstLevel)
+{
+    if (!src || !dst)
+        return;
+    EnsureCmdBuf();
+    FlushPendingClear(); // (a clear still pending on the source happens first: it is part of what is resolved)
+    Texture *const s = Root(src);
+    Texture *const d = Root(dst);
+    // the same resolve again with neither texture written since: the destination holds its result already (the
+    // engine resolves its back buffer twice in a row)
+    if (G->resolveInPass && s->lastResolveDst == d && s->lastResolveSlice == dstSlice &&
+        s->lastResolveLevel == dstLevel && s->lastResolveSrcWrites == s->writes && s->lastResolveDstWrites == d->writes)
+    {
+        ++G->perf.resolvesSkipped;
+        if (G->checkThisFrame)
+            CheckResolve(src, dst, dstSlice, dstLevel, "a skipped repeated resolve");
+        return;
+    }
+    const char *checked = nullptr;
+    if (src->samples <= 1)
+    {
+        CopyTexture(src, 0, 0, 0, 0, std::min(src->width, dst->width >> dstLevel),
+                    std::min(src->height, dst->height >> dstLevel), dst, dstSlice, dstLevel, 0, 0);
+    }
+    else
+    {
+        bool done = false;
+        if (G->renc && G->passMs == s)
+        {
+            // the open pass draws into src: what it is resolved to, for the next frame's pass in its place (whether
+            // its draws sample the destination is known when the pass was set up for it; otherwise the next one
+            // resolves through a copy, which is right either way, and finds out)
+            if (G->passMsSlot < s->resolvesNow.size())
+                s->resolvesNow[G->passMsSlot] =
+                    ResolveTarget{d, dstSlice, dstLevel, G->passResolve.dst == d ? G->passResolveSampled : true};
+            const ResolveTarget &p = G->passResolve;
+            Texture *const into = G->passResolveInto;
+            if (into && p.dst == d && p.slice == dstSlice && p.level == dstLevel && (into != d || !G->passResolveSampled))
+            {
+                G->passResolveNow = true;
+                EndRenderEncoder();
+                if (into != d)
+                {
+                    CopyTexture(into, 0, 0, 0, 0, s->width, s->height, dst, dstSlice, dstLevel, 0, 0);
+                    ++G->perf.resolvesCopied;
+                    checked = "an in-pass resolve through a copy";
+                }
+                else
+                {
+                    ++G->perf.resolvesInPass;
+                    checked = "an in-pass resolve";
+                }
+                done = true;
+            }
+        }
+        if (!done)
+        {
+            ResolvePass(src, dst, dstSlice, dstLevel);
+            ++G->perf.resolvesSeparate;
+        }
+        ++d->writes;
+    }
+    s->lastResolveDst = d;
+    s->lastResolveSlice = dstSlice;
+    s->lastResolveLevel = dstLevel;
+    s->lastResolveSrcWrites = s->writes;
+    s->lastResolveDstWrites = d->writes;
+    TrackResolves(s);
+    if (checked && G->checkThisFrame)
+        CheckResolve(src, dst, dstSlice, dstLevel, checked);
 }
 
 namespace
@@ -1608,6 +1926,7 @@ void BlitTexture(Texture *src, uint32_t srcSlice, uint32_t srcLevel, int sx0, in
 {
     if (!src || !dst || sx1 <= sx0 || sy1 <= sy0 || dx1 <= dx0 || dy1 <= dy0)
         return;
+    ++Root(dst)->writes;
     if (IsDepthFormat(dst->format) || IsDepthFormat(src->format))
     {
         // depth copies: same size only (D3D9 allows nothing else)
@@ -1671,6 +1990,7 @@ void FillTexture(Texture *dst, uint32_t slice, uint32_t level, int x0, int y0, i
 {
     if (!dst || IsDepthFormat(dst->format))
         return;
+    ++Root(dst)->writes;
     const int lw = (int)std::max<uint32_t>(dst->width >> level, 1);
     const int lh = (int)std::max<uint32_t>(dst->height >> level, 1);
     x0 = std::clamp(x0, 0, lw);
@@ -2082,6 +2402,7 @@ void SetVertexTexture(uint32_t index, Texture *tex)
 {
     if (index >= kMaxVertexTextures)
         return;
+    G->vtexRoot[index] = tex ? (tex->root ? tex->root : tex) : nullptr;
     id<MTLTexture> t = tex ? tex->tex : nil;
     if (G->vtex[index] != t)
     {
@@ -2094,6 +2415,7 @@ void SetFragmentTexture(uint32_t index, Texture *tex)
 {
     if (index >= kMaxFragmentTextures)
         return;
+    G->ftexRoot[index] = tex ? (tex->root ? tex->root : tex) : nullptr;
     id<MTLTexture> t = tex ? tex->tex : nil;
     if (G->ftex[index] != t)
     {
@@ -2136,6 +2458,17 @@ bool PrepareDraw()
     if (ScissorEmpty(G->want))
         return false;
     Sync();
+    // a draw that samples the texture the pass is to resolve into (in place: the resolve at the end of the pass
+    // writes each tile as it finishes, while other tiles' draws may still read it)
+    if (G->passResolve.dst && !G->passResolveSampled)
+    {
+        for (uint32_t i = 0; i < kMaxFragmentTextures; ++i)
+            if (G->ftexRoot[i] == G->passResolve.dst)
+                G->passResolveSampled = true;
+        for (uint32_t i = 0; i < kMaxVertexTextures; ++i)
+            if (G->vtexRoot[i] == G->passResolve.dst)
+                G->passResolveSampled = true;
+    }
     return true;
 }
 } // namespace
@@ -2342,10 +2675,12 @@ static void PerfFrame()
     fprintf(stderr,
             "[metal] %.0f fps, worst frame %.1f ms | GPU busy %.1f ms a frame (worst %.1f) | waited for the GPU %.1f "
             "ms a frame, for a drawable %.1f (worst %.1f) | a frame: %.0f draws, %.1f render passes, %.1f blit passes, "
-            "%.1f command buffers\n",
+            "%.1f command buffers | resolves a frame: %.1f at the end of the pass, %.1f the same through a copy, %.1f "
+            "separate, %.1f repeats skipped\n",
             p.frames / span, p.frameMax * 1000.0, p.gpuFrames ? p.gpuSum / p.gpuFrames * 1000.0 : 0.0,
             p.gpuMax * 1000.0, p.gpuWait / n * 1000.0, p.drawableWait / n * 1000.0, p.drawableWaitMax * 1000.0,
-            p.draws / n, p.passes / n, p.blits / n, p.commits / n);
+            p.draws / n, p.passes / n, p.blits / n, p.commits / n, p.resolvesInPass / n, p.resolvesCopied / n,
+            p.resolvesSeparate / n, p.resolvesSkipped / n);
     p = Globals::Perf{};
     G->perfStart = now;
 }
@@ -2433,6 +2768,23 @@ static void PresentFrame(Texture *backBuffer, const uint16_t *gammaRamp)
         CommitCurrent();
         G->frameSerials[frame % (kMaxFramesInFlight + 1)] = G->lastCommittedSerial;
         ++G->frameIndex;
+        // the resolves of this frame's passes become the next frame's expectation
+        for (Texture *t : G->resolveTracked)
+        {
+            t->resolvesLast.swap(t->resolvesNow);
+            t->resolvesNow.clear();
+        }
+        if (G->checkResolves)
+        {
+            if (G->checkThisFrame && (G->checkOk || G->checkBad))
+                fprintf(stderr, "[metal] resolve check: %llu identical, %llu different (in-pass resolves and skipped "
+                                "repeats against separate resolves)\n",
+                        (unsigned long long)G->checkOk, (unsigned long long)G->checkBad);
+            const auto now = std::chrono::steady_clock::now();
+            G->checkThisFrame = now - G->lastCheck >= std::chrono::seconds(1);
+            if (G->checkThisFrame)
+                G->lastCheck = now;
+        }
         {
             std::lock_guard<std::mutex> lock(G->timeLock);
             G->frameGpuAccum[G->frameIndex & 7] = 0;
