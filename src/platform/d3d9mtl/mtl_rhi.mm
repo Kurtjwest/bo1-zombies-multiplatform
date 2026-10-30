@@ -141,9 +141,6 @@ struct Texture
     // last frame's and this one's). The next frame's pass in that place gets the resolve as its store action, which
     // saves the separate pass that reloaded and stored all the samples.
     std::vector<ResolveTarget> resolvesLast, resolvesNow;
-    // A depth buffer: whether a draw used it, by the order in the frame of the render passes it is attached to (the
-    // last frame's and this one's). A pass whose place had none last frame begins without it.
-    std::vector<uint8_t> depthUseLast, depthUseNow;
 };
 
 struct Buffer
@@ -161,26 +158,14 @@ struct Function
     id<MTLFunction> fn;
 };
 
-// a pipeline's version for render passes without the depth buffer (compiled in the background, the first time a draw
-// that does not use the depth buffer runs with it)
-struct DepthlessPipeline
-{
-    std::atomic<int> state{0}; // 0 not asked for, 1 compiling, 2 ready (pso), 3 failed
-    id<MTLRenderPipelineState> pso;
-};
-
 struct Pipeline
 {
     id<MTLRenderPipelineState> pso;
-    // a pipeline for a depth or stencil attachment: its descriptor and its version without one
-    MTLRenderPipelineDescriptor *desc;
-    std::shared_ptr<DepthlessPipeline> depthless;
 };
 
 struct DepthStencil
 {
     id<MTLDepthStencilState> dss;
-    bool usesDepth = false; // a depth test, depth writes or the stencil test
 };
 
 struct Sampler
@@ -323,19 +308,6 @@ struct Globals
     Texture *passResolveInto = nullptr; // the pass's resolve texture: passResolve.dst or a scratch texture
     bool passResolveSampled = false;    // a draw of the pass sampled passResolve.dst
     bool passResolveNow = false;        // EndRenderEncoder: resolve
-    // render passes without the depth buffer when their draws do not use it
-    bool depthlessPasses = true; // BO1_METAL_DEPTHLESS_PASSES=0: the depth buffer in every pass, as before
-    std::vector<Texture *> depthTracked;  // depth buffers with depth-use state
-    Pipeline *wantPipelineObj = nullptr;  // the pipeline of the next draw (want.pipeline is its state object)
-    bool wantUsesDepth = false;           // the depth/stencil state of the next draw uses the depth buffer
-    Texture *passDepth = nullptr;         // the current pass's depth buffer (attached or left out)
-    uint32_t passDepthSlot = 0;
-    bool passDepthOmitted = false;        // the current pass began without its depth buffer
-    // a pass reopened with its depth buffer (ReopenWithDepth) keeps its places in the frame's order
-    bool reopening = false;
-    Texture *reopenMs = nullptr, *reopenDepth = nullptr;
-    uint32_t reopenMsSlot = 0, reopenDepthSlot = 0;
-
     // BO1_METAL_CHECK_RESOLVES=1: compares each in-pass resolve and skipped repeat with a separate resolve, once a
     // second
     bool checkResolves = false;
@@ -381,8 +353,6 @@ struct Globals
         // resolves (ResolveTexture): at the end of the pass, the same through a scratch texture and a copy, separate
         // passes, repeats skipped
         uint32_t resolvesInPass = 0, resolvesCopied = 0, resolvesSeparate = 0, resolvesSkipped = 0;
-        // render passes that had a depth buffer bound: begun without it, reopened with it (a draw needed it)
-        uint32_t depthPasses = 0, depthlessPasses = 0, depthReopened = 0;
         double frameMax = 0, gpuSum = 0, gpuMax = 0, gpuWait = 0, drawableWait = 0, drawableWaitMax = 0;
     } perf;
     bool perfLog = false;
@@ -562,15 +532,14 @@ void EndEncoders()
     EndBlitEncoder();
 }
 
-id<MTLRenderCommandEncoder> EnsureRenderEncoder(bool needDepth = true, bool clearOnly = false);
+id<MTLRenderCommandEncoder> EnsureRenderEncoder();
 
 // A clear of the bound targets that no draw consumed yet happens now (as an otherwise empty pass), so that work
 // recorded after it (copies, utility passes) sees its result.
 void FlushPendingClear()
 {
-    // (an otherwise empty pass needs the depth buffer only when the clear is for it)
     if (G->pendingClear)
-        EnsureRenderEncoder((G->pendingClear & (CLEAR_DEPTH | CLEAR_STENCIL)) != 0, true);
+        EnsureRenderEncoder();
 }
 
 id<MTLBlitCommandEncoder> Blit()
@@ -779,13 +748,6 @@ void ForgetResolves(Texture *tex)
         G->passMs = nullptr; // (the open pass keeps it attached; it ends with a plain store)
     if (G->passResolve.dst == tex)
         G->passResolve = ResolveTarget{};
-    G->depthTracked.erase(std::remove(G->depthTracked.begin(), G->depthTracked.end(), tex), G->depthTracked.end());
-    if (G->passDepth == tex)
-        G->passDepth = nullptr;
-    if (G->reopenMs == tex)
-        G->reopenMs = nullptr;
-    if (G->reopenDepth == tex)
-        G->reopenDepth = nullptr;
 }
 
 // whether dst (level, slice) can be the resolve texture of a pass that draws into src
@@ -822,73 +784,9 @@ void ResetPassResolve()
     G->passResolveInto = nullptr;
     G->passResolveSampled = false;
     G->passResolveNow = false;
-    G->passDepth = nullptr;
-    G->passDepthSlot = 0;
-    G->passDepthOmitted = false;
 }
 
-// ---- render passes without the depth buffer ----
-// Direct3D 9 keeps the depth buffer bound until it is changed, so the bloom passes, the post effects and the HUD all
-// run with the scene's depth buffer attached, and each such render pass loaded it and stored it again (at 2880x1800
-// with 4x MSAA, 104 MB each way) though none of its draws tests or writes depth or stencil. A pass whose place in the
-// frame had no such draw last frame now begins without it; its draws use their pipeline's version without a depth
-// attachment (compiled in the background once a draw needs it). A draw that does use the depth buffer, or whose
-// pipeline's version is not ready yet, ends that pass and continues in a new one with it attached; the depth buffer,
-// never attached in between, keeps its contents, so every draw sees the same depth buffer as before.
-void TrackDepth(Texture *t)
-{
-    if (std::find(G->depthTracked.begin(), G->depthTracked.end(), t) == G->depthTracked.end())
-        G->depthTracked.push_back(t);
-}
-
-bool DepthlessReady(Pipeline *p)
-{
-    return p && p->depthless && p->depthless->state.load(std::memory_order_acquire) == 2;
-}
-
-void RequestDepthless(Pipeline *p)
-{
-    if (!p || !p->depthless || !p->desc)
-        return;
-    int expected = 0;
-    if (!p->depthless->state.compare_exchange_strong(expected, 1))
-        return;
-    @autoreleasepool
-    {
-        MTLRenderPipelineDescriptor *d = [p->desc copy];
-        d.depthAttachmentPixelFormat = MTLPixelFormatInvalid;
-        d.stencilAttachmentPixelFormat = MTLPixelFormatInvalid;
-        std::shared_ptr<DepthlessPipeline> v = p->depthless; // (outlives the pipeline if that goes first)
-        [G->device newRenderPipelineStateWithDescriptor:d
-                                      completionHandler:^(id<MTLRenderPipelineState> pso, NSError *) {
-                                          v->pso = pso;
-                                          v->state.store(pso ? 2 : 3, std::memory_order_release);
-                                      }];
-    }
-}
-
-void EndRenderEncoder();
-
-// a draw needs the depth buffer the current pass began without: that pass ends (a plain store) and the next one takes
-// its places in the frame's order, with the depth buffer attached (and its place marked as using it, for next frame)
-void ReopenWithDepth()
-{
-    Texture *const ms = G->passMs;
-    const uint32_t msSlot = G->passMsSlot;
-    Texture *const depth = G->passDepth;
-    const uint32_t depthSlot = G->passDepthSlot;
-    if (depth && depthSlot < depth->depthUseNow.size())
-        depth->depthUseNow[depthSlot] = 1;
-    EndRenderEncoder();
-    G->reopening = true;
-    G->reopenMs = ms;
-    G->reopenMsSlot = msSlot;
-    G->reopenDepth = depth;
-    G->reopenDepthSlot = depthSlot;
-    ++G->perf.depthReopened;
-}
-
-id<MTLRenderCommandEncoder> EnsureRenderEncoder(bool needDepth, bool clearOnly)
+id<MTLRenderCommandEncoder> EnsureRenderEncoder()
 {
     if (G->renc)
         return G->renc;
@@ -922,17 +820,9 @@ id<MTLRenderCommandEncoder> EnsureRenderEncoder(bool needDepth, bool clearOnly)
         // the first multisampled target: set up for the resolve its pass in this place ended with last frame
         if (src->samples > 1 && !G->passMs && G->resolveInPass)
         {
-            uint32_t slot;
-            if (G->reopening && G->reopenMs == src)
-            {
-                slot = G->reopenMsSlot;
-            }
-            else
-            {
-                slot = (uint32_t)src->resolvesNow.size();
-                src->resolvesNow.push_back(ResolveTarget{});
-                TrackResolves(src);
-            }
+            const uint32_t slot = (uint32_t)src->resolvesNow.size();
+            src->resolvesNow.push_back(ResolveTarget{});
+            TrackResolves(src);
             G->passMs = src;
             G->passMsIndex = i;
             G->passMsSlot = slot;
@@ -959,36 +849,7 @@ id<MTLRenderCommandEncoder> EnsureRenderEncoder(bool needDepth, bool clearOnly)
             }
         }
     }
-    // the depth buffer: left out when this pass's place in the frame had no draw that used it last frame (and the
-    // draw that begins the pass does not need it either), or when the pass is only a clear of the other targets
-    bool omitDepth = false;
-    if (Texture *d = G->rt.depth; d && G->depthlessPasses)
-    {
-        Texture *const dr = Root(d);
-        uint32_t slot;
-        if (G->reopening && G->reopenDepth == dr)
-        {
-            slot = G->reopenDepthSlot;
-        }
-        else
-        {
-            slot = (uint32_t)dr->depthUseNow.size();
-            dr->depthUseNow.push_back(0);
-            TrackDepth(dr);
-        }
-        omitDepth = any && !needDepth && !G->reopening && !(G->pendingClear & (CLEAR_DEPTH | CLEAR_STENCIL)) &&
-                    (clearOnly || (slot < dr->depthUseLast.size() && !dr->depthUseLast[slot] &&
-                                   DepthlessReady(G->wantPipelineObj)));
-        G->passDepth = dr;
-        G->passDepthSlot = slot;
-        G->passDepthOmitted = omitDepth;
-        ++G->perf.depthPasses;
-        if (omitDepth)
-            ++G->perf.depthlessPasses;
-    }
-    G->reopening = false;
-    G->reopenMs = G->reopenDepth = nullptr;
-    if (Texture *d = G->rt.depth; d && !omitDepth)
+    if (Texture *d = G->rt.depth)
     {
         any = true;
         ++Root(d)->writes;
@@ -1016,7 +877,7 @@ id<MTLRenderCommandEncoder> EnsureRenderEncoder(bool needDepth, bool clearOnly)
     G->pendingClear = 0;
     G->haveValid = false;
     if (G->activeVis && StartVisibilitySegment())
-        return EnsureRenderEncoder(needDepth, clearOnly); // ran out of slots: start over with a new visibility buffer
+        return EnsureRenderEncoder(); // ran out of slots: start over with a new visibility buffer
     return G->renc;
 }
 
@@ -1066,16 +927,11 @@ void Sync()
         G->ftexDirty = G->fsampDirty = (1u << kMaxFragmentTextures) - 1;
         [enc setVertexBuffer:G->zeroVertexBuffer offset:0 atIndex:VERTEX_BUFFER_ZERO];
     }
-    // (a pass without its depth buffer draws with the pipelines' versions without one)
-    id<MTLRenderPipelineState> pso = w.pipeline;
-    if (G->passDepthOmitted && G->wantPipelineObj && G->wantPipelineObj->pso == w.pipeline &&
-        DepthlessReady(G->wantPipelineObj))
-        pso = G->wantPipelineObj->depthless->pso;
-    if (all || pso != h.pipeline)
+    if (all || w.pipeline != h.pipeline)
     {
-        if (pso)
-            [enc setRenderPipelineState:pso];
-        h.pipeline = pso;
+        if (w.pipeline)
+            [enc setRenderPipelineState:w.pipeline];
+        h.pipeline = w.pipeline;
     }
     if (all || w.depthStencil != h.depthStencil)
     {
@@ -1388,12 +1244,7 @@ uint32_t TargetSampleCount()
 // clears a rectangle of the bound targets by drawing (the pass is already open)
 void DrawClearQuad(uint32_t flags, const float color[4], float depth, uint32_t stencil, int x, int y, int w, int h)
 {
-    // (its pipeline is made for the bound targets, the depth buffer included)
-    if (G->renc && G->passDepthOmitted)
-        ReopenWithDepth();
     id<MTLRenderCommandEncoder> enc = EnsureRenderEncoder();
-    if ((flags & (CLEAR_DEPTH | CLEAR_STENCIL)) && G->passDepth && G->passDepthSlot < G->passDepth->depthUseNow.size())
-        G->passDepth->depthUseNow[G->passDepthSlot] = 1;
     uint32_t colorFormats[4] = {};
     for (int i = 0; i < 4; ++i)
         colorFormats[i] = G->rt.color[i] ? G->rt.color[i]->format : 0;
@@ -1494,8 +1345,6 @@ bool Init(void *caMetalLayer, char *err, size_t errSize)
         G->perfLog = perf && *perf && strcmp(perf, "0") != 0;
         if (const char *e = getenv("BO1_METAL_RESOLVE_IN_PASS"))
             G->resolveInPass = !(*e && strcmp(e, "0") == 0);
-        if (const char *e = getenv("BO1_METAL_DEPTHLESS_PASSES"))
-            G->depthlessPasses = !(*e && strcmp(e, "0") == 0);
         if (const char *e = getenv("BO1_METAL_CHECK_RESOLVES"))
             G->checkResolves = *e && strcmp(e, "0") != 0;
         if (!BuildUtilities(err, errSize))
@@ -2328,11 +2177,6 @@ Pipeline *CreatePipeline(const PipelineDesc &desc, char *err, size_t errSize)
         }
         Pipeline *p = new Pipeline();
         p->pso = pso;
-        if (desc.depthFormat || desc.stencilFormat)
-        {
-            p->desc = d;
-            p->depthless = std::make_shared<DepthlessPipeline>();
-        }
         return p;
     }
 }
@@ -2341,8 +2185,6 @@ void ReleasePipeline(Pipeline *p)
 {
     if (p && G && G->want.pipeline == p->pso)
         G->want.pipeline = nil;
-    if (p && G && G->wantPipelineObj == p)
-        G->wantPipelineObj = nullptr;
     delete p;
 }
 
@@ -2373,7 +2215,6 @@ DepthStencil *CreateDepthStencil(const DepthStencilDesc &desc)
             return nullptr;
         DepthStencil *r = new DepthStencil();
         r->dss = dss;
-        r->usesDepth = desc.depthFunc != MTLCompareFunctionAlways || desc.depthWrite || desc.stencilEnable;
         return r;
     }
 }
@@ -2412,8 +2253,11 @@ void SetRenderTargets(const RenderTargets &rt)
 {
     if (memcmp(&rt, &G->rt, sizeof(rt)) == 0)
         return;
-    // a clear that no draw has consumed yet still has to happen on the old targets
-    FlushPendingClear();
+    if (G->pendingClear)
+    {
+        // a clear that no draw has consumed yet still has to happen on the old targets
+        EnsureRenderEncoder();
+    }
     EndRenderEncoder();
     G->rt = rt;
     G->pendingClear = 0;
@@ -2449,17 +2293,8 @@ void Clear(uint32_t flags, const float color[4], float depth, uint32_t stencil, 
     DrawClearQuad(flags, color, depth, stencil, x, y, w, h);
 }
 
-void SetPipeline(Pipeline *p)
-{
-    G->want.pipeline = p ? p->pso : nil;
-    G->wantPipelineObj = p;
-}
-
-void SetDepthStencil(DepthStencil *ds)
-{
-    G->want.depthStencil = ds ? ds->dss : nil;
-    G->wantUsesDepth = ds && ds->usesDepth; // (none: G->defaultDSS, which does not)
-}
+void SetPipeline(Pipeline *p) { G->want.pipeline = p ? p->pso : nil; }
+void SetDepthStencil(DepthStencil *ds) { G->want.depthStencil = ds ? ds->dss : nil; }
 void SetStencilReference(uint32_t ref) { G->want.stencilRef = ref; }
 
 void SetRasterState(uint8_t cullMode, uint8_t frontWinding, uint8_t fillMode)
@@ -2619,23 +2454,7 @@ bool PrepareDraw()
 {
     if (!G->want.pipeline)
         return false;
-    // Whether this draw can run without the depth buffer: not when it tests or writes depth or stencil, or its pipeline
-    // has no version without it (none, or it failed to compile); not yet while that version is compiling. One that
-    // cannot, in a pass that began without the depth buffer, ends that pass and goes on in a new one with it.
-    Pipeline *const pipeline = G->wantPipelineObj;
-    const int depthless = pipeline && pipeline->depthless ? pipeline->depthless->state.load(std::memory_order_acquire) : 3;
-    const bool needsDepth = G->wantUsesDepth || depthless == 3;
-    const bool canOmit = !needsDepth && depthless == 2;
-    if (G->renc && G->passDepthOmitted && !canOmit)
-        ReopenWithDepth();
-    EnsureRenderEncoder(!canOmit);
-    if (G->passDepth && G->passDepthSlot < G->passDepth->depthUseNow.size())
-    {
-        if (needsDepth)
-            G->passDepth->depthUseNow[G->passDepthSlot] = 1; // (next frame's pass in this place begins with it)
-        else if (depthless == 0)
-            RequestDepthless(pipeline); // (for passes like this one to begin without the depth buffer)
-    }
+    EnsureRenderEncoder();
     if (ScissorEmpty(G->want))
         return false;
     Sync();
@@ -2857,13 +2676,11 @@ static void PerfFrame()
             "[metal] %.0f fps, worst frame %.1f ms | GPU busy %.1f ms a frame (worst %.1f) | waited for the GPU %.1f "
             "ms a frame, for a drawable %.1f (worst %.1f) | a frame: %.0f draws, %.1f render passes, %.1f blit passes, "
             "%.1f command buffers | resolves a frame: %.1f at the end of the pass, %.1f the same through a copy, %.1f "
-            "separate, %.1f repeats skipped | passes with the depth buffer bound a frame: %.1f, %.1f of them without "
-            "it, %.1f reopened with it\n",
+            "separate, %.1f repeats skipped\n",
             p.frames / span, p.frameMax * 1000.0, p.gpuFrames ? p.gpuSum / p.gpuFrames * 1000.0 : 0.0,
             p.gpuMax * 1000.0, p.gpuWait / n * 1000.0, p.drawableWait / n * 1000.0, p.drawableWaitMax * 1000.0,
             p.draws / n, p.passes / n, p.blits / n, p.commits / n, p.resolvesInPass / n, p.resolvesCopied / n,
-            p.resolvesSeparate / n, p.resolvesSkipped / n, p.depthPasses / n, p.depthlessPasses / n,
-            p.depthReopened / n);
+            p.resolvesSeparate / n, p.resolvesSkipped / n);
     p = Globals::Perf{};
     G->perfStart = now;
 }
@@ -2951,16 +2768,11 @@ static void PresentFrame(Texture *backBuffer, const uint16_t *gammaRamp)
         CommitCurrent();
         G->frameSerials[frame % (kMaxFramesInFlight + 1)] = G->lastCommittedSerial;
         ++G->frameIndex;
-        // the resolves and depth use of this frame's passes become the next frame's expectation
+        // the resolves of this frame's passes become the next frame's expectation
         for (Texture *t : G->resolveTracked)
         {
             t->resolvesLast.swap(t->resolvesNow);
             t->resolvesNow.clear();
-        }
-        for (Texture *t : G->depthTracked)
-        {
-            t->depthUseLast.swap(t->depthUseNow);
-            t->depthUseNow.clear();
         }
         if (G->checkResolves)
         {
