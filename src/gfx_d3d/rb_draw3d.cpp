@@ -719,10 +719,13 @@ static void __cdecl R_ShaderWarmingCallback(const void *userData, GfxCmdBufConte
     dx.device->SetStreamSource(1u, 0, 0, 0);
     dx.device->SetStreamSource(2u, 0, 0, 0);
     vb->Release();
-    // SP 0x007248D0 on gfxCmdBufState.prim with all streams 0, then the inlined index buffer reset
-    R_ClearAllStreamSources(&gfxCmdBufState.prim);
-    if ( gfxCmdBufState.prim.indexBuffer )
-        R_ChangeIndices(&gfxCmdBufState.prim, 0);
+    // SP 0x007248D0 on gfxCmdBufState.prim with all streams 0, then the inlined index buffer reset. KB: on this
+    // callback's state, context.state (R_DrawCall's local copy, which R_DrawCall copies over gfxCmdBufState when the
+    // callback returns): reset on gfxCmdBufState, the copy put back its stale index buffer, the device had none, and
+    // the next indexed draw failed (DrawIndexedPrimitive: D3DERR_INVALIDCALL, a fatal error) on every platform
+    R_ClearAllStreamSources(&context.state->prim);
+    if ( context.state->prim.indexBuffer )
+        R_ChangeIndices(&context.state->prim, 0);
 }
 
 // zombies: SP RB_StandardDrawCommands' warm block (SP 0x006D265F..0x006D26EC): while rgp.needMaterialPreload is set
