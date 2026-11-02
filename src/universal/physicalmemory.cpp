@@ -5,6 +5,7 @@
 #include "assertive.h"
 #include "q_shared.h"
 #include <qcommon/common.h>
+#include <qcommon/com_mods.h>
 #include <qcommon/mem_track.h>
 #include "../../tl/tl_system.h"
 #include <win32/win_main.h>
@@ -23,28 +24,15 @@ void __cdecl PMem_Init()
     if ( !g_physicalMemoryInit )
     {
         g_physicalMemoryInit = 1;
-        // mod: bo1_mod_zones on the command line adds 256 MB for the extra zones (a whole map zone such as
-        // zombie_temple inflates to ~110 MB); without it the size is retail's. The first PMem alloc can come before
-        // the dvars exist, so this reads the command line itself.
+        // mod: bo1_mod_zones on the command line, or the Mods menu's mods that need extra zones (players/
+        // mods_startup.cfg, com_mods.cpp), add 256 MB for the extra zones (a whole map zone such as zombie_temple
+        // inflates to ~110 MB); without them the size is retail's. The first PMem alloc can come before the dvars
+        // exist, so this is decided from the command line and that file.
         // Three or four zones (mods/nightmare: temple + coast + moon is ~320 MB, L60 f1 ran out with 256) add 128 MB each.
         unsigned int size = 0x14800000u;
-        const char *modZones = I_stristr(GetCommandLineA(), "bo1_mod_zones");
-        if ( modZones )
-        {
-            int zoneWords = 0;
-            const char *p = modZones + strlen("bo1_mod_zones");
-            for ( ;; )
-            {
-                while ( *p == ' ' || *p == '\t' || *p == '"' )
-                    ++p;
-                if ( !*p || *p == '+' || *p == '-' )
-                    break;
-                ++zoneWords;
-                while ( *p && *p != ' ' && *p != '\t' && *p != '"' )
-                    ++p;
-            }
+        const int zoneWords = Com_ModStartup_ZonesReserved();
+        if ( zoneWords )
             size += zoneWords > 2 ? (unsigned int)zoneWords * 0x8000000u : 0x10000000u;
-        }
         memory = (unsigned __int8 *)VirtualAlloc(0, size, 0x1000u, 4u);
         PMem_InitPhysicalMemory(&g_mem, "main", memory, size);
     }

@@ -1,0 +1,82 @@
+// The Mods menu's entry for this mod (main menu > Mods; the format: README.md, "Mods menu"). The settings below are
+// tools/horde_flags.js's for each zombie count.
+name        "Horde"
+description "Rounds don't wait for the horde: the next round starts as soon as this round's last zombie has spawned, and the zombies still alive carry over. Choose how many may be alive at once."
+order       10
+map zombie_pentagon "Five"
+map zombie_theater  "Kino der Toten"
+
+// Five's two slow script loops run natively (same results)
+set bo1_mod_scriptperf 1
+
+option horde_max_zombies
+{
+    label   "Zombies alive at once"
+    help    "The original game allows 24. More than 100 needs memory set aside when the game starts: the menu asks for a restart."
+    type    choice
+    default 48
+    value 24   "24 (original)"  { set bo1_mod_maxactors 64 }
+    value 32   "32"             { set bo1_mod_maxactors 72 }
+    value 48   "48"             { set bo1_mod_maxactors 88 }
+    value 64   "64"             { set bo1_mod_maxactors 104 }
+    value 100  "100"            { set bo1_mod_maxactors 140 }
+    value 150  "150"            { set bo1_mod_maxactors 190   startup r_mod_skinCacheMB 32 }
+    value 200  "200"            { set bo1_mod_maxactors 240   set r_mod_gfxEnts 512   startup r_mod_skinCacheMB 48 }
+    value 300  "300"            { set bo1_mod_maxactors 340   set r_mod_gfxEnts 512   startup r_mod_skinCacheMB 64 }
+    value 500  "500"
+    {
+        set bo1_mod_maxactors 540   set r_mod_gfxEnts 768   set r_mod_scsShare 1   set r_mod_fxElems 4096
+        set r_dobjLimit 1024   set bo1_mod_svfast 1   set cg_mod_asyncServer 1
+        startup r_mod_skinCacheMB 96   startup r_mod_modelLightingEntries 1888
+        startup bo1_mod_scriptvars 2   startup bo1_mod_netents 1
+    }
+    value 1000 "1000"
+    {
+        set bo1_mod_maxactors 1024   set r_mod_gfxEnts 1280   set r_mod_scsShare 1   set r_mod_fxElems 4096
+        set r_dobjLimit 1024   set bo1_mod_svfast 1   set cg_mod_asyncServer 1   set horde_fill_rate 30
+        startup r_mod_skinCacheMB 176   startup r_mod_modelLightingEntries 3392
+        startup bo1_mod_scriptvars 2   startup bo1_mod_netents 2
+    }
+}
+
+option horde_start_round
+{
+    label   "Start on round"
+    help    "Zombie speed and spawn delay as if the rounds before had been played."
+    type    choice
+    default 1
+    value 1 "1"   value 5 "5"   value 10 "10"   value 15 "15"   value 20 "20"   value 25 "25"   value 30 "30"
+    value 40 "40"   value 50 "50"   value 75 "75"   value 100 "100"
+}
+
+option horde_spawn_all
+{
+    label   "Spawn from every window"
+    help    "Zombies come through every window of every area you have opened, not only the ones near you, so the whole open map fills."
+    type    toggle
+    default 0
+}
+
+option horde_carryover
+{
+    label   "Zombies carry over"
+    help    "Off: a round also waits until every zombie is dead, as in the original game."
+    type    toggle
+    default 1
+}
+
+option horde_unjam
+{
+    label   "Unjam the crowd"
+    help    "A zombie stuck in the crowd stops colliding with the other zombies for a moment."
+    type    toggle
+    default 1
+}
+
+option horde_hud
+{
+    label   "Counter at the top left"
+    help    "The zombies alive and the limit, at the top left of the screen."
+    type    toggle
+    default 0
+}

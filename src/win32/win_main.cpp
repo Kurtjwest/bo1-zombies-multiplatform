@@ -51,6 +51,7 @@
 #include <ui/keycodes.h>
 #include <cgame_mp/cg_newDraw_mp.h>
 #include <ui_mp/ui_main_mp.h>
+#include <qcommon/com_mods.h>
 
 const dvar_t *sys_configureGHz;
 const dvar_t *sys_sysMB;
@@ -754,6 +755,8 @@ static void Sys_HeadlessMenuDump()
 {
     if (!bo1_menudump || !bo1_menudump->current.string[0])
         return;
+    if (!UI_GetInfo(0))
+        return;
     UiContext *dc = &UI_GetInfo(0)->uiDC;
     for (int m = 0; m < dc->menuCount; ++m)
     {
@@ -792,6 +795,14 @@ static void Sys_HeadlessMenuDump()
                     ? item->typeData.textDef->text : ""));
             if (item->visibleExp.filename)
                 Com_Printf(16, "bo1_menudump: %s/%d visible: %s\n", BO1_VA(menu->window.name), i, Sys_HeadlessExpToString(&item->visibleExp));
+            if (item->type == 10 && item->dvar)
+            {
+                const multiDef_s *multi = Item_GetMultiDef((itemDef_s *)item);
+                Com_Printf(16, "bo1_menudump: %s/%d multi: dvar '%s' = '%s', shows '%s' (%d values%s, the first '%s' '%s')\n",
+                    BO1_VA(menu->window.name), i, BO1_VA(item->dvar), Dvar_GetVariantString(item->dvar),
+                    Item_Multi_Setting((itemDef_s *)item), multi ? multi->count : -1, multi && multi->strDef ? ", strings" : "",
+                    multi && multi->count ? BO1_VA(multi->dvarList[0]) : "", multi && multi->count && multi->strDef ? BO1_VA(multi->dvarStr[0]) : "");
+            }
             if (item->forecolorAExp.filename)
                 Com_Printf(16, "bo1_menudump: %s/%d forecolorA: %s\n", BO1_VA(menu->window.name), i, Sys_HeadlessExpToString(&item->forecolorAExp));
             if (item->type == 2 && item->typeData.imageDef && item->typeData.imageDef->materialExp.filename)
@@ -2051,6 +2062,24 @@ static cmd_function_s Sys_HeadlessUiKey_f_VAR;
 static cmd_function_s Sys_HeadlessMenuAction_f_VAR;
 static cmd_function_s Sys_HeadlessItemKey_f_VAR;
 static cmd_function_s Sys_HeadlessMenuSweep_f_VAR;
+static cmd_function_s Sys_MenuDump_f_VAR;
+
+// bo1_menudump_print [menu ...]: the loaded menus' items and scripts now, as bo1_shots prints them for bo1_menudump
+// (default: the menus bo1_menudump names; "*" every loaded menu)
+static void Sys_MenuDump_f()
+{
+    if (Cmd_Argc() > 1)
+    {
+        char names[1024] = "";
+        for (int i = 1; i < Cmd_Argc(); ++i)
+        {
+            I_strncat(names, sizeof(names), Cmd_Argv(i));
+            I_strncat(names, sizeof(names), " ");
+        }
+        Dvar_SetString((dvar_s *)bo1_menudump, names);
+    }
+    Sys_HeadlessMenuDump();
+}
 
 void __cdecl Sys_Init()
 {
@@ -2068,6 +2097,7 @@ void __cdecl Sys_Init()
     bo1_benchmark_start = _Dvar_RegisterInt("bo1_benchmark_start", 15000, 0, 0x7FFFFFFF, 0, "mod (perf): bo1_benchmark measures from this many ms after the local client is in the game");
     bo1_benchmark_seconds = _Dvar_RegisterInt("bo1_benchmark_seconds", 0, 0, 0x7FFFFFFF, 0, "mod (perf): bo1_benchmark reports and quits after this many seconds of measured frames (0: at bo1_autoquit)");
     bo1_menudump = _Dvar_RegisterString("bo1_menudump", "", 0, "zombies: headless client - menus whose scripts bo1_shots prints");
+    Cmd_AddCommandInternal("bo1_menudump_print", Sys_MenuDump_f, &Sys_MenuDump_f_VAR);
     bo1_shots = _Dvar_RegisterString("bo1_shots", "", 0, "zombies: headless client - back buffer screenshots at these ms after init (\"20000 40000\")");
     bo1_menusweep_stepms = _Dvar_RegisterInt("bo1_menusweep_stepms", 150, 1, 60000, 0, "x6c35: headless client - real ms between bo1_menusweep steps");
     bo1_menusweep_shotms = _Dvar_RegisterInt("bo1_menusweep_shotms", 0, 0, 60000, 0, "x6c35: headless client - ms each bo1_menusweep entry is open before its screenshot (0 = none)");
@@ -2522,6 +2552,7 @@ int __stdcall WinMain(HINSTANCE__ *hInstance, HINSTANCE__ *hPrevInstance, char *
     }
     Sys_InitializeCriticalSections();
     Sys_InitMainThread();
+    Com_ModStartup_Init(lpCmdLine); // mod: the Mods menu's startup settings (com_mods.cpp), before PMem_Init sizes memory
     PMem_Init();
     track_init();
     Win_InitLocalization();
@@ -2543,6 +2574,16 @@ int __stdcall WinMain(HINSTANCE__ *hInstance, HINSTANCE__ *hPrevInstance, char *
             Sys_FindInfo();
             g_wv.hInstance = hInstance;
             I_strncpyz(sys_cmdline, lpCmdLine, 1024);
+            // mod: the Mods menu's startup settings (players/mods_startup.cfg) as +set commands, before the caller's
+            // own (which win for the same dvar); after them if the line starts with something else than a + command
+            if ( *Com_ModStartup_SetArgs() )
+            {
+                const char *start = lpCmdLine + strspn(lpCmdLine, " \t");
+                if ( !*start || *start == '+' )
+                    Com_sprintf(sys_cmdline, 1024, "%s %s", Com_ModStartup_SetArgs() + 1, lpCmdLine);
+                else
+                    I_strncat(sys_cmdline, 1024, Com_ModStartup_SetArgs());
+            }
             // x6: the headless settings below must always fit (a cut '+set dedicated 1' or '+set r_aaSamples 1' changes
             // what runs); a caller line too long for them loses its tail instead (headless.ps1 refuses such lines)
             if ( s_headless && strlen(sys_cmdline) > 1024 - 1 - 96 )

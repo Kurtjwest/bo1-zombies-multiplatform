@@ -1,0 +1,5 @@
+// The Mods menu's entry for this mod (main menu > Mods; the format: README.md, "Mods menu")
+name        "No perks"
+description "Every perk machine is gone when the map loads. Pack-a-Punch and the Mystery Box stay; the free perk power-up never drops."
+order       40
+set noperks 1

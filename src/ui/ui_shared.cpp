@@ -4471,9 +4471,21 @@ void    Menus_SetupOpenMenu(int localClientNum, UiContext *dc, menuDef_t *menu)
 
     if (dc->isCursorVisible)
     {
-        mouseLocationX = INT_MIN;
-        mouseLocationY = INT_MIN;
-        mouseTimeUntilReadyToMove = Sys_Milliseconds() + 500;
+        // port: the popups made in code (bo1_coop*, bo1_mods*: their onOpen sets the focus) keep it until the mouse
+        // moves; the retail menus give it to the item under the mouse when they open, even a mouse at rest (none under
+        // it: no item has the focus, so the keys and the gamepad started from nothing)
+        if (menu->window.name && !I_strnicmp(menu->window.name, "bo1_", 4))
+        {
+            mouseLocationX = (int)dc->cursor.x;
+            mouseLocationY = (int)dc->cursor.y;
+            mouseTimeUntilReadyToMove = 0;
+        }
+        else
+        {
+            mouseLocationX = INT_MIN;
+            mouseLocationY = INT_MIN;
+            mouseTimeUntilReadyToMove = Sys_Milliseconds() + 500;
+        }
     }
 
     if (menu->soundName)

@@ -4,6 +4,7 @@
 #include "cl_parse_mp.h"
 #include "cl_main_mp.h"
 #include <qcommon/common.h>
+#include <qcommon/com_mods.h>
 #include <qcommon/msg.h>
 #include "cl_cgame_mp.h"
 #include <universal/mem_largelocal.h>
@@ -504,6 +505,9 @@ void __cdecl CL_ParseGamestate(int localClientNum, msg_t *msg)
     CL_SystemInfoChanged(localClientNum);
 
     cls.doVidRestart |= fs_gameDirVar->modified;
+    // mod: a player joining a game: the Mods menu's mods for its map too (a listen server applied them already)
+    if ( !com_sv_running->current.enabled )
+        Mods_ApplyForMap(Info_ValueForKey(CL_GetConfigString(0), (char *)"mapname"));
     if ( FS_NeedRestart(clc->checksumFeed) )
     {
         UI_CloseAll(0);

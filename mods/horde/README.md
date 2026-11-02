@@ -15,6 +15,9 @@ mods/noperks, a mapkit map goes first (`fs_mods mapkit horde zinfo`). fs_game mo
 
 ## Start it
 
+In the game: main menu > **Mods** > Horde (the main README.md, "Mods"; its settings are on its page, `mods/horde/mod.txt`).
+From the command line:
+
 The build copies `mods\` next to the exe (`build\Release\mods\horde\`). In PowerShell, from the build folder:
 
 ```powershell

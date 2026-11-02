@@ -23,6 +23,9 @@ The base game never reads this folder. Without `+set fs_mods nightmare`, Five is
 
 ## Start it
 
+In the game: main menu > **Mods** > Nightmare (the main README.md, "Mods"; the first time the game asks for a restart, to set
+aside memory for the extra zones). From the command line:
+
 Launcher (tools/mod-launcher.hta): Map Five or Kino, Difficulty Normal / Nightmare / Hell. It stacks with the Horde checkbox
 (`fs_mods horde nightmare zinfo`). The flags are in tools/nightmare_flags.js:
 

@@ -32,6 +32,7 @@
 #include <client_mp/cl_main_pc_mp.h>
 #include "ui_feeders.h"
 #include "ui_coop.h"
+#include "ui_mods.h"
 #include <live/live_groups_dw.h>
 #include <game_mp/ui_gameinfo_mp.h>
 #include <client_mp/cl_input_mp.h>
@@ -886,6 +887,7 @@ void __cdecl UI_Shutdown(int localClientNum)
     if ( !useFastFile->current.enabled )
         Menus_FreeAllMemory(&uiInfo->uiDC);
     UI_Coop_Shutdown(&uiInfo->uiDC); // co-op: its popups are text menus, in the hunk with fast files too
+    UI_Mods_Shutdown(&uiInfo->uiDC); // mod: the Mods menu's too
     UI_Project_Shutdown(localClientNum);
 }
 
@@ -1112,6 +1114,8 @@ void __cdecl UI_RunMenuScript(int localClientNum, int contextIndex, const char *
     if (String_Parse(args, out, 1024))
     {
         dc = (UiContext *)UI_UIContext_GetInfo(contextIndex);
+        if (UI_Mods_MenuScript(localClientNum, dc, out, args)) // mod: the Mods menu's "uiScript bo1Mods..."
+            return;
         if (!I_stricmp(out, "Quit"))
         {
             ControllerIndex = Com_LocalClient_GetControllerIndex(localClientNum);
@@ -3944,11 +3948,13 @@ static void UI_ModFov_PatchMenus(UiContext *dc)
 }
 
 // zombies (port): the SP front end's main menu (main_text) offers Campaign and Multiplayer, which need the retail SP
-// and MP programs: here the campaign's levels ended the game, and Multiplayer started the app again. Their rows are
-// hidden, the three left (Zombies, Options, Quit) move to the middle of the TV, and the menu opens on Zombies.
+// and MP programs: here the campaign's levels ended the game, and Multiplayer started the app again. Campaign's row is
+// hidden; Multiplayer's becomes Mods (mod: the Mods popup, ui_mods.cpp), moved under Zombies; the four rows (Zombies,
+// Mods, Settings, Quit) move to the middle of the TV, and the menu opens on Zombies.
 static char s_portHiddenItemExpression[] = "bo1_port_hidden"; // (an item hidden here: its visibleExp is "0")
 static expressionRpn s_portHiddenItemRpn[2];
 static char s_portMainMenuFocus[256];
+static char s_portModsText[] = "MODS";
 
 static void UI_Port_HideItem(itemDef_s *item)
 {
@@ -3962,10 +3968,13 @@ static void UI_Port_HideItem(itemDef_s *item)
     item->visibleExp.rpn = s_portHiddenItemRpn;
 }
 
-static bool UI_Port_IsHiddenButton(const itemDef_s *item)
+// main_buttonN's N (1..5), 0 for any other item
+static int UI_Port_MainButton(const itemDef_s *item)
 {
-    return item->window.name
-        && (!I_stricmp(item->window.name, "main_button1") || !I_stricmp(item->window.name, "main_button2"));
+    if ( !item->window.name || I_strnicmp(item->window.name, "main_button", 11) )
+        return 0;
+    const int n = atoi(item->window.name + 11);
+    return n >= 1 && n <= 5 ? n : 0;
 }
 
 static void UI_Port_PatchMainMenu(UiContext *dc)
@@ -3976,65 +3985,112 @@ static void UI_Port_PatchMainMenu(UiContext *dc)
     GenericEventScript *script;
     const char *action;
     const char *found;
-    float hiddenRows[2];
-    float top, bottom, keptTop, keptBottom, shift, y;
-    int hiddenRowCount;
+    float rowY[6];
+    int rowOf[512];
     int i;
-    int k;
-    bool inHiddenRow;
+    int r;
 
     menu = Menus_FindByName(dc, "main_text");
-    if ( !menu )
+    if ( !menu || menu->itemCount > 512 )
         return;
     // the buttons' rows (each button with its highlight bar, and a second button for Japanese, at the same y):
     // main_button1 Campaign, main_button2 Multiplayer, main_button3 Zombies, main_button4 Options, main_button5 Quit
-    hiddenRowCount = 0;
-    top = keptTop = 1.0e9f;
-    bottom = keptBottom = -1.0e9f;
+    for ( r = 0; r < 6; ++r )
+        rowY[r] = -1.0e9f;
     for ( i = 0; i < menu->itemCount; ++i )
     {
         item = menu->items[i];
-        if ( !item || !item->window.name || I_strnicmp(item->window.name, "main_button", 11) )
+        if ( !item || !(r = UI_Port_MainButton(item)) )
             continue;
         if ( item->visibleExp.filename == s_portHiddenItemExpression )
             return; // (patched already)
-        y = item->window.rectClient.y;
-        top = y < top ? y : top;
-        bottom = y + item->window.rectClient.h > bottom ? y + item->window.rectClient.h : bottom;
-        if ( UI_Port_IsHiddenButton(item) )
+        rowY[r] = item->window.rectClient.y;
+    }
+    for ( r = 1; r <= 5; ++r )
+    {
+        if ( rowY[r] < -1.0e8f || (r > 1 && rowY[r] <= rowY[r - 1]) )
         {
-            for ( k = 0; k < hiddenRowCount && fabsf(hiddenRows[k] - y) > 1.0f; ++k )
-                ;
-            if ( k == hiddenRowCount && hiddenRowCount < 2 )
-                hiddenRows[hiddenRowCount++] = y;
-        }
-        else
-        {
-            keptTop = y < keptTop ? y : keptTop;
-            keptBottom = y + item->window.rectClient.h > keptBottom ? y + item->window.rectClient.h : keptBottom;
+            Com_PrintWarning(13, "bo1_mac: main menu rows not as expected, left as they are\n");
+            return;
         }
     }
-    if ( !hiddenRowCount || keptTop > keptBottom )
-        return;
-    shift = ((top + bottom) - (keptTop + keptBottom)) * 0.5f;
+    // each item's row: within half a row of its button's y
+    const float pitch = (rowY[5] - rowY[1]) * 0.25f;
+    for ( i = 0; i < menu->itemCount; ++i )
+    {
+        rowOf[i] = 0;
+        item = menu->items[i];
+        if ( !item || item->rectExpData )
+            continue;
+        for ( r = 1; r <= 5; ++r )
+        {
+            if ( item->window.rectClient.y >= rowY[r] - pitch * 0.5f && item->window.rectClient.y < rowY[r] + pitch * 0.5f )
+                rowOf[i] = r;
+        }
+    }
+    // four rows in the middle of the five's place: Zombies, Mods, Settings, Quit
+    float newY[6];
+    newY[3] = rowY[2] - pitch * 0.5f;
+    newY[2] = rowY[3] - pitch * 0.5f;
+    newY[4] = rowY[4] - pitch * 0.5f;
+    newY[5] = rowY[5] - pitch * 0.5f;
+    int modsButtons = 0;
     for ( i = 0; i < menu->itemCount; ++i )
     {
         item = menu->items[i];
-        if ( !item )
+        r = rowOf[i];
+        if ( !r )
             continue;
-        y = item->window.rectClient.y;
-        inHiddenRow = false;
-        for ( k = 0; k < hiddenRowCount; ++k )
-            inHiddenRow = inHiddenRow || fabsf(hiddenRows[k] - y) <= 1.0f;
-        if ( inHiddenRow )
+        if ( r == 1 )
         {
             UI_Port_HideItem(item);
+            continue;
         }
-        else if ( !item->rectExpData && y >= keptTop - 1.0f && y < keptBottom )
+        const float delta = newY[r] - rowY[r];
+        item->window.rectClient.y += delta;
+        item->window.rect.y += delta;
+        if ( r == 2 && UI_Port_MainButton(item) == 2 )
         {
-            item->window.rectClient.y = y + shift;
-            item->window.rect.y = item->window.rect.y + shift;
+            // Multiplayer's button: Mods (its scripts started the MP program: one script instead)
+            if ( item->typeData.textDef )
+                item->typeData.textDef->text = s_portModsText;
+            for ( handler = item->onEvent; handler; handler = handler->next )
+            {
+                if ( !handler->name || I_stricmp(handler->name, "action") || !handler->eventScript )
+                    continue;
+                script = handler->eventScript;
+                script->action = g_modsMenuOpenScript;
+                script->type = 0;
+                script->next = 0;
+            }
+            ++modsButtons;
         }
+    }
+    // the keys move through the items in their order: Mods' row after Zombies'
+    {
+        itemDef_s *items[512];
+        int count = 0;
+        int lastZombies = -1;
+        for ( i = 0; i < menu->itemCount; ++i )
+        {
+            if ( rowOf[i] == 3 )
+                lastZombies = i;
+        }
+        for ( i = 0; i < menu->itemCount; ++i )
+        {
+            if ( rowOf[i] != 2 || lastZombies < 0 )
+                items[count++] = menu->items[i];
+            if ( i == lastZombies )
+            {
+                for ( int k = 0; k < menu->itemCount; ++k )
+                {
+                    if ( rowOf[k] == 2 )
+                        items[count++] = menu->items[k];
+                }
+            }
+        }
+        for ( i = 0; i < count; ++i )
+            menu->items[i] = items[i];
     }
     // it focused main_button1 when it opened
     for ( handler = menu->onEvent; handler; handler = handler->next )
@@ -4053,8 +4109,7 @@ static void UI_Port_PatchMainMenu(UiContext *dc)
             script->action = s_portMainMenuFocus;
         }
     }
-    Com_Printf(13, "bo1_mac: main menu without Campaign and Multiplayer (%d rows hidden, the rest moved by %g)\n",
-        hiddenRowCount, shift);
+    Com_Printf(13, "bo1_mac: main menu: Zombies, Mods (%d buttons), Settings, Quit (Campaign hidden)\n", modsButtons);
 }
 
 void __cdecl UI_LoadIngameMenus(int contextIndex)
@@ -4097,6 +4152,7 @@ void __cdecl UI_LoadIngameMenus(int contextIndex)
             Menus_CloseAll(contextIndex, &uiInfo->uiDC);
             UI_Port_PatchMainMenu(&uiInfo->uiDC);
             UI_Coop_LoadMenus(contextIndex, &uiInfo->uiDC); // co-op: the Online choice's popups
+            UI_Mods_LoadMenus(contextIndex, &uiInfo->uiDC); // mod: the main menu's Mods popup and pages
         }
         // (the front end's menus run update_sv_savegameavailable too: the front end loaded after an error, with
         // zombiemode not set yet, sent it to the server, which printed "Unknown cmd" on the screen)

@@ -1,0 +1,5 @@
+// The Mods menu's entry for this mod (main menu > Mods; the format: README.md, "Mods menu")
+name        "Zombie counter"
+description "While you hold Tab (the scoreboard), the zombies alive and the zombies left this round show beside the round number."
+order       30
+set zinfo 1

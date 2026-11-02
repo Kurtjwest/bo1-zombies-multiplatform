@@ -9,6 +9,8 @@ without that, Five is the unchanged original.
 
 ## Start it
 
+In the game: main menu > **Mods** > Sandbox (the main README.md, "Mods"). From the command line:
+
 The build copies `mods\` next to the exe (`build\Release\mods\sandbox\`). Start Five the way you normally do,
 plus the one setting `+set fs_game mods/sandbox`. In PowerShell, from the build folder:
 

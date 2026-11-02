@@ -1,6 +1,7 @@
 #include "sv_init_mp.h"
 #include <server/server.h>
 #include <qcommon/common.h>
+#include <qcommon/com_mods.h>
 #include <clientscript/cscr_stringlist.h>
 
 #include <cstring>
@@ -632,6 +633,7 @@ void __cdecl    SV_SpawnServer(int controllerIndex, char *server, int mapIsPrelo
     I_strncpyz(sv.gametype, sv_gametype->current.string, 64);
     G_srand(Sys_MillisecondsRaw());
     sv.checksumFeed = Sys_Milliseconds() ^ (G_rand() ^ (G_rand() << 16));
+    Mods_ApplyForMap(server); // mod: the Mods menu's mods (fs_mods, their dvars) for this map, before the search path
     FS_Restart(0, sv.checksumFeed);
 
     if ( !useFastFile->current.enabled )

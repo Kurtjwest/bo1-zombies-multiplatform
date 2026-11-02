@@ -11,6 +11,7 @@
 #include <universal/com_files.h>
 #include <qcommon/threads.h>
 #include <qcommon/com_profilemapload.h>
+#include <qcommon/com_mods.h>
 #include <win32/win_shared.h>
 #include "db_file_load.h"
 #include <win32/win_net.h>
@@ -3727,10 +3728,11 @@ void DB_Init()
         0,
         "debug assets loading type: -1 all; indexes start at 0");
 
-    // mod: the *_MOD pool capacities are used only when bo1_mod_zones is on the command line (as the +256 MB in
-    // physicalmemory.cpp; the pools are set up before the dvars exist). Without it every pool keeps its retail size and
-    // free-list order, so the vanilla game is unchanged.
-    if ( I_stristr(GetCommandLineA(), "bo1_mod_zones") )
+    // mod: the *_MOD pool capacities are used only with extra zones reserved at startup: bo1_mod_zones on the command
+    // line or the Mods menu's (Com_ModStartup_ZonesReserved, as the +256 MB in physicalmemory.cpp; the pools are set up
+    // before the dvars exist). Without them every pool keeps its retail size and free-list order, so the vanilla game
+    // is unchanged.
+    if ( Com_ModStartup_ZonesReserved() )
     {
         g_poolSize[ASSET_TYPE_PHYSPRESET] = POOLSIZE_PHYSPRESET_MOD;
         g_poolSize[ASSET_TYPE_PHYSCONSTRAINTS] = POOLSIZE_PHYSCONSTRAINTS_MOD;
@@ -3754,9 +3756,9 @@ void DB_Init()
     g_freeAssetEntryHead = g_assetEntryPool + 16;
 
     // mod: three or four bo1_mod_zones (mods/nightmare: temple + coast + moon, L60 f3) overflow the retail 32768 entries
-    // ("increase XASSET_ENTRY_POOL_SIZE"); with bo1_mod_zones on the command line the free list runs to 0xFFFF, the
-    // largest index the 16-bit nextHash / nextOverride / db_hashTable links hold. Without it the list is retail's.
-    unsigned int lastEntry = I_stristr(GetCommandLineA(), "bo1_mod_zones") ? 0xFFFF : 0x7FFF;
+    // ("increase XASSET_ENTRY_POOL_SIZE"); with extra zones reserved the free list runs to 0xFFFF, the largest index
+    // the 16-bit nextHash / nextOverride / db_hashTable links hold. Without them the list is retail's.
+    unsigned int lastEntry = Com_ModStartup_ZonesReserved() ? 0xFFFF : 0x7FFF;
     for (i = 1; i < lastEntry; ++i)
     {
         g_assetEntryPool[i].next = &g_assetEntryPool[i + 1];

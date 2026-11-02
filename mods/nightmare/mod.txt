@@ -1,0 +1,41 @@
+// The Mods menu's entry for this mod (main menu > Mods; the format: README.md, "Mods menu"). The settings below are
+// tools/nightmare_flags.js's.
+name        "Nightmare"
+description "Every special enemy, from the first round on: George Romero, the astronaut, napalm and shrieker zombies; on Kino der Toten also hellhound packs, the Pentagon thief and the space monkeys."
+order       20
+map zombie_pentagon "Five"
+map zombie_theater  "Kino der Toten"
+
+// the mod's scripts link these maps' AI scripts: their zones load after the level (memory for them is set aside when
+// the game starts)
+needs zombie_temple     "Shangri-La"
+needs zombie_coast      "Call of the Dead"
+needs zombie_moon       "Moon"
+needs zombie_pentagon   "Five"      map zombie_theater
+needs zombie_cosmodrome "Ascension" map zombie_theater
+startup bo1_mod_zones "zombie_temple zombie_coast zombie_moon zombie_pentagon zombie_cosmodrome"
+set bo1_mod_zones "zombie_temple zombie_coast zombie_moon" map zombie_pentagon
+set bo1_mod_zones "zombie_temple zombie_coast zombie_moon zombie_pentagon zombie_cosmodrome" map zombie_theater
+
+// the counts the scripts pick for the difficulty (nightmare_default): picked again in each game
+clear nightmare_*
+clear horde_enemy_*
+
+option nightmare_level
+{
+    label   "Difficulty"
+    help    "Nightmare: one of each special at a time. Hell: several at once, back sooner."
+    type    choice
+    default 1
+    value 1 "NIGHTMARE"
+    value 2 "HELL"
+}
+
+option nightmare_start_round
+{
+    label   "Specials from round"
+    help    "The first round with the special enemies."
+    type    choice
+    default 1
+    value 1 "1"   value 2 "2"   value 3 "3"   value 5 "5"   value 10 "10"   value 15 "15"   value 20 "20"
+}

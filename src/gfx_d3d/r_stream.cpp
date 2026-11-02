@@ -10,6 +10,7 @@
 #include "r_streamalloc.h"
 #include <win32/win_common.h>
 #include <qcommon/common.h>
+#include <qcommon/com_mods.h>
 #include "r_image_load_obj.h"
 #include <win32/win_net.h>
 #include <universal/com_memory.h>
@@ -104,11 +105,12 @@ int s_numForcedLoadEntities;
 const DObj *s_forcedLoadEntities[4];
 
 StreamFrontendGlob streamFrontendGlob;
-// mod: the image pool is raised to POOLSIZE_IMAGE_MOD only with bo1_mod_zones on the command line (DB_InitXAssets,
-// same gate), so the streaming loops cover the mod pool then and the retail 4224 parts otherwise.
+// mod: the image pool is raised to POOLSIZE_IMAGE_MOD only with extra zones reserved at startup (DB_InitXAssets,
+// same gate: Com_ModStartup_ZonesReserved), so the streaming loops cover the mod pool then and the retail 4224 parts
+// otherwise. Set by R_StreamInit (a static initializer ran before main had the command line on macOS and Linux).
 StreamImageParts s_streamImages;
-int s_streamImageParts = I_stristr(GetCommandLineA(), "bo1_mod_zones") ? STREAM_MAX_IMAGE_PARTS_MOD : STREAM_MAX_IMAGE_PARTS;
-int s_streamImageWords = s_streamImageParts / 32;
+int s_streamImageParts = STREAM_MAX_IMAGE_PARTS;
+int s_streamImageWords = STREAM_MAX_IMAGE_PARTS / 32;
 volatile unsigned int streamDisabledCount;
 bool streamIsInitialized;
 
@@ -779,6 +781,8 @@ void __cdecl R_StreamInit()
 {
     int i; // [esp+0h] [ebp-4h]
 
+    s_streamImageParts = Com_ModStartup_ZonesReserved() ? STREAM_MAX_IMAGE_PARTS_MOD : STREAM_MAX_IMAGE_PARTS; // mod
+    s_streamImageWords = s_streamImageParts / 32;
     R_StreamAlloc_InitTempImages();
     streamFrontendGlob.frame = 0;
     streamFrontendGlob.queryInProgress = 0;

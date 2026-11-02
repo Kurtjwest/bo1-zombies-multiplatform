@@ -1,0 +1,23 @@
+// The Mods menu's entry for this mod (main menu > Mods; the format: README.md, "Mods menu")
+name        "Sandbox"
+description "Five as a test area: the power on, every door open, DEFCON 5, lots of points, and pads in the spawn room that give every perk, power-up and weapon and control the rounds."
+order       50
+map zombie_pentagon "Five"
+
+option sandbox_points
+{
+    label   "Points at the start"
+    type    choice
+    default 500000
+    value 500 "500"   value 5000 "5,000"   value 50000 "50,000"   value 500000 "500,000"
+}
+
+option sandbox_round
+{
+    label   "Set-round pad goes to"
+    help    "The round the set-round pad takes you to."
+    type    choice
+    default 20
+    value 5 "ROUND 5"   value 10 "ROUND 10"   value 15 "ROUND 15"   value 20 "ROUND 20"   value 25 "ROUND 25"
+    value 30 "ROUND 30"   value 40 "ROUND 40"   value 50 "ROUND 50"
+}

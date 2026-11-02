@@ -6,7 +6,7 @@ Tab (the scoreboard), two numbers show at the left, above the round number, in i
 - **zombies alive** - `get_enemy_count()`: zombies, dogs and specials alive now.
 - **left this round** - `level.zombie_total` (not spawned yet) + alive.
 
-Start with `+set fs_game mods/zinfo` or `+set fs_mods zinfo` (stacks with other mods, e.g. `fs_mods horde zinfo`;
+Turn it on in the game's main menu > **Mods** > Zombie counter (the main README.md, "Mods"), or start with `+set fs_game mods/zinfo` or `+set fs_mods zinfo` (stacks with other mods, e.g. `fs_mods horde zinfo`;
 or tick "Tab: zombie counter" in `tools\mod-launcher.hta`). `zinfo 0` in the console hides the counter.
 Script: `maps/zinfo/_zinfo.gsc` sends the numbers with SetClientDvars twice a second; the engine draws them only
 when the mod sets `bo1_mod_tabinfo 1` (src/cgame/cg_sp_hud.cpp, CG_SP_DrawTabInfo).

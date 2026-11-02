@@ -285,3 +285,72 @@ files, so your own game folder and settings stay as they are), the left one on p
 Host in the left window (Online, Host Game, a map), join from the right one (Online, Join Game, `127.0.0.1`), then
 press F in the left one to start. Cmd-Tab (Alt-Tab) switches between them: only the window in front gets the keyboard
 and mouse.
+
+## Mods
+
+The main menu's **Mods** (between Zombies and Settings) lists the mods in the game folder's `mods` folder: each row
+says whether that mod is on. Left and right (arrow keys, d-pad, left stick) turn the selected mod off and on; Enter, a
+click or the gamepad's A opens its page: what it does, the maps it plays on, ON / OFF, and its settings (Enter, A,
+left and right change the selected one). The choices are saved with your settings, and every game you start from the
+menus (Solo, Host Game, Join Game) gets the mods that are on: they are stacked (`fs_mods`) in their order when the map
+loads. A mod made for some maps only is left out of a game on another map (the console says so). Back on the main
+menu the game is the original again.
+
+| mod | what it does | maps |
+|---|---|---|
+| Horde | rounds don't wait for the horde; how many zombies may be alive at once (24 to 1000), start round, spawning from every window | Five, Kino der Toten |
+| Nightmare | every special enemy from the first round (Nightmare or Hell); needs Shangri-La, Call of the Dead and Moon installed (and Ascension for Kino) | Five, Kino der Toten |
+| Zombie counter | holding Tab shows the zombies alive and left this round | every map |
+| No perks | no perk machines | every map |
+| Sandbox | Five as a test area: everything open and pads that give perks, power-ups and weapons | Five |
+
+Some settings need memory or pools that are set aside when the game starts: Nightmare's extra maps, Horde with more
+than 100 zombies. The menu then says "Restart the game to finish turning on ...", and saves what they need in
+`players/mods_startup.cfg`, which the next start reads. Until the restart a game leaves such a mod out, or for a
+setting uses the largest value the running game has room for (Horde: 100 zombies).
+
+In co-op the host's mods run the game, but every player should turn on the same ones: Nightmare's extra maps load on
+each computer.
+
+A command line that picks mods itself (`+set fs_mods ...` or `+set fs_game ...`, as `tools\mod-launcher.hta` does)
+wins: the menu's choices are not used then (the Mods screen says so). A command line that starts a map (`+map`,
+`+devmap`) or a headless run doesn't read `players/mods_startup.cfg` either. In the console, `/bo1_mods` lists the
+mods and their settings, and `/bo1_mods zombie_theater` also shows what a game on that map would get.
+
+### Adding a mod
+
+A mod is a folder in `mods` (the repository's, which the build installs in the game folder, or the game folder's own)
+whose scripts hook into the game through `maps/<folder>/_hooks.gsc` (`mods/_stack/maps/_modstack.gsc` explains the
+hooks), plus a `mod.txt` that puts it in the menu. The folder's name is the mod's name in `fs_mods`: letters, digits
+and `_`. The smallest `mod.txt` (mods/zinfo's):
+
+```
+name        "Zombie counter"
+description "While you hold Tab (the scoreboard), ..."
+order       30
+set zinfo 1
+```
+
+The words of a `mod.txt` (`//` and `/* */` are comments; text with spaces goes in quotes):
+
+- `name "..."`, `description "..."` (three lines of the page at most).
+- `order N`: its place in the menu and in the stack (lower first; the mods' hooks run in that order). Horde 10,
+  Nightmare 20, Zombie counter 30, No perks 40, Sandbox 50; 100 if not given.
+- `map <map> "<label>"`, once per map it plays on (none: every map). `needs <zone> "<label>" [map <map>]`: a zone file
+  that has to be installed (on that map only, if named); without it the mod can't be turned on.
+- `set <dvar> <value> [map <map>]`: set when a game starts (on that map only, if named), back to its earlier value
+  when a game starts without it. Not for saved settings (`seta`). When two mods set the same dvar, the larger number
+  wins, or, for words, every word of each (a zone list).
+- `startup <dvar> <value>`: needed when the game starts (memory, pools); the menu asks for a restart if the running
+  game started with less. `startup bo1_mod_zones "<zones>"` sets aside memory for that many extra zones.
+- `clear <dvar>` or `clear <start>*`: dvars the mod's scripts set (SetDvar) that should be empty again at the start of
+  each game, so a choice made in one game doesn't stay for the next.
+- `option <dvar> { ... }`: a row of its page, saved in that dvar (the one its scripts read):
+  `label "..."`, `help "..."` (shown under the rows), `type toggle | choice | range`, `default <value>`, and its
+  values: `value <value> "<label>"` each, optionally followed by `{ set ... startup ... needs ... }` that apply when
+  that value is the chosen one (a value whose needs aren't installed, or that needs a restart, plays with the settings
+  of the nearest value before it in the list that can); `toggle` without values is OFF 0 / ON 1; `range` with
+  `min`, `max` and `step` makes the values (at most 32).
+
+The menu reads the folder again each time the main menu loads. A `mod.txt` with a mistake is left out, and the console
+(and `console_mp.log`) says which line.
