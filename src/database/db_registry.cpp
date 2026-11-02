@@ -3472,21 +3472,41 @@ void __cdecl DB_LoadXAssets(XZoneInfo *zoneInfo, unsigned int zoneCount, int syn
             }
             levelPatchFirst = patchIndex >= 0 && levelIndex > patchIndex;
         }
+        // mod: bo1_mod_zones (Com_LoadLevelFastFiles) loads more level zones (0x4000) after the level's, each after its
+        // language zone (0x8000) and its _patch zone (0x40000) if it has one. Freed by groups (every 0x4000 zone, then
+        // every 0x8000 one), the second level zone's memory was freed with the first one's language zone still above
+        // it: "free does not match allocation", a fatal error when such a game ended (back to the main menu). With more
+        // than one level zone, the level's groups are freed together, the last loaded first (the stack's own order).
+        const int levelGroups = 0x40000 | 0x80000 | 0x10000 | 0x20000 | 0x4000 | 0x8000;
+        int levelZones = 0;
+        for ( i = 0; i < g_zoneCount; ++i )
+            levelZones += (g_zones[i].flags & 0x4000) != 0;
         for ( j = 0; j < zoneCount; ++j )
         {
-            if ( !levelPatchFirst )
+            if ( levelZones > 1 && (zoneInfo[j].freeFlags & levelGroups) != 0 )
             {
-                DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x40000);
-                DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x80000);
+                for ( i = g_zoneCount - 1; i >= 0; --i )
+                {
+                    if ( (g_zones[i].flags & zoneInfo[j].freeFlags & levelGroups) != 0 )
+                        DB_UnloadXAssetsMemory(&g_zones[i]);
+                }
             }
-            DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x10000);
-            DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x20000);
-            DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x4000);
-            DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x8000);
-            if ( levelPatchFirst )
+            else
             {
-                DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x80000);
-                DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x40000);
+                if ( !levelPatchFirst )
+                {
+                    DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x40000);
+                    DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x80000);
+                }
+                DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x10000);
+                DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x20000);
+                DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x4000);
+                DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x8000);
+                if ( levelPatchFirst )
+                {
+                    DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x80000);
+                    DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x40000);
+                }
             }
             DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 4096);
             DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x2000);
