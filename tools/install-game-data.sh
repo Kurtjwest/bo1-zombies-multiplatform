@@ -1,11 +1,7 @@
 #!/bin/bash
-# tools/install-game-data.sh [GAME_FOLDER] - installs the repository's own game files in the game folder: its mods
-# (mods/) and data/main/ (as main/). The macOS build runs it after every build (cmake/macos.cmake), and setup-mac.sh
-# does too: the app itself holds no game files.
-#
-# The repository's mods are the folders of mods/ that git tracks (with their files git doesn't ignore, new ones too).
-# Anything else in mods/, a map mod put there say, is not the repository's and is not installed: mods of your own go
-# in the game folder's mods/ (only there). In a copy of the repository that isn't a git checkout, all of mods/ is.
+# tools/install-game-data.sh [GAME_FOLDER] - installs the repository's game files in the game folder: mods/ (its own
+# mods and any put there, map mods too) and data/main/ (as main/). The macOS build runs it after every build
+# (cmake/macos.cmake), and setup-mac.sh does too: the app itself holds no game files.
 #
 # GAME_FOLDER: by default the game's own, ~/Library/Application Support/BO1Zombies on macOS
 # (${XDG_DATA_HOME:-~/.local/share}/BO1Zombies elsewhere).
@@ -86,18 +82,9 @@ installed=0
 failed=0
 removed=0
 
-# the repository's game files: NUL-separated paths below it (mods/..., data/main/...)
+# the repository's game files: NUL-separated paths below it (mods/..., data/main/...; no names starting with a dot)
 list_sources() {
-    local tops=() tracked t
-    if command -v git > /dev/null 2>&1 && git -C "$repo" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-        tracked=$(git -C "$repo" ls-files -- mods) || return 1
-        while IFS= read -r t; do
-            tops+=("mods/$t")
-        done < <(echo "$tracked" | sed -n 's|^mods/\([^/]*\)/.*|\1|p' | sort -u)
-        git -C "$repo" ls-files -z --cached --others --exclude-standard -- data/main ${tops[@]+"${tops[@]}"}
-    else
-        (cd "$repo" && find mods data/main -name '.*' -prune -o -type f -print0)
-    fi
+    (cd "$repo" && find mods data/main -name '.*' -prune -o -type f -print0)
 }
 
 if ! list_sources > "$work/sources" || [ ! -s "$work/sources" ]; then

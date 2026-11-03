@@ -2404,9 +2404,49 @@ bool FS_ModStackActive()
     return fs_modsVar && *fs_modsVar->current.string;
 }
 
+// mod: a mod's name for its folder of mods/: the folder's name with every character but letters, digits and '_' as '_'
+// (a folder named "Rust MW2" is the mod Rust_MW2: fs_mods is a list of names, and a name is a script path)
+void FS_ModIdForFolder(const char *folder, char *id, int size)
+{
+    int n = 0;
+    for ( ; *folder && n < size - 1; ++folder )
+        id[n++] = isalnum((unsigned char)*folder) || *folder == '_' ? *folder : '_';
+    id[n] = 0;
+}
+
+// mod: the folder of mods/ a mod's name stands for: mods/<name>, or else the folder whose name it is with other
+// characters as '_' (FS_ModIdForFolder); the name itself if there is none
+static void FS_ModFolderForName(const char *name, char *folder, int size)
+{
+    I_strncpyz(folder, name, size);
+    if ( !fs_basepath || !*(const char *)fs_basepath->current.string )
+        return;
+    char dir[256];
+    Com_sprintf(dir, sizeof(dir), "%s/mods/%s", (const char *)fs_basepath->current.string, name);
+    const DWORD attributes = GetFileAttributesA(dir);
+    if ( attributes != (DWORD)-1 && (attributes & FILE_ATTRIBUTE_DIRECTORY) )
+        return;
+    Com_sprintf(dir, sizeof(dir), "%s/mods", (const char *)fs_basepath->current.string);
+    int count = 0;
+    char **folders = (char **)Sys_ListFiles(dir, nullptr, nullptr, &count, 1);
+    for ( int i = 0; folders && i < count; ++i )
+    {
+        char id[64];
+        FS_ModIdForFolder(folders[i], id, sizeof(id));
+        if ( strcmp(folders[i], id) && !I_stricmp(id, name) )
+        {
+            I_strncpyz(folder, folders[i], size);
+            break;
+        }
+    }
+    if ( folders )
+        FS_FreeFileList((const char **)folders);
+}
+
 // mod: the stacked mods in load order: each fs_mods name once, and fs_game's mod first when it is a mods/<name> folder not
 // named in fs_mods (it is on the search path below them). Separators: space, comma, semicolon; "mods/" prefix optional.
-// Only names a script path can hold (letters, digits, '_') are taken: maps\<name>\_hooks is called by name.
+// Only names a script path can hold (letters, digits, '_') are taken: maps\<name>\_hooks is called by name. What is
+// returned is each one's folder (FS_ModFolderForName: "Rust MW2" for Rust_MW2).
 static int FS_ModStackParse(const char *p, char (*names)[64], int count, int max, bool one)
 {
     while ( *p && count < max )
@@ -2436,11 +2476,13 @@ static int FS_ModStackParse(const char *p, char (*names)[64], int count, int max
         }
         else
         {
+            char folder[64];
+            FS_ModFolderForName(name, folder, sizeof(folder));
             int m = 0;
-            while ( m < count && I_stricmp(names[m], name) )
+            while ( m < count && I_stricmp(names[m], folder) )
                 ++m;
             if ( m == count )
-                I_strncpyz(names[count++], name, 64);
+                I_strncpyz(names[count++], folder, 64);
         }
         if ( one )
             break;

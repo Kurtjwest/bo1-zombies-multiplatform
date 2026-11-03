@@ -5918,6 +5918,8 @@ static float R_SunLightSrgbToLinear(float c)
 
 void __cdecl R_SetSunLightOverride(const float *diffuse, const float *specular)
 {
+    if (!rgp.world) // mod: no world loaded yet (a level's server script can run before the client has the map)
+        return;
     rg.useSunLightOverride = 1;
     float scale = rgp.world->sunParse.sunSettings[0].sunDiffuseColor[3];
     for (int i = 0; i < 3; ++i)

@@ -55,7 +55,9 @@ struct ModMap
 
 struct ModInfo
 {
-    std::string folder; // mods/<folder>, its fs_mods name
+    std::string folder; // its name: fs_mods', the menu's and the dvars' (the folder's name, other characters than
+                        // letters, digits and '_' as '_': FS_ModIdForFolder)
+    std::string dir;    // its folder, mods/<dir> ("Rust MW2" for Rust_MW2)
     std::string name;
     std::string description;
     int order;
@@ -65,7 +67,7 @@ struct ModInfo
     std::vector<ModOption> options;
     std::vector<std::string> clears; // dvars its scripts make (name, or prefix*): empty again when each game starts
     const dvar_s *enabled; // bo1_mods_<folder>
-    // a map mod (a mod-tools map: mods/<folder>/<map>.ff, maybe a mod.ff and .iwd files; mod.txt optional): played from
+    // a map mod (a mod-tools map: mods/<dir>/<map>.ff, maybe a mod.ff and .iwd files; mod.txt optional): played from
     // its page (Play, Host Game), not turned on or off; stacked with fs_mods in every game on its map(s)
     bool mapMod;
     std::string version; // mod.json's "vers"

@@ -4581,7 +4581,7 @@ bool DB_FindModZoneFile(const char *zoneName, char *filename, unsigned int size)
         if ( const ModInfo *mapMod = Mods_MapModFor(zoneName) )
         {
             Com_sprintf(filename, size, "%s/mods/%s/%s.ff", (const char *)fs_basepath->current.string,
-                mapMod->folder.c_str(), zoneName);
+                mapMod->dir.c_str(), zoneName);
             return GetFileAttributesA(filename) != (DWORD)-1;
         }
     }

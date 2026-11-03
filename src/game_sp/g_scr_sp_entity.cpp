@@ -32,6 +32,7 @@
 #include <clientscript/cscr_animtree.h>
 #include <universal/dvar.h>
 #include <game/g_vehicle_path.h>
+#include <gfx_d3d/r_scene.h>
 #include <server/sv_world.h>
 #include <universal/surfaceflags.h>
 #include "g_sp_level_exit.h"
@@ -932,6 +933,31 @@ static void G_f_allowmipstoload()
 {
 }
 
+// mod: setsunlight( <r>, <g>, <b> [, <spec r>, <spec g>, <spec b>] ) and resetsunlight() in a level's server script
+// (Kowloon's lightning, maps/zombie_kow.gsc). SP takes them from a server script as from a client one; here they set
+// the host's own renderer, as the client script builtins do (cg_scr_sp_client.cpp): the server runs in the host's
+// process and thread. The other players of a co-op game don't see it; a dedicated server has no renderer.
+static void G_f_setsunlight()
+{
+    float diffuse[3];
+    float specular[3];
+    for (int i = 0; i < 3; ++i)
+        diffuse[i] = Scr_GetFloat(i, SCRIPTINSTANCE_SERVER);
+    const bool spec = Scr_GetNumParam(SCRIPTINSTANCE_SERVER) == 6;
+    for (int i = 0; i < 3; ++i)
+        specular[i] = spec ? Scr_GetFloat(3 + i, SCRIPTINSTANCE_SERVER) : diffuse[i];
+    if (!IsDedicatedServer())
+        R_SetSunLightOverride(diffuse, specular);
+}
+
+static void G_f_resetsunlight()
+{
+    if (Scr_GetNumParam(SCRIPTINSTANCE_SERVER))
+        Scr_Error("Incorrect number of parameters\n", false);
+    if (!IsDedicatedServer())
+        R_ResetSunLightOverride();
+}
+
 // zombies: distance2dsquared (SP 0x007f92c0): (dy * dy) + (dx * dx), in that order.
 static void G_f_distance2dsquared()
 {
@@ -1830,6 +1856,8 @@ const BuiltinFunctionDef g_sp_entity_functions[] =
     { "codespawnturret", G_f_codespawnturret, 0 },
     { "getvehiclenodearray", G_f_getvehiclenodearray, 0 },
     { "allowmipstoload", G_f_allowmipstoload, 0 },
+    { "setsunlight", G_f_setsunlight, 0 },
+    { "resetsunlight", G_f_resetsunlight, 0 },
     // zombies: SP's clearlocalizedstrings row points at 0x00803f20, the getarraykeys body.
     { "clearlocalizedstrings", GScr_GetArrayKeys, 0 },
     { "distance2dsquared", G_f_distance2dsquared, 0 },

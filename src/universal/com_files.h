@@ -267,7 +267,8 @@ extern const dvar_t *fs_gameDirVar;
 extern const dvar_t *fs_modsVar; // mod: fs_mods (a stack of mods/<name> folders, see FS_Startup)
 bool FS_ModsActive(); // mod: fs_game or fs_mods set (the retail 'fs_game set' gates for reading mod files)
 bool FS_ModStackActive(); // mod: fs_mods set
-int FS_ModStackNames(char (*names)[64], int max); // mod: fs_game's mod (if not listed), then fs_mods, in load order
+int FS_ModStackNames(char (*names)[64], int max); // mod: fs_game's mod (if not listed), then fs_mods, in load order (their folders)
+void FS_ModIdForFolder(const char *folder, char *id, int size); // mod: a mods/ folder's mod name (other characters as '_')
 extern const dvar_t *fs_usermapDir;
 extern const dvar_t *fs_ignoreLocalized;
 extern const dvar_t *fs_homepath;

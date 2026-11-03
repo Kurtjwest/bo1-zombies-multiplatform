@@ -629,25 +629,42 @@ void Mods_Discover()
     char **folders = (char **)Sys_ListFiles(dir, nullptr, nullptr, &count, 1);
     for ( int i = 0; folders && i < count; ++i )
     {
-        const std::string folder = folders[i];
-        // (mods/_stack is the hooks every stack needs; a mod name is a script path: letters, digits, '_')
-        if ( folder.empty() || folder[0] == '_' || !IsDvarName(folder) )
+        const std::string dirName = folders[i];
+        // (mods/_stack is the hooks every stack needs; a mod's name is a script path: letters, digits, '_', so a folder
+        // with other characters in its name is the mod with them as '_': "Rust MW2" is Rust_MW2)
+        if ( dirName.empty() || dirName[0] == '_' || dirName[0] == '.' )
             continue;
-        const std::string modDir = std::string(dir) + "/" + folder;
+        char id[64];
+        FS_ModIdForFolder(dirName.c_str(), id, sizeof(id));
+        const std::string folder = id;
+        if ( !IsDvarName(folder) )
+            continue;
+        bool taken = false;
+        for ( const ModInfo &m : mods )
+            taken = taken || !I_stricmp(m.folder.c_str(), folder.c_str());
+        if ( taken )
+        {
+            Com_PrintWarning(10, "mods: mods/%s is the mod %s too: left out (rename one of the folders)\n",
+                dirName.c_str(), folder.c_str());
+            continue;
+        }
+        const std::string modDir = std::string(dir) + "/" + dirName;
         const std::string text = Mod_ReadFile(modDir + "/mod.txt");
         ModInfo mod;
-        if ( !text.empty() && !Mod_Parse(folder, "mods/" + folder + "/mod.txt", text, mod) )
+        if ( !text.empty() && !Mod_Parse(folder, "mods/" + dirName + "/mod.txt", text, mod) )
         {
-            Com_PrintWarning(10, "mods: mods/%s/mod.txt has errors, the mod is not in the Mods menu\n", folder.c_str());
+            Com_PrintWarning(10, "mods: mods/%s/mod.txt has errors, the mod is not in the Mods menu\n", dirName.c_str());
             continue;
         }
         if ( text.empty() )
         {
-            mod.folder = mod.name = folder;
+            mod.folder = folder;
+            mod.name = dirName;
             mod.order = 100;
             mod.enabled = nullptr;
             mod.mapMod = false;
         }
+        mod.dir = dirName;
         // a map mod (with or without a mod.txt): its zone files; mod.json's text unless the mod.txt has one
         Mod_FindMaps(modDir, mod);
         if ( text.empty() && !mod.mapMod )
