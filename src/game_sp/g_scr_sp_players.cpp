@@ -645,6 +645,7 @@ const BuiltinMethodDef g_sp_players_methods[] =
     { "visionsetlaststand", PlayerCmdSP_visionsetlaststand, 0 },
     { "setmaxhealth", PlayerCmdSP_setmaxhealth, 0 },
     { "hideviewmodel", PlayerCmdSP_hideviewmodel, 0 },
+    { "forceviewmodelanimation", PlayerCmdSP_forceviewmodelanimation, 0 }, // mod (map mods: Perish)
     { "showviewmodel", PlayerCmdSP_showviewmodel, 0 },
     { "reloadbuttonpressed", PlayerCmdSP_reloadbuttonpressed, 0 },
     { "allowpickupweapons", PlayerCmdSP_allowpickupweapons, 0 },

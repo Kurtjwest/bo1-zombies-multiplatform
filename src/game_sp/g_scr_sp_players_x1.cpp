@@ -38,6 +38,7 @@
 #include <clientscript/scr_const.h>
 #include <aim_assist/aim_assist.h>
 #include <qcommon/cm_trace.h>
+#include <xanim/xanim.h>
 #include <qcommon/common.h>
 #include <universal/dvar.h>
 #include <universal/q_shared.h>
@@ -199,6 +200,62 @@ void PlayerCmdSP_setmaxhealth(scr_entref_t entref)
 
 // ---------------------------------------------------------------------------------------------
 // view model / buttons / pickups
+
+// mod (map mods): forceviewmodelanimation <weapon> <anim>. An SP player method no retail zombies script calls, so the
+// port lacked it; Perish's scripts call it ("nvg_down" to inspect a special melee weapon, "nvg_up" when a time trial
+// weapon is bought), and a script calling a builtin that doesn't exist doesn't compile. Not taken from the SP exe (no
+// copy at hand): it plays the weapon's night vision wear ("nvg_down") or remove ("nvg_up") viewmodel animation, the
+// two a mod weapon can fill with animations of its own, the way the night vision toggle plays them: weapon state
+// WEAPON_NIGHTVISION_WEAR / _REMOVE for the weapon's nightVisionWearTime / nightVisionRemoveTime (or the animation's
+// length), its anim 0x29 / 0x2A (the viewmodel's 40 / 41, CG_UpdateWeaponViewmodels), then back to ready
+// (PM_Weapon_FinishNightVisionWear / _Remove). Only while <weapon> is the current weapon and ready; otherwise (a weapon
+// just given, still switching in) nothing happens.
+void PlayerCmdSP_forceviewmodelanimation(scr_entref_t entref)
+{
+    gentity_s *ent = SP_Player(entref);
+    if (!ent)
+        return;
+    const char *weaponName = Scr_GetString(0, SCRIPTINSTANCE_SERVER);
+    const char *animName = Scr_GetString(1, SCRIPTINSTANCE_SERVER);
+    weaponstate_t state;
+    int anim, viewAnim;
+    if (!I_stricmp(animName, "nvg_down"))
+    {
+        state = WEAPON_NIGHTVISION_WEAR;
+        anim = 0x29;
+        viewAnim = 40;
+    }
+    else if (!I_stricmp(animName, "nvg_up"))
+    {
+        state = WEAPON_NIGHTVISION_REMOVE;
+        anim = 0x2A;
+        viewAnim = 41;
+    }
+    else
+    {
+        Com_PrintWarning(23, "ForceViewmodelAnimation: animation '%s' isn't supported here (nvg_down, nvg_up)\n", animName);
+        return;
+    }
+    playerState_s *ps = &ent->client->ps;
+    const int weapon = BG_GetWeaponIndexForName(weaponName);
+    if (!weapon || ps->weapon != weapon || ps->weaponstate != WEAPON_READY)
+        return;
+    const WeaponDef *weapDef = BG_GetWeaponDef(weapon);
+    int time = state == WEAPON_NIGHTVISION_WEAR ? weapDef->nightVisionWearTime : weapDef->nightVisionRemoveTime;
+    if (time <= 0)
+    {
+        const WeaponVariantDef *variant = BG_GetWeaponVariantDef(weapon);
+        const char *xanim = variant && variant->szXAnims ? (const char *)variant->szXAnims[viewAnim] : nullptr;
+        const XAnimParts *parts = xanim && *xanim ? XAnimFindData_FastFile(xanim) : nullptr;
+        if (parts && !parts->isDefault && parts->frequency > 0.0f)
+            time = (int)(1000.0f / parts->frequency);
+    }
+    if (time <= 0)
+        return;
+    ps->weaponstate = state;
+    ps->weaponTime = time;
+    PM_StartWeaponAnim(ps, anim, 0);
+}
 
 // zombies: hideviewmodel (SP 0x007d6ff0). SP sends '}' to the client; KB's cgame has no handler for
 // it yet (client side is outside this lane).

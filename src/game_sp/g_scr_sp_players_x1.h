@@ -28,6 +28,7 @@ void PlayerCmdSP_stoprevive(scr_entref_t entref);
 void PlayerCmdSP_visionsetlaststand(scr_entref_t entref);
 void PlayerCmdSP_setmaxhealth(scr_entref_t entref);
 void PlayerCmdSP_hideviewmodel(scr_entref_t entref);
+void PlayerCmdSP_forceviewmodelanimation(scr_entref_t entref); // mod (map mods)
 void PlayerCmdSP_showviewmodel(scr_entref_t entref);
 void PlayerCmdSP_reloadbuttonpressed(scr_entref_t entref);
 void PlayerCmdSP_allowpickupweapons(scr_entref_t entref);
