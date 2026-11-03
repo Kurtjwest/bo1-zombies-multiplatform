@@ -90,14 +90,24 @@ target_link_options(${BIN_NAME} PRIVATE
     "-Wl,-stack_size,0x2000000"
 )
 
-# ---- the repository's own game files (mods/, data/main/) inside the app: it installs them into its game folder,
-# ~/Library/Application Support/BO1Zombies, when it starts (main_posix.cpp). Rebuilt every build: a file removed from
-# the repository leaves the bundle, and the app then removes it from the game folder too. ----
-add_custom_target(bundle_game_data ALL
+# ---- the repository's own game files (mods/, data/main/): not in the app, which holds only the game's code. A build
+# on a Mac installs them straight into the game folder, ~/Library/Application Support/BO1Zombies
+# (tools/install-game-data.sh, at every build: what changed, cloned on the same volume; what the repository no
+# longer has is removed there too), and so does setup-mac.sh. A cross-compiled build (cmake/toolchain-macos.cmake)
+# leaves that to setup-mac.sh on the Mac. ----
+# (earlier builds put a copy of them in the app, which installed it when it started: removed from it)
+add_custom_target(app_without_game_data ALL
     COMMAND ${CMAKE_COMMAND} -E ${BO1_RM_DIR} "$<TARGET_BUNDLE_CONTENT_DIR:${BIN_NAME}>/Resources/gamedata"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/mods"
-        "$<TARGET_BUNDLE_CONTENT_DIR:${BIN_NAME}>/Resources/gamedata/mods"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/data/main"
-        "$<TARGET_BUNDLE_CONTENT_DIR:${BIN_NAME}>/Resources/gamedata/main"
-    COMMENT "Bundling mods/ and data/main/ into the app")
-add_dependencies(bundle_game_data ${BIN_NAME})
+    VERBATIM)
+add_dependencies(app_without_game_data ${BIN_NAME})
+if(CMAKE_HOST_APPLE AND NOT CMAKE_CROSSCOMPILING)
+    option(BO1_INSTALL_GAME_DATA "Install the repository's mods/ and data/main/ in the game folder at every build" ON)
+    set(BO1_GAME_FOLDER "$ENV{HOME}/Library/Application Support/BO1Zombies" CACHE PATH
+        "The game folder the build installs the repository's mods/ and data/main/ in")
+    if(BO1_INSTALL_GAME_DATA)
+        add_custom_target(install_game_data ALL
+            COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/install-game-data.sh" "${BO1_GAME_FOLDER}"
+            COMMENT "Installing mods/ and data/main/ in the game folder"
+            VERBATIM)
+    endif()
+endif()

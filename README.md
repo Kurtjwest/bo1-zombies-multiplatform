@@ -131,10 +131,12 @@ the zombies menu the way `Play.bat` does on Windows; engine arguments work as on
 
 The game folder is `~/Library/Application Support/BO1Zombies`. The game reads the original game's files there and
 writes everything there (settings and saves in `players/`, logs, screenshots, the shader cache), and nowhere else, so
-the app runs from any folder with nothing next to it (drag it to /Applications, say). The repository's own files
-(`mods/`, `data/main/`) are built into the app, which installs them in the game folder when it starts: change them in
-the repository and rebuild (the app replaces the copies in the game folder that differ from its own, and removes the
-ones a later build no longer has unless you changed them; links in the game folder are left alone).
+the app runs from any folder with nothing next to it (drag it to /Applications, say). The app holds only the game's
+code: the repository's own files (`mods/`, `data/main/`) are installed in the game folder by every build, and by
+`./setup-mac.sh` (`tools/install-game-data.sh`): change them in the repository and rebuild (the files that differ are
+copied, cloned on the same volume, so a map mod takes no more room; the ones the repository no longer has are removed
+unless you changed them; links in the game folder are left alone). `-DBO1_INSTALL_GAME_DATA=OFF` turns that off for a
+build, and a build cross-compiled on Linux leaves it to `./setup-mac.sh` on the Mac.
 Of the install, setup takes only what the game reads: `zone/`, `main/` (the `.iwd` files and the videos),
 `localization.txt` and its `mods/` if it has one; its Windows programs and DLLs, `Redist`, `players/` (the Windows
 game's settings), Steam's, the uninstaller's and other launchers' files stay out.
@@ -327,9 +329,9 @@ mods and their settings, and `/bo1_mods zombie_theater` also shows what a game o
 
 A custom zombies map made with the Black Ops mod tools, such as Perish, comes as a folder: the map's zone
 (`zombie_perish.ff`), usually `mod.ff` (its own scripts, weapons and sounds), `.iwd` files, `video/<map>_load.bik` and
-`mod.json`. Put the folder as it comes in `mods`: the repository's (the build puts it in the app, which installs it in
-the game folder; big files are cloned on macOS, copied once elsewhere) or straight in the game folder's `mods`, which
-saves the build the copy. It needs no `mod.txt`: the Mods menu lists it as MAP, with the name and description from
+`mod.json`. Put the folder as it comes in `mods`: the repository's (on macOS the build installs it in the game folder,
+cloned: no more room taken on the same volume; on Linux the build puts it in `gamedata/`, and the game copies it from
+there once) or straight in the game folder's `mods`, which saves the copy. It needs no `mod.txt`: the Mods menu lists it as MAP, with the name and description from
 `mod.json`, and its page has **PLAY SOLO** and **HOST GAME** (co-op as in Co-op above: the others pick Join Game, and
 each needs the map in their own `mods` folder).
 

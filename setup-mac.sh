@@ -3,8 +3,9 @@
 #
 #     ~/Library/Application Support/BO1Zombies
 #
-# The game reads and writes nothing outside that folder, so BO1Zombies.app runs from anywhere with nothing next to it
-# (the repository's own files, mods/ and data/main/, are inside the app, which installs them there itself).
+# The game reads and writes nothing outside that folder, so BO1Zombies.app runs from anywhere with nothing next to it.
+# The app holds only the game's code: the repository's own files, mods/ and data/main/, are installed in the game
+# folder by every build, and by this script (tools/install-game-data.sh).
 #
 #   ./setup-mac.sh "/path/to/Call of Duty Black Ops"          copies the game files there (about 11 GB)
 #   ./setup-mac.sh --move "/path/to/Call of Duty Black Ops"   moves them there instead (instant on the same disk)
@@ -18,8 +19,8 @@
 #
 # Earlier versions of this script copied the game files next to the app, into build-mac/, and the game kept its
 # settings and saves there too (players/). Every run first moves those from build-mac/ (and build-mac-*/) to the game
-# folder, leaving the build (and the build's old copy of the repository's mods/: the app installs the current one
-# itself). A folder an earlier version of the app was pointed at in its folder picker is set up from too: its settings
+# folder, leaving the build (and the build's old copy of the repository's mods/: the current one is installed in the
+# game folder by the build and by this script). A folder an earlier version of the app was pointed at in its folder picker is set up from too: its settings
 # and saves are copied, and its game files if they are still needed. What earlier versions put in the game folder that
 # the game has no use for (a build's own files, the parts of an install that are now left out) is removed from it.
 set -euo pipefail
@@ -344,6 +345,9 @@ if [ ${#removed[@]} -gt 0 ]; then
     done
 fi
 
+# ---- 5. the repository's own files (mods/, data/main/), which every build installs too
+bash tools/install-game-data.sh "$game" || echo "(some of the repository's files could not be installed)" >&2
+
 # ---- what happened, and what's next
 if [ ${#kept[@]} -gt 0 ]; then
     echo
@@ -363,7 +367,7 @@ if [ ${#left[@]} -gt 0 ]; then
     echo "Left in the build folder, as the game has no use for them (delete them if you like):"
     for k in "${left[@]}"; do echo "  $k"; done
     if [ "$old_mods" = 1 ]; then
-        echo "(mods there is an old copy of the repository's mods/: the app installs the current one itself)"
+        echo "(mods there is an old copy of the repository's mods/: the current one is installed in the game folder)"
     fi
 fi
 
@@ -375,11 +379,8 @@ if ! has_game_files; then
     exit 1
 fi
 echo "The game folder is ready: $shown ($(du -sh "$game" | cut -f1))"
-if [ -d build-mac/BO1Zombies.app/Contents/Resources/gamedata ]; then
+if [ -d build-mac/BO1Zombies.app ]; then
     echo "Start build-mac/BO1Zombies.app. It needs nothing next to it, so it can go anywhere (/Applications, say)."
-elif [ -d build-mac/BO1Zombies.app ]; then
-    echo "build-mac/BO1Zombies.app is an older build, which looks for the game files next to itself:"
-    echo "rebuild it with ./build-mac.sh"
 else
     echo "Next: ./build-mac.sh builds build-mac/BO1Zombies.app"
 fi

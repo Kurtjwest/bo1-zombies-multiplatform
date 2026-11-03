@@ -1,16 +1,16 @@
 // Entry point of the native macOS and Linux builds. Sets up the Win32 compatibility layer, installs the build's own
-// game files into the game folder, makes that folder the working directory, and runs the engine's own WinMain on the
-// main thread (which is also the event thread of the windowing system, as the Windows message loop is there).
+// game files into the game folder (Linux), makes that folder the working directory, and runs the engine's own WinMain
+// on the main thread (which is also the event thread of the windowing system, as the Windows message loop is there).
 //
 // The game folder is the user's data folder for the game, and the game reads and writes nothing outside it:
 //   - macOS: the app's Application Support folder, ~/Library/Application Support/BO1Zombies
 //   - Linux: $XDG_DATA_HOME/BO1Zombies, by default ~/.local/share/BO1Zombies
 // It holds
 //   - the original game's files (zone/, main/*.iwd, ...): put there by setup-mac.sh / setup-linux.sh
-//   - the repository's own files (mods/, main/playlists_sp.info): inside the app (Contents/Resources/gamedata) on
-//     macOS, in gamedata/ next to the executable on Linux, installed into the game folder at every start where they
-//     are missing or changed (and removed again when a later build no longer has them, unless they were changed:
-//     .bundled-files lists what was installed)
+//   - the repository's own files (mods/, main/playlists_sp.info): on macOS installed there by the build and by
+//     setup-mac.sh (tools/install-game-data.sh; the app holds only the game's code); on Linux in gamedata/ next to the
+//     executable, installed into the game folder at every start where they are missing or changed (and removed again
+//     when a later build no longer has them, unless they were changed: .bundled-files lists what was installed)
 //   - what the game writes: players/ (settings, profiles), main/ (console_mp.log, games_mp.log), screenshots/, the
 //     shader cache (shadercache/)
 // so the game runs from any folder, with nothing next to it but its own files. --gamedir <path> (or
@@ -41,9 +41,6 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
-#if defined(__APPLE__)
-#include <sys/clonefile.h>
-#endif
 
 #include <map>
 #include <set>
@@ -130,6 +127,10 @@ std::string ShortPath(const std::string &p)
         return "~" + p.substr(n);
     return p;
 }
+
+#if !defined(__APPLE__)
+// ---- Linux: the build's own game files (gamedata/ next to the executable) installed into the game folder. (On macOS
+// the build installs them itself: tools/install-game-data.sh.)
 
 bool ReadWholeFile(const std::string &path, std::vector<char> &out)
 {
@@ -219,8 +220,8 @@ uint64_t ContentHash(const std::vector<char> &data)
 
 // Files this big (a map mod's zones, .iwd files and videos: mods/Perish has 1.1 GB) are not read whole to see whether
 // they changed: one the app installed counts as unchanged while its size and modification time are still those of the
-// app's copy (which the app gives it when it installs it), and it is copied without being held in memory (on macOS
-// cloned, which takes no room on the same volume). .bundled-files keeps a hash of its size and time.
+// app's copy (which the app gives it when it installs it), and it is copied without being held in memory.
+// .bundled-files keeps a hash of its size and time.
 const off_t kBigFile = 16 << 20;
 
 uint64_t StampHash(const struct stat &st)
@@ -238,27 +239,19 @@ uint64_t StampHash(const struct stat &st)
 bool CopyBigFile(const std::string &src, const std::string &dst, const struct stat &srcStat)
 {
     unlink(dst.c_str());
-    bool ok = false;
-#if defined(__APPLE__)
-    ok = clonefile(src.c_str(), dst.c_str(), 0) == 0;
-#endif
-    if (!ok)
-    {
-        unlink(dst.c_str());
-        FILE *in = (fopen)(src.c_str(), "rb");
-        FILE *out = in ? (fopen)(dst.c_str(), "wb") : nullptr;
-        ok = in && out;
-        std::vector<char> buf(4 << 20);
-        size_t n;
-        while (ok && (n = fread(buf.data(), 1, buf.size(), in)) > 0)
-            ok = fwrite(buf.data(), 1, n, out) == n;
-        if (in && ferror(in))
-            ok = false;
-        if (in)
-            fclose(in);
-        if (out && fclose(out) != 0)
-            ok = false;
-    }
+    FILE *in = (fopen)(src.c_str(), "rb");
+    FILE *out = in ? (fopen)(dst.c_str(), "wb") : nullptr;
+    bool ok = in && out;
+    std::vector<char> buf(4 << 20);
+    size_t n;
+    while (ok && (n = fread(buf.data(), 1, buf.size(), in)) > 0)
+        ok = fwrite(buf.data(), 1, n, out) == n;
+    if (in && ferror(in))
+        ok = false;
+    if (in)
+        fclose(in);
+    if (out && fclose(out) != 0)
+        ok = false;
     struct timeval times[2] = { { srcStat.st_atime, 0 }, { srcStat.st_mtime, 0 } };
     return ok && utimes(dst.c_str(), times) == 0;
 }
@@ -466,6 +459,7 @@ void InstallBundledGameData(const std::string &gameDir)
         fprintf(stderr, "[gamedir] %s: %d of the app's files installed, %d it no longer has removed%s\n",
                 gameDir.c_str(), state.installed, state.removed, state.failed ? "; some could not be written" : "");
 }
+#endif // !__APPLE__
 
 void AppendArg(std::string &cmd, const std::string &arg)
 {
@@ -531,7 +525,9 @@ int main(int argc, char **argv)
             Bridge_MessageBox("BO1 Zombies", "Can't create the game's folder in " BO1_GAME_FOLDER_PARENT ".", 0, 2);
             return 1;
         }
+#if !defined(__APPLE__)
         InstallBundledGameData(gameDir);
+#endif
         if (!LooksLikeGameDir(gameDir, true))
         {
             std::string msg =
