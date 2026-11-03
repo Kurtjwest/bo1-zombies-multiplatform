@@ -80,6 +80,7 @@ void __cdecl Image_SetupRenderTarget(
 void __cdecl Image_PicmipForSemantic(unsigned __int8 semantic, Picmip *picmip);
 void __cdecl R_DelayLoadImage(XAssetHeader header, void *data);
 char __cdecl Image_AssignDefaultTexture(GfxImage *image);
+void __cdecl Image_HandleMissingFile(GfxImage *image);
 char __cdecl R_DuplicateTexture(GfxImage *dstImage, const GfxImage *srcImage);
 void __cdecl Load_Texture(GfxTexture *remoteLoadDef, GfxImage *image);
 GfxImage *__cdecl Image_FindExisting(const char *name);

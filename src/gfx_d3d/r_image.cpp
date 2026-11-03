@@ -753,6 +753,17 @@ char __cdecl R_DuplicateTexture(GfxImage *dstImage, const GfxImage *srcImage)
     return 1;
 }
 
+// A fastfile's image whose file (images/<name>.iwi, in an .iwd) could not be loaded. The game errors out here
+// ("Couldn't load image"); map mods are made with game_mod, which only warns (and leaves the image without a
+// texture), and some ship without an image their fastfile names: Rust (MW2) lacks me_cargocontainerinteriordoor_nml
+// and ~-gme_cargocontainerinteriordoor_col. Such an image is given the texture a delayed load gives a missing one
+// (R_DelayLoadImage): a flat normal map, no specular, else white. (Not a 2D image: none, as with game_mod.)
+void __cdecl Image_HandleMissingFile(GfxImage *image)
+{
+    Com_PrintWarning(8, "WARNING: using a default texture for image '%s'\n", BO1_VA(image->name));
+    Image_AssignDefaultTexture(image);
+}
+
 void __cdecl Load_Texture(GfxTexture *remoteLoadDef, GfxImage *image)
 {
     unsigned int v2; // [esp+0h] [ebp-68h]
@@ -906,7 +917,7 @@ void __cdecl Load_Texture(GfxTexture *remoteLoadDef, GfxImage *image)
                 image->cardMemory.platform[0] = 0;
                 image->cardMemory.platform[1] = 0;
                 if ( !Image_LoadFromFile(image, 0) )
-                    Com_Error(ERR_DROP, "Couldn't load image '%s'\n", BO1_VA(image->name));
+                    Image_HandleMissingFile(image);
                 DB_LoadedExternalData(externalDataSize);
             }
         }
@@ -1137,7 +1148,7 @@ void __cdecl Image_Reload(GfxImage *image)
         __debugbreak();
     Image_Release(image);
     if ( !Image_LoadFromFile(image, image->skippedMipLevels == 0) )
-        Com_Error(ERR_DROP, "failed to load image '%s'", BO1_VA(image->name));
+        Image_HandleMissingFile(image);
 }
 
 void __cdecl R_EnumImages(void (__cdecl *func)(GfxImage *, void *), void *data)
