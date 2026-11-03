@@ -3,6 +3,7 @@
 #include "r_cinematic.h"
 #include <win32/win_main.h>
 #include <qcommon/common.h>
+#include <universal/com_files.h>
 #include <dsound.h>
 #include <win32/win_wndproc.h>
 #include "r_init.h"
@@ -1446,7 +1447,29 @@ bool __cdecl R_Cinematic_BinkOpen(const char *filename, char playbackFlags, char
     }
     if ( R_Cinematic_BinkOpenPath(filepath[0], playbackFlags, errText, errTextSize) )
         return 1;
-    return filepath[1][0] && R_Cinematic_BinkOpenPath(filepath[1], playbackFlags, errText, errTextSize);
+    if ( filepath[1][0] && R_Cinematic_BinkOpenPath(filepath[1], playbackFlags, errText, errTextSize) )
+        return 1;
+    // mod: a mod's own videos (a map mod's loading video, mods/<name>/video/<map>_load.bik): fs_game's folder, then
+    // each mod stacked with fs_mods, the last first
+    if ( (playbackFlags & 8) == 0 )
+    {
+        char names[16][64];
+        char path[256];
+        const char *game = fs_gameDirVar ? (const char *)fs_gameDirVar->current.string : "";
+        if ( *game )
+        {
+            _snprintf(path, sizeof(path), "%s\\%s\\video\\%s.%s", cwd, game, filename, "bik");
+            if ( GetFileAttributesA(path) != (DWORD)-1 && R_Cinematic_BinkOpenPath(path, playbackFlags, errText, errTextSize) )
+                return 1;
+        }
+        for ( int m = FS_ModStackNames(names, 16) - 1; m >= 0; --m )
+        {
+            _snprintf(path, sizeof(path), "%s\\mods\\%s\\video\\%s.%s", cwd, names[m], filename, "bik");
+            if ( GetFileAttributesA(path) != (DWORD)-1 && R_Cinematic_BinkOpenPath(path, playbackFlags, errText, errTextSize) )
+                return 1;
+        }
+    }
+    return 0;
 }
 
 char __cdecl R_Cinematic_BinkOpenPath(

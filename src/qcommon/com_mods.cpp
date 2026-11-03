@@ -9,6 +9,7 @@
 #include <universal/com_files.h>
 #include <database/db_registry.h>
 #include <win32/win_common.h>
+#include "bo1_inflate.h"
 
 #include <algorithm>
 #include <cctype>
@@ -22,7 +23,7 @@
 
 static bool s_startupInit;
 static bool s_cmdlineMods;
-static int s_cmdlineZones; // words after bo1_mod_zones on the command line
+static int s_cmdlineZones; // words after bo1_mod_zones on the command line (or bo1_mod_memory's MB as zones)
 static int s_fileZones;    // "zones N" in the startup file
 static std::string s_setArgs;
 
@@ -73,6 +74,13 @@ void Com_ModStartup_Init(const char *cmdline)
     if ( !cmdline )
         cmdline = "";
     s_cmdlineZones = CmdLine_ModZones(cmdline);
+    // bo1_mod_memory <MB>: memory for a map mod on the command line (+set fs_mods Perish +set bo1_mod_memory 384)
+    if ( const char *mem = CmdLine_FindWord(cmdline, "bo1_mod_memory") )
+    {
+        const int mb = atoi(mem + strlen("bo1_mod_memory"));
+        const int zones = mb <= 0 ? 0 : mb <= 256 ? 1 : (mb + 127) / 128;
+        s_cmdlineZones = zones > s_cmdlineZones ? zones : s_cmdlineZones;
+    }
     s_cmdlineMods = CmdLine_FindWord(cmdline, "fs_mods") || CmdLine_FindWord(cmdline, "fs_game");
     // a launcher's mods, a map started from the command line or a test run: the game starts as asked
     if ( s_cmdlineMods || CmdLine_FindWord(cmdline, "map") || CmdLine_FindWord(cmdline, "devmap")
@@ -443,6 +451,7 @@ static bool Mod_Parse(const std::string &folder, const std::string &file, const 
     mod.name = folder;
     mod.order = 100;
     mod.enabled = nullptr;
+    mod.mapMod = false;
     while ( !t.failed && t.more() )
     {
         const std::string k = t.next();
@@ -452,13 +461,15 @@ static bool Mod_Parse(const std::string &folder, const std::string &file, const 
             mod.description = t.next();
         else if ( k == "order" )
             mod.order = atoi(t.next().c_str());
+        else if ( k == "version" )
+            mod.version = t.next();
         else if ( k == "map" )
         {
             ModMap m;
             m.name = t.next();
             // (the label is optional: the next word is a keyword or a map's label)
             static const char *const keywords[] = { "name", "description", "order", "map", "needs", "set", "startup", "option",
-                "clear" };
+                "clear", "version" };
             bool keyword = !t.more();
             for ( const char *kw : keywords )
                 keyword = keyword || t.peek() == kw;
@@ -502,11 +513,111 @@ static void Mod_RememberStartup(const std::vector<ModSetting> &settings)
 {
     for ( const ModSetting &s : settings )
     {
-        if ( !s.startup || s.dvar == "bo1_mod_zones" || s_sessionStartup.count(s.dvar) )
+        if ( !s.startup || s.dvar == "bo1_mod_zones" || s.dvar == "bo1_mod_memory" || s_sessionStartup.count(s.dvar) )
             continue;
         const dvar_s *d = Dvar_FindVar(s.dvar.c_str());
         s_sessionStartup[s.dvar] = d ? Dvar_DisplayableValue(d) : "";
     }
+}
+
+// the memory a zone's blocks take when it loads (the XFile header at the start of its compressed data), 0 if unknown
+static unsigned int Mod_ZoneMemory(const std::string &path)
+{
+    FILE *f = fopen(path.c_str(), "rb");
+    if ( !f )
+        return 0;
+    unsigned char in[4096];
+    const size_t n = fread(in, 1, sizeof(in), f);
+    fclose(f);
+    if ( n < 64 || memcmp(in, "IWff", 4) )
+        return 0;
+    unsigned int header[9] = {}; // size, externalSize, blockSize[7]
+    z_stream s;
+    memset(&s, 0, sizeof(s));
+    s.next_in = in + 12;
+    s.avail_in = (uInt)(n - 12);
+    s.next_out = (Bytef *)header;
+    s.avail_out = sizeof(header);
+    if ( Bo1_InflateInit2(&s, MAX_WBITS) != Z_OK )
+        return 0;
+    Bo1_Inflate(&s, Z_SYNC_FLUSH);
+    const bool ok = s.avail_out == 0;
+    Bo1_InflateEnd(&s);
+    if ( !ok )
+        return 0;
+    unsigned long long total = 0;
+    for ( int b = 2; b < 9; ++b )
+        total += header[b];
+    return total > 0xFFFFFFFFull ? 0xFFFFFFFFu : (unsigned int)total;
+}
+
+// a map mod's maps: its zone files but mod.ff, a language's (en_<zone>), _patch and _load ones; its memory need beyond
+// what a retail map has (Kino 103 MB, the memory is sized for ~110), with room to spare
+static void Mod_FindMaps(const std::string &dir, ModInfo &mod)
+{
+    static const char *const languages[] = { "en_", "fr_", "de_", "it_", "es_", "ru_", "pl_", "ja_", "ko_", "tw_", "cn_",
+        "cz_", "br_", "th_", "le_", "fy_" };
+    int count = 0;
+    char **files = (char **)Sys_ListFiles((char *)dir.c_str(), (char *)"ff", nullptr, &count, 0);
+    std::vector<std::string> maps;
+    bool modZone = false;
+    for ( int i = 0; files && i < count; ++i )
+    {
+        std::string name = files[i];
+        if ( name.size() < 4 || I_stricmp(name.c_str() + name.size() - 3, ".ff") )
+            continue;
+        name.resize(name.size() - 3);
+        if ( !I_stricmp(name.c_str(), "mod") )
+        {
+            modZone = true;
+            continue;
+        }
+        bool skip = !IsDvarName(name) || (name.size() > 6 && (!I_stricmp(name.c_str() + name.size() - 6, "_patch")))
+                    || (name.size() > 5 && !I_stricmp(name.c_str() + name.size() - 5, "_load"));
+        for ( const char *l : languages )
+            skip = skip || !I_strnicmp(name.c_str(), l, 3);
+        if ( !skip )
+            maps.push_back(name);
+    }
+    if ( files )
+        FS_FreeFileList((const char **)files);
+    if ( maps.empty() )
+        return;
+    std::sort(maps.begin(), maps.end());
+    mod.mapMod = true;
+    unsigned long long biggest = 0;
+    for ( const std::string &m : maps )
+    {
+        bool listed = false;
+        for ( const ModMap &mm : mod.maps )
+            listed = listed || !I_stricmp(mm.name.c_str(), m.c_str());
+        if ( !listed )
+            mod.maps.push_back({ m, maps.size() == 1 ? mod.name : m });
+        const unsigned long long need = Mod_ZoneMemory(dir + "/" + m + ".ff");
+        biggest = need > biggest ? need : biggest;
+    }
+    const unsigned long long modNeed = modZone ? Mod_ZoneMemory(dir + "/mod.ff") : 0;
+    const long long extraMB = (long long)((biggest + modNeed) >> 20) - 110 + 64;
+    if ( extraMB > 0 )
+        mod.settings.push_back({ "bo1_mod_memory", va("%d", (int)extraMB), "", true });
+}
+
+// mod.json (a mod-tools mod's): "desc" and "vers"
+static std::string Mod_JsonString(const std::string &json, const char *key)
+{
+    const std::string k = std::string("\"") + key + "\"";
+    size_t p = json.find(k);
+    if ( p == std::string::npos || (p = json.find(':', p + k.size())) == std::string::npos
+        || (p = json.find('"', p)) == std::string::npos )
+        return "";
+    std::string value;
+    for ( ++p; p < json.size() && json[p] != '"'; ++p )
+    {
+        if ( json[p] == '\\' && p + 1 < json.size() )
+            ++p;
+        value += json[p];
+    }
+    return value;
 }
 
 void Mods_Discover()
@@ -522,16 +633,30 @@ void Mods_Discover()
         // (mods/_stack is the hooks every stack needs; a mod name is a script path: letters, digits, '_')
         if ( folder.empty() || folder[0] == '_' || !IsDvarName(folder) )
             continue;
-        const std::string file = std::string(dir) + "/" + folder + "/mod.txt";
-        const std::string text = Mod_ReadFile(file);
-        if ( text.empty() )
-            continue;
+        const std::string modDir = std::string(dir) + "/" + folder;
+        const std::string text = Mod_ReadFile(modDir + "/mod.txt");
         ModInfo mod;
-        if ( !Mod_Parse(folder, "mods/" + folder + "/mod.txt", text, mod) )
+        if ( !text.empty() && !Mod_Parse(folder, "mods/" + folder + "/mod.txt", text, mod) )
         {
             Com_PrintWarning(10, "mods: mods/%s/mod.txt has errors, the mod is not in the Mods menu\n", folder.c_str());
             continue;
         }
+        if ( text.empty() )
+        {
+            mod.folder = mod.name = folder;
+            mod.order = 100;
+            mod.enabled = nullptr;
+            mod.mapMod = false;
+        }
+        // a map mod (with or without a mod.txt): its zone files; mod.json's text unless the mod.txt has one
+        Mod_FindMaps(modDir, mod);
+        if ( text.empty() && !mod.mapMod )
+            continue;
+        const std::string json = Mod_ReadFile(modDir + "/mod.json");
+        if ( mod.description.empty() )
+            mod.description = Mod_JsonString(json, "desc");
+        if ( mod.version.empty() )
+            mod.version = Mod_JsonString(json, "vers");
         mods.push_back(mod);
     }
     if ( folders )
@@ -606,12 +731,26 @@ static bool Mod_NeedsMet(const std::vector<ModNeed> &needs, const char *map, std
     return met;
 }
 
+// the extra zones to reserve for memory MB (PMem_Init: one or two zones add 256 MB, more 128 MB each)
+static int Mod_ZonesForMemory(int mb)
+{
+    return mb <= 0 ? 0 : mb <= 256 ? 1 : (mb + 127) / 128;
+}
+
+static int Mod_MemoryForZones(int zones)
+{
+    return zones <= 0 ? 0 : zones <= 2 ? 256 : zones * 128;
+}
+
 static bool Mod_StartupMet(const ModSetting &s)
 {
     if ( !s.startup )
         return true;
     if ( s.dvar == "bo1_mod_zones" )
         return (int)Words(s.value).size() <= Com_ModStartup_ZonesReserved();
+    // (a map mod's memory, bo1_mod_memory MB: Mod_FindMaps)
+    if ( s.dvar == "bo1_mod_memory" )
+        return atoi(s.value.c_str()) <= Mod_MemoryForZones(Com_ModStartup_ZonesReserved());
     auto it = s_sessionStartup.find(s.dvar);
     const std::string session = it != s_sessionStartup.end() ? it->second : "";
     double have, want;
@@ -676,6 +815,16 @@ bool Mods_IsAvailable(const ModInfo &mod, std::string *why)
         *why = missing.empty() ? "" : "Needs " + JoinLabels(missing) + (missing.size() > 1 ? ", which aren't" : ", which isn't")
             + " installed.";
     return any;
+}
+
+const ModInfo *Mods_MapModFor(const char *map)
+{
+    for ( const ModInfo &mod : s_mods )
+    {
+        if ( mod.mapMod && Mod_OnMap(mod, map) && !mod.maps.empty() )
+            return &mod;
+    }
+    return nullptr;
 }
 
 std::string Mods_MapList(const ModInfo &mod)
@@ -768,7 +917,8 @@ bool Mods_SaveStartup(std::string *who)
     std::vector<std::string> restart;
     for ( const ModInfo &mod : s_mods )
     {
-        if ( !Mods_IsEnabled(mod) || !Mods_IsAvailable(mod, nullptr) )
+        // (a map mod is in every game on its map: what it needs is kept ready while it is installed)
+        if ( !(Mods_IsEnabled(mod) || mod.mapMod) || !Mods_IsAvailable(mod, nullptr) )
             continue;
         std::vector<const ModSetting *> settings;
         for ( const ModSetting &s : mod.settings )
@@ -793,13 +943,18 @@ bool Mods_SaveStartup(std::string *who)
     }
     std::string text = "// BO1 Zombies: what the mods turned on in the Mods menu need when the game starts (the menu writes\n"
                        "// this file; src/qcommon/com_mods.cpp reads it at startup). Delete it to start without them.\n";
+    int zones = 0;
     for ( const auto &kv : startup )
     {
         if ( kv.first == "bo1_mod_zones" )
-            text += va("zones %d\n", (int)Words(kv.second).size());
+            zones = std::max(zones, (int)Words(kv.second).size());
+        else if ( kv.first == "bo1_mod_memory" )
+            zones = std::max(zones, Mod_ZonesForMemory(atoi(kv.second.c_str())));
         else
             text += "set " + kv.first + " " + kv.second + "\n";
     }
+    if ( zones )
+        text += va("zones %d\n", zones);
     char path[512];
     Com_sprintf(path, sizeof(path), "%s/%s", fs_homepath ? (const char *)fs_homepath->current.string : ".",
         s_startupFile);
@@ -853,9 +1008,22 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
     sets.clear();
     if ( !*mapName || Com_IsSPFrontEndLevel(mapName) || Com_IsMenuLevel(mapName) )
         return;
+    // the map's own mod (a map mod), first: its zones and files (mod.ff, .iwd) come from its folder
+    if ( const ModInfo *mapMod = Mods_MapModFor(mapName) )
+    {
+        fsMods = mapMod->folder;
+        if ( log && !Mod_StartupMet(mapMod->settings) )
+            Com_PrintWarning(10, "mods: %s needs more memory than this start of the game set aside: restart the game "
+                                 "(the Mods menu has saved what it needs)\n", mapMod->name.c_str());
+        for ( const ModSetting &s : mapMod->settings )
+        {
+            if ( !s.startup && (s.map.empty() || !I_stricmp(s.map.c_str(), mapName)) )
+                Mod_Merge(sets, s.dvar, s.value);
+        }
+    }
     for ( const ModInfo &mod : s_mods )
     {
-        if ( !Mods_IsEnabled(mod) )
+        if ( mod.mapMod || !Mods_IsEnabled(mod) )
             continue;
         std::vector<std::string> missing;
         if ( !Mod_OnMap(mod, mapName) )
@@ -995,7 +1163,7 @@ void Mods_ApplyForMap(const char *map)
 static void Mods_List_f()
 {
     Mods_Discover();
-    Com_Printf(0, "mods: %d in mods/ with a mod.txt%s; extra zones reserved %d%s\n", (int)s_mods.size(),
+    Com_Printf(0, "mods: %d in mods/ (a mod.txt, or a map's zone)%s; extra zones reserved %d%s\n", (int)s_mods.size(),
         Com_ModStartup_CommandLineMods() ? " (the command line picks the mods: the menu's choices are not used)" : "",
         Com_ModStartup_ZonesReserved(), s_menuActive ? "" : "; the menu's choices apply from the main menu on");
     for ( const ModInfo &mod : s_mods )
@@ -1004,8 +1172,14 @@ static void Mods_List_f()
         const bool available = Mods_IsAvailable(mod, &why);
         const std::string restart = Mods_RestartReason(mod);
         Com_Printf(0, "  %-10s %-3s %s (order %d; maps: %s)%s%s%s\n", mod.folder.c_str(),
-            Mods_IsEnabled(mod) ? "ON" : "off", mod.name.c_str(), mod.order, Mods_MapList(mod).c_str(),
+            mod.mapMod ? "MAP" : Mods_IsEnabled(mod) ? "ON" : "off", mod.name.c_str(), mod.order, Mods_MapList(mod).c_str(),
             available ? "" : " - ", why.c_str(), restart.empty() ? "" : " - needs a restart");
+        for ( const ModSetting &s : mod.settings )
+        {
+            if ( s.dvar == "bo1_mod_memory" )
+                Com_Printf(0, "      memory: %s MB more than an original map (bo1_mod_memory %s: %d extra zones)\n",
+                    s.value.c_str(), s.value.c_str(), Mod_ZonesForMemory(atoi(s.value.c_str())));
+        }
         for ( const ModOption &o : mod.options )
         {
             const int i = Mods_OptionValueIndex(o);

@@ -39,7 +39,11 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <sys/clonefile.h>
+#endif
 
 #include <map>
 #include <set>
@@ -213,6 +217,52 @@ uint64_t ContentHash(const std::vector<char> &data)
     return h;
 }
 
+// Files this big (a map mod's zones, .iwd files and videos: mods/Perish has 1.1 GB) are not read whole to see whether
+// they changed: one the app installed counts as unchanged while its size and modification time are still those of the
+// app's copy (which the app gives it when it installs it), and it is copied without being held in memory (on macOS
+// cloned, which takes no room on the same volume). .bundled-files keeps a hash of its size and time.
+const off_t kBigFile = 16 << 20;
+
+uint64_t StampHash(const struct stat &st)
+{
+    uint64_t h = 14695981039346656037ull ^ 0x5354414d50ull; // ("STAMP": never a contents' hash by chance)
+    const uint64_t parts[2] = { (uint64_t)st.st_size, (uint64_t)st.st_mtime };
+    for (const uint64_t part : parts)
+    {
+        h ^= part;
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+bool CopyBigFile(const std::string &src, const std::string &dst, const struct stat &srcStat)
+{
+    unlink(dst.c_str());
+    bool ok = false;
+#if defined(__APPLE__)
+    ok = clonefile(src.c_str(), dst.c_str(), 0) == 0;
+#endif
+    if (!ok)
+    {
+        unlink(dst.c_str());
+        FILE *in = (fopen)(src.c_str(), "rb");
+        FILE *out = in ? (fopen)(dst.c_str(), "wb") : nullptr;
+        ok = in && out;
+        std::vector<char> buf(4 << 20);
+        size_t n;
+        while (ok && (n = fread(buf.data(), 1, buf.size(), in)) > 0)
+            ok = fwrite(buf.data(), 1, n, out) == n;
+        if (in && ferror(in))
+            ok = false;
+        if (in)
+            fclose(in);
+        if (out && fclose(out) != 0)
+            ok = false;
+    }
+    struct timeval times[2] = { { srcStat.st_atime, 0 }, { srcStat.st_mtime, 0 } };
+    return ok && utimes(dst.c_str(), times) == 0;
+}
+
 // The files the app installed in the game folder: their paths in it and their contents' hashes, kept there in
 // .bundled-files, so that what a later build no longer has (removed from the repository) can be removed again.
 using InstalledFiles = std::map<std::string, uint64_t>;
@@ -317,6 +367,27 @@ void InstallBundledFiles(const std::string &src, const std::string &dst, const s
             fprintf(stderr, "[gamedir] could not install %s: a folder is in the way\n", t.c_str());
             continue;
         }
+        if (st.st_size >= kBigFile)
+        {
+            struct stat have;
+            if (k == Kind::File && (stat)(t.c_str(), &have) == 0 && have.st_size == st.st_size
+                && have.st_mtime == st.st_mtime)
+            {
+                state.now[path] = StampHash(have);
+                continue;
+            }
+            const std::string tmp = t + ".installing";
+            if (CopyBigFile(s, tmp, st) && (rename)(tmp.c_str(), t.c_str()) == 0)
+            {
+                ++state.installed;
+                state.now[path] = StampHash(st);
+                continue;
+            }
+            unlink(tmp.c_str());
+            ++state.failed;
+            fprintf(stderr, "[gamedir] could not install %s\n", t.c_str());
+            continue;
+        }
         std::vector<char> want, have;
         if (!ReadWholeFile(s, want))
         {
@@ -371,7 +442,11 @@ void InstallBundledGameData(const std::string &gameDir)
         // a file an earlier build installed that this one doesn't have: removed, unless it was changed since
         const std::string full = gameDir + "/" + e.first;
         std::vector<char> have;
-        if (!IsPlainFileBelow(gameDir, e.first) || !ReadWholeFile(full, have) || ContentHash(have) != e.second)
+        struct stat st;
+        if (!IsPlainFileBelow(gameDir, e.first) || (stat)(full.c_str(), &st) != 0)
+            continue;
+        if (st.st_size >= kBigFile ? StampHash(st) != e.second
+                                   : !ReadWholeFile(full, have) || ContentHash(have) != e.second)
             continue;
         if (unlink(full.c_str()) != 0)
         {

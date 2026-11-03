@@ -42,6 +42,7 @@
 #include <client/cl_keys.h>
 #include <win32/win_input.h>
 #include <client_mp/cl_scrn_mp.h>
+#include <qcommon/com_mods.h>
 
 
 #define POOLSIZE_XMODELPIECES      64
@@ -3064,6 +3065,20 @@ void __cdecl DB_DelayedCloneXAsset(XAssetEntry *newEntry)
     }
 }
 
+// mod: a map mod's mod.ff (and its language zone) loaded as a level zone (Com_LoadLevelFastFiles: flags 0x4000 / 0x8000,
+// priority 55 / 5) ranks as retail's fs_game mod.ff does (DB_LoadGraphicsAssetsForPC: flags 64 / 128, 61 / 11): above
+// the patch zones, so its own scripts (maps/_zombiemode.gsc, ...) win over common_zombie_patch's as they do in retail
+static int DB_ZonePriorityOf(unsigned int zoneIndex)
+{
+    const int flags = g_zoneNames[zoneIndex].flags & 0x17FFFFFF;
+    const char *name = g_zoneNames[zoneIndex].name;
+    if ( flags == 0x4000 && !I_stricmp(name, "mod") )
+        return 61;
+    if ( flags == 0x8000 && strchr(name, '_') && !I_stricmp(strchr(name, '_') + 1, "mod") )
+        return 11;
+    return DB_GetZonePriority(flags);
+}
+
 bool __cdecl DB_OverrideAsset(unsigned int newZoneIndex, unsigned int existingZoneIndex)
 {
     int newPriority; // [esp+0h] [ebp-8h]
@@ -3083,8 +3098,8 @@ bool __cdecl DB_OverrideAsset(unsigned int newZoneIndex, unsigned int existingZo
     {
         __debugbreak();
     }
-    newPriority = DB_GetZonePriority(g_zoneNames[newZoneIndex].flags & 0x17FFFFFF);
-    return newPriority >= DB_GetZonePriority(g_zoneNames[existingZoneIndex].flags & 0x17FFFFFF);
+    newPriority = DB_ZonePriorityOf(newZoneIndex);
+    return newPriority >= DB_ZonePriorityOf(existingZoneIndex);
 }
 
 void __cdecl DB_GetXAsset(XAssetType type, XAssetHeader header)
@@ -4518,6 +4533,61 @@ bool __cdecl DB_GetZoneAllocType(int zoneFlags)
     return zoneFlags >= 0x100000;
 }
 
+// mod: map mods (a folder in mods/ with a level's zone, a mod-tools map such as mods/Perish: zombie_perish.ff, mod.ff,
+// its .iwd files). Their zones are found in the mod's folder: fs_game's (+set fs_game mods/Perish, as retail plays a
+// mod), or one stacked with fs_mods (the Mods menu, src/qcommon/com_mods.cpp). "mod" (its mod.ff) is the level's map
+// mod's (DB_SetModLevelFolder, from Com_LoadLevelFastFiles), else the first folder that has one.
+static char s_modLevelFolder[64];
+
+void DB_SetModLevelFolder(const char *folder)
+{
+    I_strncpyz(s_modLevelFolder, folder ? folder : "", sizeof(s_modLevelFolder));
+}
+
+bool DB_FindModZoneFile(const char *zoneName, char *filename, unsigned int size)
+{
+    if ( !zoneName || !*zoneName || strchr(zoneName, '/') || strchr(zoneName, '\\') || !fs_basepath )
+        return false;
+    const char *game = fs_gameDirVar ? (const char *)fs_gameDirVar->current.string : "";
+    if ( *game )
+    {
+        const char *bases[2] = { fs_homepath ? (const char *)fs_homepath->current.string : "",
+                                 (const char *)fs_basepath->current.string };
+        for ( const char *base : bases )
+        {
+            Com_sprintf(filename, size, "%s/%s/%s.ff", base, game, zoneName);
+            if ( *base && GetFileAttributesA(filename) != (DWORD)-1 )
+                return true;
+        }
+    }
+    const bool modZone = !I_stricmp(zoneName, "mod");
+    if ( modZone && s_modLevelFolder[0] )
+    {
+        Com_sprintf(filename, size, "%s/mods/%s/%s.ff", (const char *)fs_basepath->current.string, s_modLevelFolder, zoneName);
+        return GetFileAttributesA(filename) != (DWORD)-1;
+    }
+    char names[16][64];
+    const int count = FS_ModStackNames(names, 16);
+    for ( int m = 0; m < count; ++m )
+    {
+        Com_sprintf(filename, size, "%s/mods/%s/%s.ff", (const char *)fs_basepath->current.string, names[m], zoneName);
+        if ( GetFileAttributesA(filename) != (DWORD)-1 )
+            return true;
+    }
+    // a map of a map mod found by the Mods menu (mods/<folder>/<map>.ff), before its game has stacked the folder: the
+    // map command's test that the map exists ("map zombie_perish", the menus' ChangeLevel), which comes first
+    if ( !modZone && !Com_ModStartup_CommandLineMods() )
+    {
+        if ( const ModInfo *mapMod = Mods_MapModFor(zoneName) )
+        {
+            Com_sprintf(filename, size, "%s/mods/%s/%s.ff", (const char *)fs_basepath->current.string,
+                mapMod->folder.c_str(), zoneName);
+            return GetFileAttributesA(filename) != (DWORD)-1;
+        }
+    }
+    return false;
+}
+
 void __cdecl DB_ModXFileHandle(const char *zoneName, void **zoneFile, FF_DIR *zoneDir)
 {
     const char *String; // eax
@@ -4544,6 +4614,13 @@ void __cdecl DB_ModXFileHandle(const char *zoneName, void **zoneFile, FF_DIR *zo
         *zoneFile = CreateFileA(filename, 0x80000000, 1u, 0, 3u, 0x60000000u, 0);
         if ( *zoneFile != (void *)BO1_I2P(-1) )
             *zoneDir = FFD_MOD_DIR;
+    }
+    // mod: a map mod's zones (DB_FindModZoneFile)
+    if ( *zoneFile == (void *)BO1_I2P(-1) && DB_FindModZoneFile(zoneName, filename, sizeof(filename)) )
+    {
+        *zoneFile = CreateFileA(filename, 0x80000000, 1u, 0, 3u, 0x60000000u, 0);
+        if ( *zoneFile != (void *)BO1_I2P(-1) )
+            Com_Printf(16, "mod: zone '%s' from %s\n", zoneName, filename);
     }
 }
 
@@ -4586,6 +4663,10 @@ void __cdecl DB_BuildOSPath_FromSource(const char *zoneName, FF_DIR source, unsi
         DB_BuildOSPath_Unlocalized(zoneName, ".ff", size, filename);
         if ( GetFileAttributesA(filename) == -1 )
             DB_BuildOSPath(zoneName, ".ff", size, filename);
+        // mod: a map mod's zone (DB_FindModZoneFile), when the game has none of that name
+        char modFilename[256];
+        if ( GetFileAttributesA(filename) == -1 && DB_FindModZoneFile(zoneName, modFilename, sizeof(modFilename)) )
+            I_strncpyz(filename, modFilename, size);
     }
 }
 

@@ -7,6 +7,7 @@
 #include <universal/com_expressions.h>
 #include <qcommon/common.h>
 #include <qcommon/com_mods.h>
+#include <server_mp/sv_init_mp.h>
 #include <universal/com_files.h>
 #include <universal/dvar.h>
 #include <universal/q_shared.h>
@@ -74,6 +75,17 @@ static const ModInfo *FindMod(const std::string &folder)
             return &mod;
     }
     return nullptr;
+}
+
+// a page's first option row: a mod's rows are ENABLED, then its options; a map mod's PLAY and HOST GAME, then its options
+static int OptionRow0(const ModInfo &mod)
+{
+    return mod.mapMod ? 3 : 2;
+}
+
+static std::string MapLabel(const ModInfo &mod)
+{
+    return mod.maps.empty() ? mod.name : mod.maps[0].label;
 }
 
 // ----- the menus' text -----
@@ -168,6 +180,18 @@ static void Pop_Button(ModsPopup &p, const std::string &name, float y, int n, co
     Pop_RowText(p, 15.0f, y, p.w - 30.0f, label, nullptr, n);
 }
 
+// a button on a page's row n that runs uiScript bo1ModsFocus <folder> <n> when it gets the focus
+static void Pop_RowButton(ModsPopup &p, const std::string &name, float y, int n, const char *label,
+    const std::string &action, const std::string &folder)
+{
+    Pop_RowBack(p, y, n);
+    p.text += Fmt("itemDef { name \"%s\" type 3 rect 15 %g %g 17 2 2 textfont 1 textscale 0.315 textalign 8 "
+                  "textalignx 17 forecolor 1 1 1 0 text \"%s\" visible 1 %s", name.c_str(), y, p.w - 30.0f, label,
+                  Pop_RowFocus(p, n, Fmt("uiScript bo1ModsFocus %s %d ;", folder.c_str(), n)).c_str());
+    p.text += Fmt("action { play \"uin_navigation_click\" ; %s } } ", action.c_str());
+    Pop_RowText(p, 15.0f, y, p.w - 30.0f, label, nullptr, n);
+}
+
 // the keys that turn a list row's mod off (left) and on (right): arrows, d-pad, left stick, keypad
 static const int kLeftKeys[] = { 156, 22, 30, 164 };
 static const int kRightKeys[] = { 157, 23, 31, 163 };
@@ -203,7 +227,7 @@ static std::string List_MenuText()
                       Quote(Upper(mod.name)).c_str(),
                       Pop_RowFocus(p, n, Fmt("uiScript bo1ModsFocus %s 0 ;", mod.folder.c_str())).c_str());
         p.text += Fmt("action { play \"uin_navigation_click\" ; close self ; open \"bo1_mods_%s\" ; } ", mod.folder.c_str());
-        for ( int on = 0; on < 2; ++on )
+        for ( int on = 0; on < 2 && !mod.mapMod; ++on )
         {
             for ( int key : on ? kRightKeys : kLeftKeys )
                 p.text += Fmt("execKeyInt %d { play \"uin_navigation_click\" ; uiScript bo1ModsSet %s %d ; } ", key,
@@ -224,7 +248,7 @@ static std::string List_MenuText()
 static std::string Page_MenuText(const ModInfo &mod)
 {
     const std::string name = "bo1_mods_" + mod.folder;
-    const int rows = 1 + (int)mod.options.size();
+    const int rows = OptionRow0(mod) - 1 + (int)mod.options.size();
     const float rowsY = 106.0f;
     const float infoY = rowsY + rows * kRowStep + 6.0f;
     const float noticeY = infoY + 46.0f;
@@ -236,6 +260,9 @@ static std::string Page_MenuText(const ModInfo &mod)
     Pop_Text(p, 37.0f, 46.0f, mod.description, nullptr, 0.26f, "0.85 0.85 0.85 1");
     // where it plays, what it needs
     std::string where = "Plays on " + Mods_MapList(mod) + ".";
+    if ( mod.mapMod )
+        where = "A map: " + MapLabel(mod) + (mod.maps.empty() ? "" : " (" + mod.maps[0].name + ")")
+                + (mod.version.empty() ? "" : ", version " + mod.version) + ".";
     std::string why;
     if ( !Mods_IsAvailable(mod, &why) )
         where += " " + why;
@@ -244,7 +271,13 @@ static std::string Page_MenuText(const ModInfo &mod)
     for ( int k = 1; k <= rows; ++k )
     {
         const float y = rowsY + (k - 1) * kRowStep;
-        const ModOption *o = k >= 2 ? &mod.options[k - 2] : nullptr;
+        if ( mod.mapMod && k < OptionRow0(mod) )
+        {
+            Pop_RowButton(p, Fmt("%s_%d", name.c_str(), k), y, k, k == 1 ? "PLAY SOLO" : "HOST GAME",
+                Fmt("uiScript bo1ModsPlay %s %d ;", mod.folder.c_str(), k - 1), mod.folder);
+            continue;
+        }
+        const ModOption *o = k >= OptionRow0(mod) ? &mod.options[k - OptionRow0(mod)] : nullptr;
         Pop_RowBack(p, y, k);
         Pop_RowText(p, 15.0f, y, w * 0.6f, o ? Upper(o->label) : "ENABLED", nullptr, k);
         // the value: the row's focus item, at the right (white; black on the highlight is the copy below)
@@ -285,6 +318,8 @@ static std::string Mods_Status(const ModInfo &mod)
 {
     if ( !Mods_IsAvailable(mod, nullptr) )
         return "UNAVAILABLE";
+    if ( mod.mapMod )
+        return Mods_RestartReason(mod).empty() ? "MAP" : "MAP - RESTART";
     if ( !Mods_IsEnabled(mod) )
         return "OFF";
     return Mods_RestartReason(mod).empty() ? "ON" : "ON - RESTART";
@@ -300,6 +335,16 @@ static std::string Mods_Info(const ModInfo *mod, int row)
     std::string why;
     const bool available = Mods_IsAvailable(*mod, &why);
     const std::string restart = Mods_RestartReason(*mod);
+    if ( mod->mapMod && row < OptionRow0(*mod) )
+    {
+        std::string text = row == 0 ? "A map: Enter opens its page, to play it alone or host it. " + mod->description
+                         : row == 1 ? "Starts " + MapLabel(*mod) + " alone (the mods turned on here that play on it too)."
+                                    : "Starts " + MapLabel(*mod) + " for co-op: the others join it with Join Game (each "
+                                      "needs the map in their mods folder too); press the Use key to start sooner.";
+        if ( !restart.empty() )
+            text += " Restart the game once before playing it: it needs more memory set aside when the game starts.";
+        return text;
+    }
     if ( row == 0 || row == 1 )
     {
         std::string text = row == 0 ? mod->description : "Plays on " + Mods_MapList(*mod) + ".";
@@ -311,9 +356,9 @@ static std::string Mods_Info(const ModInfo *mod, int row)
             text += Mods_IsEnabled(*mod) ? " On: it's in the next game you start." : " Off: games start without it.";
         return text;
     }
-    if ( row - 2 >= (int)mod->options.size() )
+    if ( row - OptionRow0(*mod) >= (int)mod->options.size() )
         return "";
-    const ModOption &o = mod->options[row - 2];
+    const ModOption &o = mod->options[row - OptionRow0(*mod)];
     std::string text = o.help;
     const int i = Mods_OptionValueIndex(o);
     if ( i >= 0 && Mods_IsEnabled(*mod) && restart.find(o.label + ": " + o.values[i].label) != std::string::npos )
@@ -340,16 +385,16 @@ static void Mods_Refresh()
         const dvar_t *status = _Dvar_RegisterString(name, "", 0, "mod: the Mods menu's state of a mod");
         Dvar_SetString((dvar_s *)status, Mods_Status(mod).c_str());
         // each page row's value as its list shows it (the row's black copy on the highlight)
-        for ( int k = 1; k <= 1 + (int)mod.options.size(); ++k )
+        for ( int k = mod.mapMod ? OptionRow0(mod) : 1; k < OptionRow0(mod) + (int)mod.options.size(); ++k )
         {
             std::string label;
-            if ( k == 1 )
+            if ( k < OptionRow0(mod) )
             {
                 label = Mods_IsEnabled(mod) ? "ON" : "OFF";
             }
             else
             {
-                const ModOption &o = mod.options[k - 2];
+                const ModOption &o = mod.options[k - OptionRow0(mod)];
                 const int i = Mods_OptionValueIndex(o);
                 label = i >= 0 ? Quote(o.values[i].label) : "";
             }
@@ -365,7 +410,7 @@ static void Mods_Refresh()
         notice = Fmt("This game was started with mods on its command line (fs_mods \"%s\"): the choices here are used "
                      "when it starts without them.", fs_modsVar ? (const char *)fs_modsVar->current.string : "");
     else if ( restart )
-        notice = "Restart the game to finish turning on " + who + ".";
+        notice = "Restart the game to finish setting up " + who + " (memory set aside when the game starts).";
     Dvar_SetString((dvar_s *)bo1_mods_notice, notice.c_str());
     Dvar_SetString((dvar_s *)bo1_mods_info, Mods_Info(FindMod(s_focusFolder), s_focusRow).c_str());
 }
@@ -464,17 +509,52 @@ static void Mods_Focus(int localClientNum, UiContext *dc, const char *menuName, 
 // the next value of a page's row (the gamepad's A): On / Off, or the option's next value
 static void Mods_Next(const ModInfo &mod, int row)
 {
-    if ( row == 1 )
+    if ( row == 1 && !mod.mapMod )
     {
         Dvar_SetBool((dvar_s *)mod.enabled, !Mods_IsEnabled(mod));
         return;
     }
-    if ( row - 2 < 0 || row - 2 >= (int)mod.options.size() )
+    const int i0 = row - OptionRow0(mod);
+    if ( i0 < 0 || i0 >= (int)mod.options.size() )
         return;
-    const ModOption &o = mod.options[row - 2];
+    const ModOption &o = mod.options[i0];
     const int i = Mods_OptionValueIndex(o);
     const std::string &next = o.values[(i + 1) % o.values.size()].value;
     Dvar_SetFromStringByName(o.dvar.c_str(), (char *)next.c_str());
+}
+
+// PLAY SOLO / HOST GAME on a map mod's page: the zombies menu's way to start a level (its map buttons: ui_load_level,
+// then the front end script's startlevel, frontend.gsc DoStartLevelSequence -> ChangeLevel), its dvars set as the
+// main menu's Zombies button and the co-op menus set them (Host Game: as many players as can join)
+static void Mods_Play(int localClientNum, UiContext *dc, const std::string &folder, bool host)
+{
+    const ModInfo *mod = FindMod(folder);
+    if ( !mod || !mod->mapMod || mod->maps.empty() )
+        return;
+    std::string why;
+    if ( !Mods_IsAvailable(*mod, &why) )
+    {
+        Dvar_SetString((dvar_s *)bo1_mods_notice, (MapLabel(*mod) + " can't be played: " + why).c_str());
+        return;
+    }
+    if ( !Mods_RestartReason(*mod).empty() )
+    {
+        Dvar_SetString((dvar_s *)bo1_mods_notice,
+            ("Restart the game first: " + MapLabel(*mod) + " needs more memory set aside when the game starts.").c_str());
+        return;
+    }
+    const std::string page = "bo1_mods_" + folder;
+    menuDef_t *menu = Menus_FindByName(dc, page.c_str());
+    if ( !menu || !menu->itemCount )
+        return;
+    const std::string &map = mod->maps[0].name;
+    Com_Printf(13, "mods: starting %s (mods/%s)%s\n", map.c_str(), folder.c_str(), host ? " to host" : "");
+    const std::string script = Fmt("setDvar bo1_coop_players %d ; exec \"set onlinegame 0; set systemlink 0; "
+        "set blackopsmode 0; set spmode 0; set zombiemode 1; set ui_zombiemode 1; set arcademode_lives 2; "
+        "set arcademode_combined_score 0\" ; setDvar ui_mapname \"%s\" ; setDvar ui_load_level \"%s\" ; "
+        "close bo1_mods ; close %s ; open dummy_menu ; uiscript sendMenuNotify \"startlevel 0\" ;",
+        host ? BO1_COOP_MAX_PLAYERS : 0, map.c_str(), map.c_str(), page.c_str());
+    Item_RunScript(localClientNum, dc, menu->items[0], script.c_str());
 }
 
 bool UI_Mods_MenuScript(int localClientNum, UiContext *dc, const char *name, const char **args)
@@ -526,6 +606,11 @@ bool UI_Mods_MenuScript(int localClientNum, UiContext *dc, const char *name, con
             Mods_Next(*mod, atoi(arg2));
         Mods_KeepOff();
         Mods_Refresh();
+    }
+    else if ( !I_stricmp(name, "bo1ModsPlay") && String_Parse(args, arg1, sizeof(arg1))
+              && String_Parse(args, arg2, sizeof(arg2)) )
+    {
+        Mods_Play(localClientNum, dc, arg1, atoi(arg2) != 0);
     }
     else if ( !I_stricmp(name, "bo1ModsChanged") )
     {

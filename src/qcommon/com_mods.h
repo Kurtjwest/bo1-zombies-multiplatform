@@ -65,6 +65,10 @@ struct ModInfo
     std::vector<ModOption> options;
     std::vector<std::string> clears; // dvars its scripts make (name, or prefix*): empty again when each game starts
     const dvar_s *enabled; // bo1_mods_<folder>
+    // a map mod (a mod-tools map: mods/<folder>/<map>.ff, maybe a mod.ff and .iwd files; mod.txt optional): played from
+    // its page (Play, Host Game), not turned on or off; stacked with fs_mods in every game on its map(s)
+    bool mapMod;
+    std::string version; // mod.json's "vers"
 };
 
 // WinMain, before PMem_Init: reads the startup settings the Mods menu saved (players/mods_startup.cfg) unless the command
@@ -92,6 +96,8 @@ bool Mods_IsAvailable(const ModInfo &mod, std::string *why); // its zone files a
 int Mods_OptionValueIndex(const ModOption &option); // the option's current value in its list (-1: not one of them)
 std::string Mods_RestartReason(const ModInfo &mod); // "" if this session has what the mod's current choices need
 std::string Mods_MapList(const ModInfo &mod);
+// the map mod that has map's zone (nullptr: none)
+const ModInfo *Mods_MapModFor(const char *map);
 // writes players/mods_startup.cfg if what the enabled mods need at startup changed; true if a restart is needed
 bool Mods_SaveStartup(std::string *who);
 void Mods_RegisterCommands();

@@ -434,3 +434,9 @@ FodyWeavers.xsd
 Debug/*
 __BO1Zombies
 .DS_Store
+
+# A map mod put in mods/ (a mod-tools map, README.md "Map mods"): its zones, .iwd files and videos stay out of git
+# (hundreds of MB; GitHub refuses files over 100 MB)
+mods/**/*.ff
+mods/**/*.iwd
+mods/**/*.bik

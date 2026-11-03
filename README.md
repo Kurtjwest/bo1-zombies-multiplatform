@@ -317,6 +317,30 @@ wins: the menu's choices are not used then (the Mods screen says so). A command 
 `+devmap`) or a headless run doesn't read `players/mods_startup.cfg` either. In the console, `/bo1_mods` lists the
 mods and their settings, and `/bo1_mods zombie_theater` also shows what a game on that map would get.
 
+### Map mods
+
+A custom zombies map made with the Black Ops mod tools, such as Perish, comes as a folder: the map's zone
+(`zombie_perish.ff`), usually `mod.ff` (its own scripts, weapons and sounds), `.iwd` files, `video/<map>_load.bik` and
+`mod.json`. Put the folder as it comes in `mods`: the repository's (the build puts it in the app, which installs it in
+the game folder; big files are cloned on macOS, copied once elsewhere) or straight in the game folder's `mods`, which
+saves the build the copy. It needs no `mod.txt`: the Mods menu lists it as MAP, with the name and description from
+`mod.json`, and its page has **PLAY SOLO** and **HOST GAME** (co-op as in Co-op above: the others pick Join Game, and
+each needs the map in their own `mods` folder).
+
+A map needs more memory than the game sets aside for the original maps (the menu works it out from the sizes of its
+zones). The first time the menu sees it, it saves that in `players/mods_startup.cfg` and asks for one restart; after
+that every start sets it aside. When the map loads, its folder is stacked with the other mods that are on and play on
+every map (Zombie counter, No perks); mods made for other maps are left out. Its zones, `.iwd` files and videos come
+from its folder; its `mod.ff` loads with the map, just before it, and is freed with it (as with retail's `fs_game`, its
+scripts and assets win over the game's patch zones). Its own loading screen picture isn't shown (it is in `mod.ff`,
+which loads after the loading screen is set up).
+
+From the console: `/map zombie_perish` (once the main menu has loaded). On the command line, retail's way to play a map
+mod: `+set bo1_zombies 1 +set fs_game mods/Perish +set bo1_mod_memory 384 +devmap zombie_perish` (without the menu,
+`bo1_mod_memory` is the memory in MB to set aside; `/bo1_mods` shows what the menu works out). A map is made against the
+final, patched game (its scripts call functions the patch zones added) and can use images, sounds and models of the
+original maps and DLC, so the whole game, updated, has to be installed.
+
 ### Adding a mod
 
 A mod is a folder in `mods` (the repository's, which the build installs in the game folder, or the game folder's own)

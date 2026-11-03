@@ -308,6 +308,8 @@ char __cdecl DB_IsZoneTypeLoaded(int zoneType);
 const char *DB_GetZoneNameByType(int zoneType);
 void __cdecl DB_LoadXAssets(XZoneInfo *zoneInfo, unsigned int zoneCount, int sync);
 void DB_SetModExtraZones(const char *names); // mod: bo1_mod_zones (Com_LoadLevelFastFiles)
+void DB_SetModLevelFolder(const char *folder); // mod: the level's map mod (mods/<folder>), whose mod.ff is "mod"
+bool DB_FindModZoneFile(const char *zoneName, char *filename, unsigned int size); // mod: a map mod's <zone>.ff
 const char *DB_GetModExtraZones();
 bool DB_GetModExtraZoneName(int index, char *out, int outSize); // mod: bo1_mod_zones entry <index>
 #define BO1_MOD_ZONES_MAX 6 // mod: bo1_mod_zones entries used (L61: 6, was 4: Kino nightmare = temple coast moon pentagon [cosmodrome])

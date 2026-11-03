@@ -2940,7 +2940,7 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
 {
     int ControllerIndex; // eax
     const char *basename; // [esp+44h] [ebp-C4h]
-    XZoneInfo zoneInfo[5 + BO1_MOD_ZONES_MAX]; // [esp+48h] [ebp-C0h] BYREF (zombies: +1 for SP's patch_ui; mod: + bo1_mod_zones)
+    XZoneInfo zoneInfo[6 + BO1_MOD_ZONES_MAX]; // [esp+48h] [ebp-C0h] BYREF (zombies: +1 for SP's patch_ui; mod: + a map mod's mod.ff, + bo1_mod_zones)
     char specOpsZoneName[68]; // [esp+78h] [ebp-90h] BYREF
     const char *levelSharedFastFile; // [esp+BCh] [ebp-4Ch]
     char levelPatchZoneName[64]; // [esp+C0h] [ebp-48h] BYREF
@@ -3000,6 +3000,39 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
         zoneInfo[zoneCount].allocFlags = 0x4000;
         zoneInfo[zoneCount++].freeFlags = 0;
     }
+    // mod: a map mod (a mod-tools map: mods/<name>/<map>.ff, stacked with fs_mods, see src/qcommon/com_mods.cpp) has its
+    // mod.ff (its own versions of the zombies scripts, weapons, sounds, ...), which retail loads with the code zones when
+    // fs_game names the mod (DB_LoadGraphicsAssetsForPC, "mod", priority 61: above the patch zones and the level's).
+    // Stacked, it loads as a level zone just before the level (as in retail, ahead of it: what the level's zone uses
+    // from it is there), ranks as retail's (DB_OverrideAsset), and goes with the level.
+    static char modLevelFolder[64];
+    modLevelFolder[0] = 0;
+    if ( !spFrontEnd && !Com_IsMenuLevel(mapName) && FS_ModStackActive() )
+    {
+        char names[16][64];
+        char path[256];
+        const int count = FS_ModStackNames(names, 16);
+        for ( int m = 0; m < count && !modLevelFolder[0]; ++m )
+        {
+            Com_sprintf(path, sizeof(path), "%s/mods/%s/%s.ff", (const char *)fs_basepath->current.string, names[m], mapName);
+            if ( GetFileAttributesA(path) != (DWORD)-1 )
+                I_strncpyz(modLevelFolder, names[m], sizeof(modLevelFolder));
+        }
+        if ( modLevelFolder[0] )
+        {
+            Com_sprintf(path, sizeof(path), "%s/mods/%s/mod.ff", (const char *)fs_basepath->current.string, modLevelFolder);
+            const bool modFromGame = fs_gameDirVar && *(const char *)fs_gameDirVar->current.string && DB_ModFileExists();
+            Com_Printf(16, "mod: %s is in mods/%s%s\n", mapName, modLevelFolder,
+                GetFileAttributesA(path) == (DWORD)-1 ? "" : modFromGame ? " (its mod.ff loaded with fs_game)" : ", with its mod.ff");
+            if ( GetFileAttributesA(path) != (DWORD)-1 && !modFromGame )
+            {
+                zoneInfo[zoneCount].name = "mod";
+                zoneInfo[zoneCount].allocFlags = 0x4000;
+                zoneInfo[zoneCount++].freeFlags = 0;
+            }
+        }
+    }
+    DB_SetModLevelFolder(modLevelFolder);
     zoneInfo[zoneCount].name = mapName;
     if ( I_strncmp("so_", mapName, strlen("so_")) )
         zoneInfo[zoneCount].allocFlags = 0x4000;
