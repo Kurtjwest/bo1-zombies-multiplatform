@@ -2,10 +2,14 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File setup.ps1 [-GameDir "D:\Games\Call of Duty Black Ops"] [-Build <folder>]
 #
-# The game runs from its build folder and reads the original game's files (zone\, main\*.iwd, videos, DLLs) from
-# there: build\Release for the Visual Studio project, build-windows-x64 or build-windows-x86 for build-windows.sh
-# (-Build picks one; without it the first of those that holds BO1Zombies.exe). Your Steam install is only read, never
-# changed. BlackOps.exe and BlackOpsMP.exe are not copied.
+# The game runs from its build folder and reads the original game's files (zone\, main\ with the .iwd files and the
+# videos, localization.txt) from there: build\Release for the Visual Studio project, build-windows-x64 or
+# build-windows-x86 for build-windows.sh (-Build picks one; without it the first of those that holds BO1Zombies.exe).
+# Your Steam install is only read, never changed. Only what the game reads is copied: zone\, main\, mods\ (if the
+# install has one) and localization.txt; the rest of the install (BlackOps.exe and its other programs, its DLLs: the
+# build has its own, Redist\: the DirectX DLLs below are taken out of it, Steam's, the uninstaller's and other
+# launchers' files, the mod tools' folders, players\) is left out. What an earlier version of this script copied
+# there that the game has no use for (Redist\, the uninstaller's and launchers' files, ...) is removed from it.
 param(
     [string]$GameDir = 'C:\Program Files (x86)\Steam\steamapps\common\Call of Duty Black Ops',
     [string]$Build = ''
@@ -35,16 +39,24 @@ if (Test-Path $exe) {
     $msvc = [System.Text.Encoding]::ASCII.GetString($bytes).Contains('VCRUNTIME140')
 }
 
-# players\ (your own profile and settings) is left out: the game makes a fresh one
-robocopy $GameDir $dst *.* /S /E /XF BlackOps.exe BlackOpsMP.exe /XD (Join-Path $GameDir 'players') /NDL /NFL /NP /R:1 /W:1
-if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
+# what the game reads of the install (players\, your own profile and settings, is left out: the game makes a fresh one)
+foreach ($d in 'zone', 'main', 'mods') {
+    $from = Join-Path $GameDir $d
+    if (-not (Test-Path $from -PathType Container)) { continue }
+    robocopy $from (Join-Path $dst $d) *.* /E /NDL /NFL /NP /R:1 /W:1
+    if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
+}
+$loc = Join-Path $GameDir 'localization.txt'
+if (Test-Path $loc -PathType Leaf) { Copy-Item $loc $dst -Force }
 
-$dx = Join-Path $dst 'Redist\DirectX'
+# the DirectX cabinets: in the install's Redist\DirectX (_Redist\DirectX in some copies), or in the copy of it an
+# earlier version of this script made next to the exe
+$dxDirs = foreach ($root in $GameDir, $dst) { foreach ($r in 'Redist', '_Redist') { Join-Path (Join-Path $root $r) 'DirectX' } }
 function Expand-Redist([string]$cab, [string]$file) {
-    $path = Join-Path $dx $cab
-    if (Test-Path $path) { expand.exe $path "-F:$file" $dst | Out-Null }
+    $path = $dxDirs | ForEach-Object { Join-Path $_ $cab } | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
+    if ($path) { expand.exe $path "-F:$file" $dst | Out-Null }
     if (-not (Test-Path (Join-Path $dst $file))) {
-        throw "could not extract $($file) from $($path): install the DirectX End-User Runtime (June 2010), or put $($file) next to BO1Zombies.exe"
+        throw "could not extract $($file) from $($cab) (in the install's Redist\DirectX): install the DirectX End-User Runtime (June 2010), or put $($file) next to BO1Zombies.exe"
     }
 }
 if ($x64) {
@@ -66,5 +78,19 @@ if ($msvc -and -not $x64) {
         Sort-Object FullName | Select-Object -Last 1
     if ($crt) { Copy-Item (Join-Path $crt.FullName 'msvcp140.dll'), (Join-Path $crt.FullName 'vcruntime140.dll') $dst -Force }
     else { 'Visual C++ runtime not found next to Visual Studio: whoever plays needs the "Visual C++ Redistributable 2015-2022 (x86)"' }
+}
+# what an earlier version of this script copied there that the game has no use for: the install's Redist\ (its
+# DirectX DLLs are taken out of it above), the uninstaller's, Steam's and other launchers' files, the splash pictures.
+# (Not its programs and DLLs: the build's own are next to them.)
+$leftovers = Get-ChildItem -LiteralPath $dst -Force | Where-Object {
+    $_.Name -in 'Redist', '_Redist', '_CommonRedist', 'NoDVD' -or $_.Name -like 'unins*' -or
+    ((-not $_.PSIsContainer) -and $_.Extension -in '.cdx', '.vdf', '.ini', '.nfo', '.url', '.bmp', '.ico')
+}
+if ($leftovers) {
+    "Removing from $dst what an earlier setup copied there that the game has no use for:"
+    foreach ($l in $leftovers) {
+        "  $($l.Name)"
+        Remove-Item -LiteralPath $l.FullName -Recurse -Force
+    }
 }
 "game files ready in $dst"

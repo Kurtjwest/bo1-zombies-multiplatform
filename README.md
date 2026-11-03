@@ -87,7 +87,8 @@ Winsock. Two builds make it:
 
 The game runs in its build folder, with the original game's files next to it, as the Visual Studio build does: on
 Windows `powershell -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -Build build-windows-x64 [-GameDir "D:\...\Call of Duty Black Ops"]`
-copies them there once (and D3DX9's `d3dx9_43.dll` out of the game's `Redist` folder), then `Play.bat` (or the
+copies them there once (`zone`, `main`, `localization.txt` and the install's `mods`, if it has one; and D3DX9's
+`d3dx9_43.dll` out of the game's `Redist` folder), then `Play.bat` (or the
 executable with its own arguments) starts it. The build puts the repository's `mods/` and `main/` (`data/main/`) next to
 the executable.
 
@@ -134,11 +135,15 @@ the app runs from any folder with nothing next to it (drag it to /Applications, 
 (`mods/`, `data/main/`) are built into the app, which installs them in the game folder when it starts: change them in
 the repository and rebuild (the app replaces the copies in the game folder that differ from its own, and removes the
 ones a later build no longer has unless you changed them; links in the game folder are left alone).
+Of the install, setup takes only what the game reads: `zone/`, `main/` (the `.iwd` files and the videos),
+`localization.txt` and its `mods/` if it has one; its Windows programs and DLLs, `Redist`, `players/` (the Windows
+game's settings), Steam's, the uninstaller's and other launchers' files stay out.
 `./setup-mac.sh --move "/path/to/Call of Duty Black Ops"` moves the game files instead of copying them (instant on the
 same disk). Earlier versions of `setup-mac.sh` put the game files next to the app, in `build-mac`, where the game also
 kept its settings and saves: `./setup-mac.sh` on its own moves all of that to the game folder (and leaves the build,
-with its old copy of `mods/`). `--gamedir <path>` runs the game on another folder (for testing), which then holds what
-the game writes.
+with its old copy of `mods/`). Every run also removes from the game folder what earlier versions put there that the game
+has no use for: a build's own files (zlib-ng, its source, the ThinLTO cache) and the parts of an install now left out.
+`--gamedir <path>` runs the game on another folder (for testing), which then holds what the game writes.
 
 Controls are the Windows ones. The menus drawn on the front end's TV screens have no cursor, as on Windows: the mouse
 looks around the room, the scroll wheel (or a two-finger swipe on a trackpad, one item per short swipe) or W/S moves
@@ -210,9 +215,10 @@ Panfrost don't, and without one the game runs on Mesa's software renderer (llvmp
 The game folder is `~/.local/share/BO1Zombies` (`$XDG_DATA_HOME/BO1Zombies`). As on macOS the game reads the original
 game's files and writes everything there (settings, saves, logs, screenshots, the shader cache), and the repository's
 `mods/` and `data/main/`, which the build puts in `gamedata/` next to the executable, are installed into it when the
-game starts. Keep `gamedata/` and `libsteam_api.so` next to `BO1Zombies` when moving it. `--gamedir <path>` runs the
-game on another folder. Names in the game files are found whatever their case, so a copy from a Windows disk works as
-it is. Started without arguments the game opens the zombies menu; engine arguments work as on Windows
+game starts. Keep `gamedata/` and `libsteam_api.so` next to `BO1Zombies` when moving it. `setup-linux.sh` takes from the
+install only what the game reads, as on macOS (`--move` moves it instead), and removes the parts of an install that
+earlier versions copied and the game has no use for. `--gamedir <path>` runs the game on another folder. Names in the
+game files are found whatever their case, so a copy from a Windows disk works as it is. Started without arguments the game opens the zombies menu; engine arguments work as on Windows
 (`build-linux/BO1Zombies +set r_fullscreen 1 ...`).
 
 The game runs in a window or full screen (`r_fullscreen`, or the graphics options) on X11 and Wayland; the display's mode never

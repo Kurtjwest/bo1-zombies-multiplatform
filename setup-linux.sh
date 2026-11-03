@@ -10,9 +10,12 @@
 #   ./setup-linux.sh --move "/path/to/Call of Duty Black Ops"   moves them there instead (instant on the same disk)
 #
 # The source is a Black Ops PC install (Steam or retail): the folder with BlackOps.exe, zone/ and main/ in it, from
-# a Windows disk, a Steam library (Proton installs it under steamapps/common/Call of Duty Black Ops), or a copy. Its
-# Windows programs (*.exe, *.dll), Redist/, the uninstaller's files and players/ (the Windows game's settings) are
-# left out, and files the game folder has already are kept.
+# a Windows disk, a Steam library (Proton installs it under steamapps/common/Call of Duty Black Ops), or a copy. Only
+# what the game reads is taken from it: zone/, main/ (the .iwd files, the videos), mods/ (if it has one) and
+# localization.txt. The rest of it (BlackOps.exe and its other Windows programs and DLLs, Redist/, Steam's, the
+# uninstaller's and other launchers' files, the mod tools' folders, players/: the Windows game's settings) is left
+# out, and files the game folder has already are kept. What earlier versions of this script copied to the game folder
+# that the game has no use for (those parts of an install) is removed from it.
 set -euo pipefail
 unset CDPATH
 
@@ -58,11 +61,15 @@ if pgrep -x BO1Zombies > /dev/null 2>&1; then
     exit 1
 fi
 
+# true if the game folder has the game files (zone/ and main/*.iwd, whatever their case)
 has_game_files() {
-    local f
-    if [ ! -d "$game/zone" ]; then return 1; fi
-    for f in "$game"/main/*.iwd "$game"/main/*.IWD; do
-        if [ -f "$f" ]; then return 0; fi
+    local m f
+    find_child "$game" zone > /dev/null || return 1
+    m=$(find_child "$game" main) || return 1
+    for f in "$game/$m"/*; do
+        case "$(printf '%s\n' "${f##*/}" | tr '[:upper:]' '[:lower:]')" in
+            *.iwd) if [ -f "$f" ]; then return 0; fi ;;
+        esac
     done
     return 1
 }
@@ -91,6 +98,52 @@ find_child() {
     return 1
 }
 
+# the game folder's name for a part of a Black Ops install that the game reads (the zones, main/ with the .iwd files
+# and the videos, retail's mods/ folder, and localization.txt, which names the language), or nothing: the name the game
+# folder has for it already, whatever its case, or the lowercase one
+install_entry() {
+    local n
+    n=$(printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]')
+    case "$n" in
+        zone | main | mods | localization.txt) ;;
+        *) return 1 ;;
+    esac
+    find_child "$game" "$n" || printf '%s\n' "$n"
+}
+
+# what earlier versions of this script copied to the game folder that the game has no use for: the parts of a Windows
+# install now left out (programs, DLLs, the DirectX and Visual C++ installers, Steam's, the uninstaller's and other
+# launchers' files, the splash pictures). Only names in the game folder itself, none in its folders.
+is_leftover() {
+    case "$(printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]')" in
+        *.exe | *.dll | *.cdx | *.vdf | *.ini | *.nfo | *.url | *.bmp | *.ico | \
+            redist | _redist | _commonredist | nodvd | unins*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# copy_entry SRC DST: copies SRC, a file or folder, to DST in the game folder, keeping the files it has already
+copy_entry() {
+    if [ -d "$1" ]; then
+        if command -v rsync > /dev/null; then
+            rsync -a --ignore-existing "$1"/ "$2"/
+        else
+            (cd "$1" && find . -type f -print0) |
+                while IFS= read -r -d '' f; do
+                    if [ ! -e "$2/$f" ]; then
+                        mkdir -p "$2/$(dirname "$f")"
+                        cp -p "$1/$f" "$2/$f"
+                    fi
+                done
+        fi
+    elif [ ! -e "$2" ] && [ ! -L "$2" ]; then
+        cp -p "$1" "$2"
+    fi
+    return 0
+}
+
 mkdir -p "$game"
 
 if [ -n "$src" ]; then
@@ -109,22 +162,27 @@ if [ -n "$src" ]; then
         echo "$shown is inside $src: copy the game files to another folder first." >&2
         exit 1
     else
+        # (what the game reads of it: install_entry)
+        entries=()
+        for e in "$src"/*; do
+            if [ ! -e "$e" ] && [ ! -L "$e" ]; then continue; fi
+            if install_entry "${e##*/}" > /dev/null; then entries+=("$e"); fi
+        done
+        taken="  $(for e in "${entries[@]}"; do printf '%s ' "${e##*/}"; done)(the rest of the install is no use to this game)"
         same_disk=0
         if [ "$(stat -L -c %d "$src")" = "$(stat -L -c %d "$game")" ]; then same_disk=1; fi
         if [ "$move" = 1 ] && [ "$same_disk" = 1 ]; then
             echo "Moving the game files from $src to $shown..."
-            for e in "$src"/* "$src"/.[!.]* "$src"/..?*; do
-                if [ ! -e "$e" ] && [ ! -L "$e" ]; then continue; fi
-                name="${e##*/}"
-                case "$(echo "$name" | tr '[:upper:]' '[:lower:]')" in
-                    players | redist | unins* | *.exe | *.dll) continue ;;
-                esac
-                if [ -e "$game/$name" ]; then
+            echo "$taken"
+            for e in "${entries[@]}"; do
+                d="$game/$(install_entry "${e##*/}")"
+                if [ -e "$d" ]; then
                     # (merged: what the game folder has already stays)
-                    rsync -a --ignore-existing --remove-source-files "$e"/ "$game/$name"/ 2> /dev/null ||
-                        rsync -a --ignore-existing "$e" "$game"/
+                    if [ -d "$e" ]; then
+                        rsync -a --ignore-existing --remove-source-files "$e"/ "$d"/ 2> /dev/null || copy_entry "$e" "$d"
+                    fi
                 else
-                    mv "$e" "$game/$name"
+                    mv "$e" "$d"
                 fi
             done
         else
@@ -134,25 +192,29 @@ if [ -n "$src" ]; then
             if has_game_files; then
                 echo "Copying what $shown lacks from $src..."
             else
-                echo "Copying the game files from $src to $shown ($(du -sh "$src" | cut -f1); this takes a few minutes)..."
+                echo "Copying the game files from $src to $shown" \
+                    "($(du -shc "${entries[@]}" | tail -n 1 | cut -f1); this takes a few minutes)..."
             fi
-            if command -v rsync > /dev/null; then
-                rsync -a --ignore-existing \
-                    --exclude '/[Pp][Ll][Aa][Yy][Ee][Rr][Ss]/' --exclude '/[Rr][Ee][Dd][Ii][Ss][Tt]/' \
-                    --exclude '/[Uu][Nn][Ii][Nn][Ss]*' --exclude '*.[Ee][Xx][Ee]' --exclude '*.[Dd][Ll][Ll]' \
-                    "$src"/ "$game"/
-            else
-                (cd "$src" && find . -type f ! -iname '*.exe' ! -iname '*.dll' ! -ipath './players/*' \
-                    ! -ipath './redist/*' ! -iname 'unins*' -print0) |
-                    while IFS= read -r -d '' f; do
-                        if [ ! -e "$game/$f" ]; then
-                            mkdir -p "$game/$(dirname "$f")"
-                            cp -p "$src/$f" "$game/$f"
-                        fi
-                    done
-            fi
+            echo "$taken"
+            for e in "${entries[@]}"; do
+                copy_entry "$e" "$game/$(install_entry "${e##*/}")"
+            done
         fi
     fi
+fi
+
+# what earlier versions of this script copied to the game folder that the game has no use for
+removed=()
+for e in "$game"/* "$game"/.[!.]* "$game"/..?*; do
+    if [ ! -e "$e" ] && [ ! -L "$e" ]; then continue; fi
+    if is_leftover "${e##*/}"; then removed+=("$e"); fi
+done
+if [ ${#removed[@]} -gt 0 ]; then
+    echo "Removing from $shown what an earlier setup copied there that the game has no use for:"
+    for e in "${removed[@]}"; do
+        echo "  ${e##*/}"
+        rm -rf "$e"
+    done
 fi
 
 echo

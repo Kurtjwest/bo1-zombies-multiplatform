@@ -11,14 +11,17 @@
 #   ./setup-mac.sh                                            moves what an earlier setup put in build-mac/ there
 #
 # The source is a Black Ops PC install (Steam or retail) copied over from Windows, or on a mounted drive: the folder
-# with BlackOps.exe, zone/ and main/ in it. Its Windows programs (*.exe, *.dll), Redist/, the uninstaller's files and
-# players/ (the Windows game's settings) are left out, and files the game folder has already are kept.
+# with BlackOps.exe, zone/ and main/ in it. Only what the game reads is taken from it: zone/, main/ (the .iwd files,
+# the videos), mods/ (if it has one) and localization.txt. The rest of it (BlackOps.exe and its other Windows programs
+# and DLLs, Redist/, Steam's, the uninstaller's and other launchers' files, the mod tools' folders, players/: the
+# Windows game's settings) is left out, and files the game folder has already are kept.
 #
 # Earlier versions of this script copied the game files next to the app, into build-mac/, and the game kept its
-# settings and saves there too (players/). Every run first moves all of that from build-mac/ (and build-mac-*/) to
-# the game folder, leaving the build (and the build's old copy of the repository's mods/: the app installs the
-# current one itself). A folder an earlier version of the app was pointed at in its folder picker is set up from too:
-# its settings and saves are copied, and its game files if they are still needed.
+# settings and saves there too (players/). Every run first moves those from build-mac/ (and build-mac-*/) to the game
+# folder, leaving the build (and the build's old copy of the repository's mods/: the app installs the current one
+# itself). A folder an earlier version of the app was pointed at in its folder picker is set up from too: its settings
+# and saves are copied, and its game files if they are still needed. What earlier versions put in the game folder that
+# the game has no use for (a build's own files, the parts of an install that are now left out) is removed from it.
 set -euo pipefail
 unset CDPATH
 
@@ -83,22 +86,53 @@ is_within() {
     done
 }
 
-# what a build folder holds that the build made
+# what a build folder holds that the build made (CMake's and Ninja's files, the libraries it builds: FFmpeg, libvpx,
+# zlib-ng and its source, the ThinLTO cache, profiles)
 is_build_product() {
     case "$1" in
         *.app | CMakeFiles | CMakeCache.txt | cmake_install.cmake | CTestTestfile.cmake | CPack*.cmake | \
             compile_commands.json | Makefile | build.ninja | rules.ninja | .ninja_* | .cmake | Testing | _deps | \
-            ffmpeg | libvpx | *.a | *.dylib | .DS_Store)
+            ffmpeg | libvpx | zlib-ng | zlib-ng-src | thinlto-cache | *.a | *.dylib | *.profraw | *.profdata | .DS_Store)
             return 0
             ;;
     esac
     return 1
 }
 
-# what of a Windows install the Mac game has no use for
-is_windows_only() {
+# the game folder's name for a part of a Black Ops install that the game reads (the zones, main/ with the .iwd files
+# and the videos, retail's mods/ folder, and localization.txt, which names the language), or nothing
+install_entry() {
     case "$1" in
-        *.exe | *.dll | Redist | unins*) return 0 ;;
+        zone | main | mods | localization.txt)
+            echo "$1" | tr '[:upper:]' '[:lower:]'
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# what earlier versions of this script put in a build folder, or the game wrote there, that the game folder takes
+from_build() {
+    case "$1" in
+        zone | main | localization.txt | players | screenshots | demos | shadercache) return 0 ;;
+    esac
+    return 1
+}
+
+# what earlier versions of this script put in the game folder that the game has no use for: a build's own files (its
+# step 1 moved what it didn't know as the build's: zlib-ng, its source, the ThinLTO cache), and the parts of a Windows
+# install now left out (programs, DLLs, the DirectX and Visual C++ installers, Steam's, the uninstaller's and other
+# launchers' files, the splash pictures). Only names in the game folder itself, none in its folders, and no build's
+# files when the game folder is a build folder too (it has a CMakeCache.txt).
+is_leftover() {
+    if [ "$1" != .DS_Store ] && [[ "$1" != *.app ]] && [ ! -e "$game/CMakeCache.txt" ] && is_build_product "$1"; then
+        return 0
+    fi
+    case "$1" in
+        *.exe | *.dll | *.cdx | *.vdf | *.ini | *.nfo | *.url | *.bmp | *.ico | \
+            Redist | _Redist | _CommonRedist | NoDVD | unins*)
+            return 0
+            ;;
     esac
     return 1
 }
@@ -194,13 +228,13 @@ if [ ${#build_dirs[@]} -gt 0 ]; then
             if [ ! -e "$e" ] && [ ! -L "$e" ]; then continue; fi
             name="${e##*/}"
             if is_build_product "$name" || is_within "$game" "$e"; then continue; fi
-            if is_windows_only "$name"; then
-                left+=("$e")
-                continue
-            fi
             if [[ "$name" == mods ]]; then
                 left+=("$e")
                 old_mods=1
+                continue
+            fi
+            if ! from_build "$name"; then
+                left+=("$e")
                 continue
             fi
             entries+=("$e")
@@ -259,30 +293,56 @@ if [ -n "$src" ]; then
     elif is_within "$game" "$src"; then
         echo "$shown is inside $src: copy the game files to another folder first." >&2
         exit 1
-    elif [ "$move" = 1 ] && [ "$(device_of "$src")" = "$game_dev" ]; then
-        echo "Moving the game files from $src to $shown..."
-        for e in "$src"/* "$src"/.[!.]* "$src"/..?*; do
-            if [ ! -e "$e" ] && [ ! -L "$e" ]; then continue; fi
-            name="${e##*/}"
-            if [ "$name" = .DS_Store ] || [[ "$name" == players ]] || is_windows_only "$name"; then continue; fi
-            move_entry "$e" "$game/$name"
-        done
     else
-        if [ "$move" = 1 ]; then
-            echo "($src is on another disk than $shown: its files are copied, not moved)"
-        fi
-        if has_game_files; then
-            echo "Copying what $shown lacks from $src..."
+        # (what the game reads of it: install_entry)
+        entries=()
+        taken=" "
+        for e in "$src"/*; do
+            if [ ! -e "$e" ] && [ ! -L "$e" ]; then continue; fi
+            if install_entry "${e##*/}" > /dev/null; then
+                entries+=("$e")
+                taken="$taken ${e##*/}"
+            fi
+        done
+        taken="$taken (the rest of the install is no use to this game)"
+        if [ "$move" = 1 ] && [ "$(device_of "$src")" = "$game_dev" ]; then
+            echo "Moving the game files from $src to $shown..."
+            echo "$taken"
+            for e in "${entries[@]}"; do
+                move_entry "$e" "$game/$(install_entry "${e##*/}")"
+            done
         else
-            echo "Copying the game files from $src to $shown ($(du -sh "$src" | cut -f1); this takes a few minutes)..."
+            if [ "$move" = 1 ]; then
+                echo "($src is on another disk than $shown: its files are copied, not moved)"
+            fi
+            if has_game_files; then
+                echo "Copying what $shown lacks from $src..."
+            else
+                echo "Copying the game files from $src to $shown" \
+                    "($(du -shc "${entries[@]}" | tail -n 1 | cut -f1); this takes a few minutes)..."
+            fi
+            echo "$taken"
+            for e in "${entries[@]}"; do
+                copy_entry "$e" "$game/$(install_entry "${e##*/}")"
+            done
         fi
-        rsync -a --ignore-existing \
-            --exclude '/[Pp]layers/' --exclude '/[Rr]edist/' --exclude '/[Uu]nins*' \
-            --exclude '*.[Ee][Xx][Ee]' --exclude '*.[Dd][Ll][Ll]' --exclude '.DS_Store' \
-            "$src"/ "$game"/
     fi
 fi
 rm -f "$game/gamedir.txt" # (used above)
+
+# ---- 4. what earlier versions of this script put in the game folder that the game has no use for
+removed=()
+for e in "$game"/* "$game"/.[!.]* "$game"/..?*; do
+    if [ ! -e "$e" ] && [ ! -L "$e" ]; then continue; fi
+    if is_leftover "${e##*/}"; then removed+=("$e"); fi
+done
+if [ ${#removed[@]} -gt 0 ]; then
+    echo "Removing from $shown what an earlier setup put there that the game has no use for:"
+    for e in "${removed[@]}"; do
+        echo "  ${e##*/}"
+        rm -rf "$e"
+    done
+fi
 
 # ---- what happened, and what's next
 if [ ${#kept[@]} -gt 0 ]; then
