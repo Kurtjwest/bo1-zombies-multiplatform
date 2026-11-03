@@ -1,7 +1,11 @@
 #!/bin/bash
-# tools/install-game-data.sh [GAME_FOLDER] - installs the repository's own game files in the game folder: mods/ (the
-# mods, and any map mod put there) and data/main/ (as main/). The macOS build runs it after every build
-# (cmake/macos.cmake), and setup-mac.sh does too: the app itself holds no game files.
+# tools/install-game-data.sh [GAME_FOLDER] - installs the repository's own game files in the game folder: its mods
+# (mods/) and data/main/ (as main/). The macOS build runs it after every build (cmake/macos.cmake), and setup-mac.sh
+# does too: the app itself holds no game files.
+#
+# The repository's mods are the folders of mods/ that git tracks (with their files git doesn't ignore, new ones too).
+# Anything else in mods/, a map mod put there say, is not the repository's and is not installed: mods of your own go
+# in the game folder's mods/ (only there). In a copy of the repository that isn't a git checkout, all of mods/ is.
 #
 # GAME_FOLDER: by default the game's own, ~/Library/Application Support/BO1Zombies on macOS
 # (${XDG_DATA_HOME:-~/.local/share}/BO1Zombies elsewhere).
@@ -82,49 +86,68 @@ installed=0
 failed=0
 removed=0
 
-# install_tree SRC DST: the files of folder SRC (no names starting with a dot: .DS_Store) as DST/... in the game folder
-install_tree() {
-    local src="$1" dst="$2" f rel s d kind
-    [ -d "$src" ] || return 0
-    while IFS= read -r -d '' f; do
-        rel="$dst/${f#"$src"/}"
-        echo "$rel" >> "$work/want"
-        kind=$(path_kind "$rel")
-        case "$kind" in
-            link) continue ;; # (not written through a link)
-            dir | blocked)
-                echo "install-game-data: could not install $rel: something else is in the way" >&2
-                failed=$((failed + 1))
-                continue
-                ;;
-        esac
-        s=$(stamp "$f")
-        if [ "$kind" = file ]; then
-            d=$(stamp "$game/$rel")
-            if [ "$d" = "$s" ]; then
-                echo "$d $rel" >> "$work/now"
-                continue
-            fi
-            # (the same contents with another time: given the repository's time)
-            if [ "${d%% *}" = "${s%% *}" ] && [ "${s%% *}" -lt "$big" ] && cmp -s "$f" "$game/$rel" &&
-                touch -r "$f" "$game/$rel"; then
-                echo "$s $rel" >> "$work/now"
-                continue
-            fi
-        else
-            mkdir -p "$(dirname "$game/$rel")"
-        fi
-        if copy_file "$f" "$game/$rel"; then
-            installed=$((installed + 1))
-            echo "$(stamp "$game/$rel") $rel" >> "$work/now"
-        else
-            echo "install-game-data: could not install $rel" >&2
-            failed=$((failed + 1))
-        fi
-    done < <(find "$src" -mindepth 1 -name '.*' -prune -o -type f -print0)
+# the repository's game files: NUL-separated paths below it (mods/..., data/main/...)
+list_sources() {
+    local tops=() tracked t
+    if command -v git > /dev/null 2>&1 && git -C "$repo" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+        tracked=$(git -C "$repo" ls-files -- mods) || return 1
+        while IFS= read -r t; do
+            tops+=("mods/$t")
+        done < <(echo "$tracked" | sed -n 's|^mods/\([^/]*\)/.*|\1|p' | sort -u)
+        git -C "$repo" ls-files -z --cached --others --exclude-standard -- data/main ${tops[@]+"${tops[@]}"}
+    else
+        (cd "$repo" && find mods data/main -name '.*' -prune -o -type f -print0)
+    fi
 }
-install_tree "$repo/mods" mods
-install_tree "$repo/data/main" main
+
+if ! list_sources > "$work/sources" || [ ! -s "$work/sources" ]; then
+    echo "install-game-data: could not list the repository's game files in $repo" >&2
+    exit 1
+fi
+while IFS= read -r -d '' p; do
+    case "/$p" in
+        */.*) continue ;; # (names starting with a dot: .DS_Store, .gitkeep)
+    esac
+    f="$repo/$p"
+    [ -f "$f" ] || continue # (deleted, not yet committed)
+    case "$p" in
+        data/main/*) rel="main/${p#data/main/}" ;;
+        *) rel="$p" ;;
+    esac
+    echo "$rel" >> "$work/want"
+    kind=$(path_kind "$rel")
+    case "$kind" in
+        link) continue ;; # (not written through a link)
+        dir | blocked)
+            echo "install-game-data: could not install $rel: something else is in the way" >&2
+            failed=$((failed + 1))
+            continue
+            ;;
+    esac
+    s=$(stamp "$f")
+    if [ "$kind" = file ]; then
+        d=$(stamp "$game/$rel")
+        if [ "$d" = "$s" ]; then
+            echo "$d $rel" >> "$work/now"
+            continue
+        fi
+        # (the same contents with another time: given the repository's time)
+        if [ "${d%% *}" = "${s%% *}" ] && [ "${s%% *}" -lt "$big" ] && cmp -s "$f" "$game/$rel" &&
+            touch -r "$f" "$game/$rel"; then
+            echo "$s $rel" >> "$work/now"
+            continue
+        fi
+    else
+        mkdir -p "$(dirname "$game/$rel")"
+    fi
+    if copy_file "$f" "$game/$rel"; then
+        installed=$((installed + 1))
+        echo "$(stamp "$game/$rel") $rel" >> "$work/now"
+    else
+        echo "install-game-data: could not install $rel" >&2
+        failed=$((failed + 1))
+    fi
+done < "$work/sources"
 
 # what an earlier run installed that the repository no longer has: removed, unless it was changed since (after a
 # failure nothing is removed: the list of what the repository has may be incomplete)

@@ -132,11 +132,12 @@ the zombies menu the way `Play.bat` does on Windows; engine arguments work as on
 The game folder is `~/Library/Application Support/BO1Zombies`. The game reads the original game's files there and
 writes everything there (settings and saves in `players/`, logs, screenshots, the shader cache), and nowhere else, so
 the app runs from any folder with nothing next to it (drag it to /Applications, say). The app holds only the game's
-code: the repository's own files (`mods/`, `data/main/`) are installed in the game folder by every build, and by
-`./setup-mac.sh` (`tools/install-game-data.sh`): change them in the repository and rebuild (the files that differ are
-copied, cloned on the same volume, so a map mod takes no more room; the ones the repository no longer has are removed
-unless you changed them; links in the game folder are left alone). `-DBO1_INSTALL_GAME_DATA=OFF` turns that off for a
-build, and a build cross-compiled on Linux leaves it to `./setup-mac.sh` on the Mac.
+code: the repository's own files (its mods, the folders of `mods/` that git tracks, and `data/main/`) are installed in
+the game folder by every build, and by `./setup-mac.sh` (`tools/install-game-data.sh`): change them in the repository
+and rebuild (the files that differ are copied; the ones the repository no longer has are removed unless you changed
+them; links in the game folder are left alone). Mods of your own, a map mod say, go only in the game folder's `mods/`:
+anything else in the repository's `mods/` is left out. `-DBO1_INSTALL_GAME_DATA=OFF` turns the install off for a build,
+and a build cross-compiled on Linux leaves it to `./setup-mac.sh` on the Mac.
 Of the install, setup takes only what the game reads: `zone/`, `main/` (the `.iwd` files and the videos),
 `localization.txt` and its `mods/` if it has one; its Windows programs and DLLs, `Redist`, `players/` (the Windows
 game's settings), Steam's, the uninstaller's and other launchers' files stay out.
@@ -329,11 +330,10 @@ mods and their settings, and `/bo1_mods zombie_theater` also shows what a game o
 
 A custom zombies map made with the Black Ops mod tools, such as Perish, comes as a folder: the map's zone
 (`zombie_perish.ff`), usually `mod.ff` (its own scripts, weapons and sounds), `.iwd` files, `video/<map>_load.bik` and
-`mod.json`. Put the folder as it comes in `mods`: the repository's (on macOS the build installs it in the game folder,
-cloned: no more room taken on the same volume; on Linux the build puts it in `gamedata/`, and the game copies it from
-there once) or straight in the game folder's `mods`, which saves the copy. It needs no `mod.txt`: the Mods menu lists it as MAP, with the name and description from
-`mod.json`, and its page has **PLAY SOLO** and **HOST GAME** (co-op as in Co-op above: the others pick Join Game, and
-each needs the map in their own `mods` folder).
+`mod.json`. Put the folder as it comes in the game folder's `mods` (on Linux the repository's `mods` works too: the
+build puts it in `gamedata/`, and the game copies it from there once). It needs no `mod.txt`: the Mods menu lists it
+as MAP, with the name and description from `mod.json`, and its page has **PLAY SOLO** and **HOST GAME** (co-op as in
+Co-op above: the others pick Join Game, and each needs the map in their own `mods` folder).
 
 A map needs more memory than the game sets aside for the original maps (the menu works it out from the sizes of its
 zones). The first time the menu sees it, it saves that in `players/mods_startup.cfg` and asks for one restart; after
@@ -351,7 +351,8 @@ original maps and DLC, so the whole game, updated, has to be installed.
 
 ### Adding a mod
 
-A mod is a folder in `mods` (the repository's, which the build installs in the game folder, or the game folder's own)
+A mod is a folder in `mods` (the repository's, which the build installs in the game folder, on macOS once git tracks a
+file of it, or the game folder's own)
 whose scripts hook into the game through `maps/<folder>/_hooks.gsc` (`mods/_stack/maps/_modstack.gsc` explains the
 hooks), plus a `mod.txt` that puts it in the menu. The folder's name is the mod's name in `fs_mods`: letters, digits
 and `_`. The smallest `mod.txt` (mods/zinfo's):
