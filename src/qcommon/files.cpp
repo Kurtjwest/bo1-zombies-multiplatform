@@ -5,6 +5,7 @@
 #include <universal/com_fileaccess.h>
 #include "common.h"
 
+#include <cctype>
 #include <cstring>
 #include "cmd.h"
 #include <database/db_registry.h>
@@ -367,17 +368,10 @@ int __cdecl FS_iwIwd(char *iwd, char *base)
 bool __cdecl FS_serverPak(const char *pak)
 {
     char *v1; // eax
-    char v3; // [esp+3h] [ebp-55h]
-    char *v4; // [esp+8h] [ebp-50h]
     char szFile[68]; // [esp+10h] [ebp-48h] BYREF
 
-    v4 = szFile;
-    do
-    {
-        v3 = *pak;
-        *v4++ = *pak++;
-    }
-    while ( v3 );
+    // (a name from the server, of up to 256 characters: as much of it as the 68 here hold)
+    I_strncpyz(szFile, pak, sizeof(szFile));
     I_strlwr(szFile);
     v1 = strstr(szFile, "_svr_");
     return v1 != 0;
@@ -481,7 +475,7 @@ FS_SERVER_COMPARE_RESULT __cdecl FS_CompareIwds(char *needediwds, int len, int d
             if ( !haveiwd && fs_serverReferencedIwdNames[i] && *fs_serverReferencedIwdNames[i] )
             {
                 if ( isBaseDir
-                    || I_strnicmp(fs_serverReferencedIwdNames[i], fs_gameDirVar->current.string, gameDirNameLength)
+                    || !FS_ListNameMatches(fs_serverReferencedIwdNames[i], fs_gameDirVar->current.string, gameDirNameLength)
                     && !isUserMapIWD
                     || FS_iwIwd((char *)fs_serverReferencedIwdNames[i], (char*)"main") )
                 {
@@ -652,6 +646,34 @@ void __cdecl FS_SetRestrictions()
     }
 }
 
+// The names the server lists for its clients (sv_iwdNames, sv_referencedIwdNames, sv_referencedFFNames) are separated
+// by blanks, and a client splits the list at its blanks (FS_ServerSetReferencedFiles): a name with blanks of its own,
+// from a folder named so (mods/Rust MW2), was several, and the client stopped the map: "file sum/name mismatch". Such
+// a name is listed with '_' for its blanks, as the folder's mod name has them (mods/Rust_MW2/zombie_rust_images); a
+// client finds the file by its checksum and shows the name only for one it lacks.
+void __cdecl FS_AppendListName(char *list, int size, const char *name)
+{
+    int len = (int)strlen(list);
+    for ( ; *name && len < size - 1; ++name )
+        list[len++] = isspace((unsigned char)*name) ? '_' : *name;
+    list[len] = 0;
+}
+
+// whether the first count characters (all, if count < 0) of a name a server listed are those of a name of ours, as
+// FS_AppendListName lists it (letter case aside)
+bool __cdecl FS_ListNameMatches(const char *listed, const char *name, int count)
+{
+    for ( int i = 0; count < 0 || i < count; ++i )
+    {
+        const char c = isspace((unsigned char)name[i]) ? '_' : name[i];
+        if ( tolower((unsigned char)listed[i]) != tolower((unsigned char)c) )
+            return false;
+        if ( !c )
+            break;
+    }
+    return true;
+}
+
 char info2_0[16384];
 char info3[16384];
 void __cdecl FS_LoadedIwds(const char **checksums, const char **names)
@@ -669,7 +691,7 @@ void __cdecl FS_LoadedIwds(const char **checksums, const char **names)
             I_strncat(info2_0, 0x4000, v2);
             if ( info3[0] )
                 I_strncat(info3, 0x4000, " ");
-            I_strncat(info3, 0x4000, search->iwd->iwdBasename);
+            FS_AppendListName(info3, 0x4000, search->iwd->iwdBasename);
         }
     }
     *checksums = info2_0;
@@ -714,9 +736,9 @@ void __cdecl FS_ReferencedIwds(const char **checksums, const char **names)
         I_strncat(info5, 0x4000, v2);
         if ( info8[0] )
             I_strncat(info8, 0x4000, " ");
-        I_strncat(info8, 0x4000, iwd->iwdGamename);
+        FS_AppendListName(info8, 0x4000, iwd->iwdGamename);
         I_strncat(info8, 0x4000, "/");
-        I_strncat(info8, 0x4000, iwd->iwdBasename);
+        FS_AppendListName(info8, 0x4000, iwd->iwdBasename);
     }
     if ( *(_BYTE *)BO1_I2P(fs_gameDirVar->current.integer) )
     {
@@ -732,9 +754,9 @@ void __cdecl FS_ReferencedIwds(const char **checksums, const char **names)
                 I_strncat(info5, 0x4000, v3);
                 if ( info8[0] )
                     I_strncat(info8, 0x4000, " ");
-                I_strncat(info8, 0x4000, search->iwd->iwdGamename);
+                FS_AppendListName(info8, 0x4000, search->iwd->iwdGamename);
                 I_strncat(info8, 0x4000, "/");
-                I_strncat(info8, 0x4000, search->iwd->iwdBasename);
+                FS_AppendListName(info8, 0x4000, search->iwd->iwdBasename);
             }
         }
     }
@@ -838,7 +860,7 @@ char __cdecl FS_PureServerSetLoadedIwds(char *iwdSums, char *iwdNames)
         v11 = 0;
         for ( argIndex = 0; argIndex < v8; ++argIndex )
         {
-            if ( src[argIndex] == i->checksum && !I_stricmp(s0[argIndex], i->iwdBasename) )
+            if ( src[argIndex] == i->checksum && FS_ListNameMatches(s0[argIndex], i->iwdBasename, -1) )
             {
                 v11 = 1;
                 break;

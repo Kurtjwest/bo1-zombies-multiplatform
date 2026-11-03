@@ -19,6 +19,8 @@ FS_SERVER_COMPARE_RESULT __cdecl FS_CompareFFs(char *neededFFs, int len, int dls
 void __cdecl FS_RemoveCommands();
 void __cdecl FS_AddCommands();
 void __cdecl FS_SetRestrictions();
+void __cdecl FS_AppendListName(char *list, int size, const char *name); // name for a list of names: blanks as _
+bool __cdecl FS_ListNameMatches(const char *listed, const char *name, int count);
 void __cdecl FS_LoadedIwds(const char **checksums, const char **names);
 char *__cdecl FS_LoadedIwdPureChecksums();
 void __cdecl FS_ReferencedIwds(const char **checksums, const char **names);

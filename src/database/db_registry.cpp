@@ -9,6 +9,7 @@
 #include "db_assetnames.h"
 #include <universal/com_memory.h>
 #include <universal/com_files.h>
+#include <qcommon/files.h>
 #include <qcommon/threads.h>
 #include <qcommon/com_profilemapload.h>
 #include <qcommon/com_mods.h>
@@ -5442,9 +5443,10 @@ char *__cdecl DB_ReferencedFFNameList()
             {
                 if ( g_zoneNameList[0] )
                     I_strncat(g_zoneNameList, 2080, " ");
+                // (folder names with blanks listed with '_' for them: FS_AppendListName)
                 if ( g_zoneNames[i].dir == FFD_MOD_DIR )
                 {
-                    I_strncat(g_zoneNameList, 2080, fs_gameDirVar->current.string);
+                    FS_AppendListName(g_zoneNameList, 2080, fs_gameDirVar->current.string);
                     I_strncat(g_zoneNameList, 2080, "/");
                 }
                 else if ( g_zoneNames[i].dir == FFD_USER_MAP )
@@ -5452,10 +5454,10 @@ char *__cdecl DB_ReferencedFFNameList()
                     I_strncat(g_zoneNameList, 2080, "usermaps");
                     I_strncat(g_zoneNameList, 2080, "/");
                     String = Dvar_GetString("fs_usermapdir");
-                    I_strncat(g_zoneNameList, 2080, String);
+                    FS_AppendListName(g_zoneNameList, 2080, String);
                     I_strncat(g_zoneNameList, 2080, "/");
                 }
-                I_strncat(g_zoneNameList, 2080, g_zoneNames[i].name);
+                FS_AppendListName(g_zoneNameList, 2080, g_zoneNames[i].name);
             }
         }
     }
