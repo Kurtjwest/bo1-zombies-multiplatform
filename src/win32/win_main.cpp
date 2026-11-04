@@ -795,6 +795,19 @@ static void Sys_HeadlessMenuDump()
                     ? item->typeData.textDef->text : ""));
             if (item->visibleExp.filename)
                 Com_Printf(16, "bo1_menudump: %s/%d visible: %s\n", BO1_VA(menu->window.name), i, Sys_HeadlessExpToString(&item->visibleExp));
+            // (a text item's text, a button's too, and the text expression of either)
+            if (Item_IsTextDefType((itemDef_s *)item) && item->typeData.textDef)
+            {
+                const textDef_s *textDef = item->typeData.textDef;
+                Com_Printf(16, "bo1_menudump: %s/%d textdef: text '%s' font %d scale %g align %d x %g y %g style %d "
+                    "fore %g %g %g %g\n", BO1_VA(menu->window.name), i, BO1_VA(textDef->text ? textDef->text : ""),
+                    textDef->fontEnum, textDef->textscale, textDef->textAlignMode, textDef->textalignx,
+                    textDef->textaligny, textDef->textStyle, item->window.foreColor[0], item->window.foreColor[1],
+                    item->window.foreColor[2], item->window.foreColor[3]);
+                if (textDef->textExpData && textDef->textExpData->textExp.filename)
+                    Com_Printf(16, "bo1_menudump: %s/%d text exp: %s\n", BO1_VA(menu->window.name), i,
+                        Sys_HeadlessExpToString(&textDef->textExpData->textExp));
+            }
             if (item->type == 10 && item->dvar)
             {
                 const multiDef_s *multi = Item_GetMultiDef((itemDef_s *)item);

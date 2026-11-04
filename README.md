@@ -302,7 +302,8 @@ click or the gamepad's A opens its page: what it does, the maps it plays on, ON 
 left and right change the selected one). The choices are saved with your settings, and every game you start from the
 menus (Solo, Host Game, Join Game) gets the mods that are on: they are stacked (`fs_mods`) in their order when the map
 loads. A mod made for some maps only is left out of a game on another map (the console says so). Back on the main
-menu the game is the original again.
+menu the game is the original again. With more than 12 mods the list scrolls (the keys move through it; the mouse
+wheel and the scroll bar at its right scroll it).
 
 | mod | what it does | maps |
 |---|---|---|
@@ -332,19 +333,25 @@ A custom zombies map made with the Black Ops mod tools, such as Perish, comes as
 `mod.json`. Put the folder as it comes in `mods`: the repository's (the build installs it in the game folder; on Linux
 it puts it in `gamedata/`, and the game copies it from there once) or straight in the game folder's. Its name can be
 anything (`Rust MW2`): the mod's name, in `fs_mods` and the console, is the folder's with other characters than
-letters, digits and `_` as `_` (`Rust_MW2`). It needs no `mod.txt`: the Mods menu lists it as MAP, with the folder's
-name and `mod.json`'s description, and its page has **PLAY SOLO** and **HOST GAME** (co-op as in Co-op above: the
-others pick Join Game, and each needs the map in their own `mods` folder).
+letters, digits and `_` as `_` (`Rust_MW2`). It needs no `mod.txt`: the Mods menu lists it with the folder's name and
+`mod.json`'s description, off at first, like any mod. Turned **on**, it is a row of the zombies menu's **Mission
+Select** (Zombies, Solo or Online > Host Game), after the game's maps and in their look: its name, and where the map's
+picture is, a box saying it's a map mod, with its description under it. Start it from there like any map (co-op as in
+Co-op above: the others pick Join Game, and each needs the map in their own `mods` folder). When the rows don't fit in
+Mission Select's frame, the list scrolls: the keys move through it, the mouse wheel and the scroll bar at its right
+scroll it.
 
 A map needs more memory than the game sets aside for the original maps (the menu works it out from the sizes of its
-zones). The first time the menu sees it, it saves that in `players/mods_startup.cfg` and asks for one restart; after
-that every start sets it aside. When the map loads, its folder is stacked with the other mods that are on and play on
-every map (Zombie counter, No perks); mods made for other maps are left out. Its zones, `.iwd` files and videos come
+zones). Turning it on saves that in `players/mods_startup.cfg` and asks for one restart (ON - RESTART; until then its
+row in Mission Select says so and doesn't start it); after that every start sets it aside, until it is turned off.
+When the map loads, its folder is stacked with the other mods that are on and play on every map (Zombie counter, No
+perks); mods made for other maps are left out. Its zones, `.iwd` files and videos come
 from its folder; its `mod.ff` loads with the map, just before it, and is freed with it (as with retail's `fs_game`, its
 scripts and assets win over the game's patch zones). Its own loading screen picture isn't shown (it is in `mod.ff`,
 which loads after the loading screen is set up).
 
-From the console: `/map zombie_perish` (once the main menu has loaded). On the command line, retail's way to play a map
+From the console: `/map zombie_perish` (once the main menu has loaded; on or off, but its memory is only set aside
+while it is on). On the command line, retail's way to play a map
 mod: `+set bo1_zombies 1 +set fs_game mods/Perish +set bo1_mod_memory 384 +devmap zombie_perish` (without the menu,
 `bo1_mod_memory` is the memory in MB to set aside; `/bo1_mods` shows what the menu works out). A map is made against the
 final, patched game (its scripts call functions the patch zones added) and can use images, sounds and models of the

@@ -934,8 +934,8 @@ bool Mods_SaveStartup(std::string *who)
     std::vector<std::string> restart;
     for ( const ModInfo &mod : s_mods )
     {
-        // (a map mod is in every game on its map: what it needs is kept ready while it is installed)
-        if ( !(Mods_IsEnabled(mod) || mod.mapMod) || !Mods_IsAvailable(mod, nullptr) )
+        // (a map mod too: what it needs, its memory, is set aside while it is on)
+        if ( !Mods_IsEnabled(mod) || !Mods_IsAvailable(mod, nullptr) )
             continue;
         std::vector<const ModSetting *> settings;
         for ( const ModSetting &s : mod.settings )
@@ -1017,6 +1017,36 @@ static std::string Lower(const std::string &s)
     return l;
 }
 
+// the settings a game on mapName gets from mod: its own and its options' values (a value the game can't give: the
+// nearest one before it in the list that it can, log says so)
+static void Mod_AddSettings(const ModInfo &mod, const char *mapName, std::vector<std::pair<std::string, std::string>> &sets,
+    bool log)
+{
+    std::vector<const ModSetting *> settings;
+    for ( const ModSetting &s : mod.settings )
+        settings.push_back(&s);
+    for ( const ModOption &o : mod.options )
+    {
+        const int chosen = Mods_OptionValueIndex(o);
+        const int i = Mod_EffectiveValue(o, mapName);
+        if ( i < 0 )
+            continue;
+        if ( i != chosen && log )
+            Com_PrintWarning(10, "mods: %s %s %s needs %s: this game uses the settings of %s\n", mod.name.c_str(),
+                o.label.c_str(), o.values[chosen].label.c_str(),
+                Mod_NeedsMet(o.values[chosen].needs, mapName, nullptr) ? "a restart of the game first"
+                                                                       : "a map that isn't installed",
+                o.values[i].label.c_str());
+        for ( const ModSetting &s : o.values[i].settings )
+            settings.push_back(&s);
+    }
+    for ( const ModSetting *s : settings )
+    {
+        if ( !s->startup && (s->map.empty() || !I_stricmp(s->map.c_str(), mapName)) )
+            Mod_Merge(sets, s->dvar, s->value);
+    }
+}
+
 // fs_mods and the dvars a game on map gets (front end: none); log prints why a mod or a value is left out
 static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<std::pair<std::string, std::string>> &sets,
     bool log)
@@ -1025,18 +1055,16 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
     sets.clear();
     if ( !*mapName || Com_IsSPFrontEndLevel(mapName) || Com_IsMenuLevel(mapName) )
         return;
-    // the map's own mod (a map mod), first: its zones and files (mod.ff, .iwd) come from its folder
+    // the map's own mod (a map mod), first: its zones and files (mod.ff, .iwd) come from its folder. On or off (the
+    // Mods menu's ON lists it in the zombies menu's Mission Select and sets its memory aside; "/map" plays it anyway)
     if ( const ModInfo *mapMod = Mods_MapModFor(mapName) )
     {
         fsMods = mapMod->folder;
         if ( log && !Mod_StartupMet(mapMod->settings) )
-            Com_PrintWarning(10, "mods: %s needs more memory than this start of the game set aside: restart the game "
-                                 "(the Mods menu has saved what it needs)\n", mapMod->name.c_str());
-        for ( const ModSetting &s : mapMod->settings )
-        {
-            if ( !s.startup && (s.map.empty() || !I_stricmp(s.map.c_str(), mapName)) )
-                Mod_Merge(sets, s.dvar, s.value);
-        }
+            Com_PrintWarning(10, "mods: %s needs more memory than this start of the game set aside: %s\n",
+                mapMod->name.c_str(), Mods_IsEnabled(*mapMod) ? "restart the game (the Mods menu has saved what it needs)"
+                                                             : "turn it on in the Mods menu, then restart the game");
+        Mod_AddSettings(*mapMod, mapName, sets, log);
     }
     for ( const ModInfo &mod : s_mods )
     {
@@ -1065,29 +1093,7 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
             continue;
         }
         fsMods += (fsMods.empty() ? "" : " ") + mod.folder;
-        std::vector<const ModSetting *> settings;
-        for ( const ModSetting &s : mod.settings )
-            settings.push_back(&s);
-        for ( const ModOption &o : mod.options )
-        {
-            const int chosen = Mods_OptionValueIndex(o);
-            const int i = Mod_EffectiveValue(o, mapName);
-            if ( i < 0 )
-                continue;
-            if ( i != chosen && log )
-                Com_PrintWarning(10, "mods: %s %s %s needs %s: this game uses the settings of %s\n", mod.name.c_str(),
-                    o.label.c_str(), o.values[chosen].label.c_str(),
-                    Mod_NeedsMet(o.values[chosen].needs, mapName, nullptr) ? "a restart of the game first"
-                                                                           : "a map that isn't installed",
-                    o.values[i].label.c_str());
-            for ( const ModSetting &s : o.values[i].settings )
-                settings.push_back(&s);
-        }
-        for ( const ModSetting *s : settings )
-        {
-            if ( !s->startup && (s->map.empty() || !I_stricmp(s->map.c_str(), mapName)) )
-                Mod_Merge(sets, s->dvar, s->value);
-        }
+        Mod_AddSettings(mod, mapName, sets, log);
     }
 }
 
@@ -1188,8 +1194,9 @@ static void Mods_List_f()
         std::string why;
         const bool available = Mods_IsAvailable(mod, &why);
         const std::string restart = Mods_RestartReason(mod);
-        Com_Printf(0, "  %-10s %-3s %s (order %d; maps: %s)%s%s%s\n", mod.folder.c_str(),
-            mod.mapMod ? "MAP" : Mods_IsEnabled(mod) ? "ON" : "off", mod.name.c_str(), mod.order, Mods_MapList(mod).c_str(),
+        Com_Printf(0, "  %-10s %-3s %s (order %d; %s)%s%s%s\n", mod.folder.c_str(),
+            Mods_IsEnabled(mod) ? "ON" : "off", mod.name.c_str(), mod.order,
+            ((mod.mapMod ? "a map: " : "maps: ") + Mods_MapList(mod)).c_str(),
             available ? "" : " - ", why.c_str(), restart.empty() ? "" : " - needs a restart");
         for ( const ModSetting &s : mod.settings )
         {

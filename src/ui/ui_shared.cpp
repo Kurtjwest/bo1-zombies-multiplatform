@@ -1,5 +1,7 @@
 #include <universal/ptr32.h>
 #include <universal/bo1_ptrcast.h>
+#include "ui_levels.h"
+#include "ui_scroll.h"
 #include "ui_shared.h"
 #include "ui_shared_obj.h"
 #include "ui_localvars.h"
@@ -4694,6 +4696,9 @@ void    Menu_HandleKey(int localClientNum, UiContext *dc, menuDef_t *menu, int k
     {
         return;
     }
+    // mod: lists that scroll (Mission Select's, the Mods menu's): the wheel, their scroll bars
+    if (UI_Scroll_HandleKey(localClientNum, dc, menu, key, down))
+        return;
     inHandler = 1;
     if (g_waitingForKey && down)
     {
@@ -8163,6 +8168,10 @@ char    Menu_Paint(
             return 0;
         }
     }
+
+    // mod: lists that scroll placed, scrolled to the row with the focus; Mission Select's map mod panel
+    UI_Scroll_Frame(localClientNum, dc, menu);
+    UI_Levels_Frame(localClientNum, dc, menu);
 
     {
         PROF_SCOPED("Menu_AnyItemsVisible");

@@ -67,8 +67,9 @@ struct ModInfo
     std::vector<ModOption> options;
     std::vector<std::string> clears; // dvars its scripts make (name, or prefix*): empty again when each game starts
     const dvar_s *enabled; // bo1_mods_<folder>
-    // a map mod (a mod-tools map: mods/<dir>/<map>.ff, maybe a mod.ff and .iwd files; mod.txt optional): played from
-    // its page (Play, Host Game), not turned on or off; stacked with fs_mods in every game on its map(s)
+    // a map mod (a mod-tools map: mods/<dir>/<map>.ff, maybe a mod.ff and .iwd files; mod.txt optional): turned on, it
+    // is a row of the zombies menu's Mission Select (src/ui/ui_levels.cpp) and its memory is set aside at startup;
+    // stacked first with fs_mods in every game on its map(s), on or off
     bool mapMod;
     std::string version; // mod.json's "vers"
 };

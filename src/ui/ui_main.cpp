@@ -32,6 +32,7 @@
 #include <client_mp/cl_main_pc_mp.h>
 #include "ui_feeders.h"
 #include "ui_coop.h"
+#include "ui_levels.h"
 #include "ui_mods.h"
 #include <live/live_groups_dw.h>
 #include <game_mp/ui_gameinfo_mp.h>
@@ -888,6 +889,7 @@ void __cdecl UI_Shutdown(int localClientNum)
         Menus_FreeAllMemory(&uiInfo->uiDC);
     UI_Coop_Shutdown(&uiInfo->uiDC); // co-op: its popups are text menus, in the hunk with fast files too
     UI_Mods_Shutdown(&uiInfo->uiDC); // mod: the Mods menu's too
+    UI_Levels_Shutdown(&uiInfo->uiDC); // mod: Mission Select's map mod rows (in levels_zombie, a fast file's menu)
     UI_Project_Shutdown(localClientNum);
 }
 
@@ -1115,6 +1117,8 @@ void __cdecl UI_RunMenuScript(int localClientNum, int contextIndex, const char *
     {
         dc = (UiContext *)UI_UIContext_GetInfo(contextIndex);
         if (UI_Mods_MenuScript(localClientNum, dc, out, args)) // mod: the Mods menu's "uiScript bo1Mods..."
+            return;
+        if (UI_Levels_MenuScript(localClientNum, dc, out, args)) // mod: Mission Select's map mod rows
             return;
         if (!I_stricmp(out, "Quit"))
         {
@@ -4153,6 +4157,7 @@ void __cdecl UI_LoadIngameMenus(int contextIndex)
             UI_Port_PatchMainMenu(&uiInfo->uiDC);
             UI_Coop_LoadMenus(contextIndex, &uiInfo->uiDC); // co-op: the Online choice's popups
             UI_Mods_LoadMenus(contextIndex, &uiInfo->uiDC); // mod: the main menu's Mods popup and pages
+            UI_Levels_LoadMenus(contextIndex, &uiInfo->uiDC); // mod: Mission Select's map mods (after the mods' read)
         }
         // (the front end's menus run update_sv_savegameavailable too: the front end loaded after an error, with
         // zombiemode not set yet, sent it to the server, which printed "Unknown cmd" on the screen)
