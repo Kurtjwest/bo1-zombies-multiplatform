@@ -77,7 +77,7 @@
 #define POOLSIZE_LIGHTDEF         32
 #define POOLSIZE_LIGHTDEF_MOD 64 // mod: capacity for bo1_mod_zones; in use only with it on the command line (DB_InitXAssets)
 #define POOLSIZE_UI_MAP            0
-#define POOLSIZE_FONT              16
+#define POOLSIZE_FONT              32 // mod: MP and SP 16; bo1_zombies holds both code zone sets' fonts (15: en_code_post_gfx 6 + en_code_post_gfx_mp 6, code_post_gfx 2, code_post_gfx_mp 1), so a mod zone with a font of its own ran out
 //#define POOLSIZE_MENUFILE          128
 #define POOLSIZE_MENUFILE          164
 //#define POOLSIZE_MENU              850

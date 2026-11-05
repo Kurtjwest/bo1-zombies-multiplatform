@@ -262,7 +262,12 @@ void __cdecl R_InitWaterSimulation()
     else
     {
         waterSimInitialized = 1;
-        r_watersim_enabled = _Dvar_RegisterBool("r_watersim_enabled", 1, 0x5500u, "Enables dynamic water simulation");
+        // mod: off unless set. The simulation (R_WaterSimulationRender, ..TrackView, ..UpdateFrame) is a reconstruction
+        // that no map has run yet (the stock zombie maps have no water cells; a mod-tools map with water does), and its
+        // render differs from the decompiled original (the tile row it marks updated, the mesh queue's test, the start
+        // tile). Off, a map with water loads without its moving water surface; the game's water queries use the world's
+        // water heights (R_WaterSimulationGetHeightGlobal) and leave the simulation alone (data.enabled stays 0)
+        r_watersim_enabled = _Dvar_RegisterBool("r_watersim_enabled", 0, 0x5500u, "Enables dynamic water simulation");
         r_watersim_debug = _Dvar_RegisterBool("r_watersim_debug", 0, 0x4400u, "Enables bullet debug markers");
         r_watersim_flatten = _Dvar_RegisterBool("r_watersim_flatten", 0, 0x4400u, "Flattens the water surface out");
         r_watersim_waveSeedDelay = _Dvar_RegisterFloat(
@@ -382,7 +387,6 @@ void __cdecl R_InitWaterSimulation()
 
 void __cdecl R_WaterSimulationRestart()
 {
-    int i; // [esp+4h] [ebp-8h]
     unsigned int n; // [esp+8h] [ebp-4h]
 
     data.waveTimeleft = 0.0f;
@@ -401,14 +405,26 @@ void __cdecl R_WaterSimulationRestart()
     if ( rgp.world )
     {
         Dvar_SetFloat((dvar_s *)r_watersim_windDir, rgp.world->waterDirection);
-        for ( i = 0; i < 2; ++i )
-        {
-            if ( rgp.world->waterBuffers[i].bufferSize )
-                memcpy(
-                    (unsigned __int8 *)data.buffer[i].v,
-                    (unsigned __int8 *)rgp.world->waterBuffers[i].buffer,
-                    rgp.world->waterBuffers[i].bufferSize);
-        }
+        R_WaterSimulationCopyWorldBuffers();
+    }
+}
+
+// mod: the world's water (its two height buffers, from the map's zone) into the simulation's, only when both are there.
+// CG_Init restarts the simulation before CL_InitCGame's Com_InitDynamicMemorySystems allocates its buffers, so on a
+// map's load there are none yet (R_InitWaterSimulationBuffers copies the world's when it allocates them), and a map
+// without water cells gets none at all. The stock zombie maps have no water buffers; a mod-tools map with water does
+// (Facility, Temple: the copy to no buffer crashed CG_Init).
+void R_WaterSimulationCopyWorldBuffers()
+{
+    if ( !rgp.world )
+        return;
+    for ( int i = 0; i < 2; ++i )
+    {
+        const GfxWaterBuffer &src = rgp.world->waterBuffers[i];
+        if ( !src.bufferSize || !src.buffer || !data.buffer[i].v )
+            continue;
+        const unsigned int size = src.bufferSize < data.buffer[i].bufferSize ? src.bufferSize : data.buffer[i].bufferSize;
+        memcpy((unsigned __int8 *)data.buffer[i].v, (const unsigned __int8 *)src.buffer, size);
     }
 }
 
@@ -499,6 +515,7 @@ void __cdecl R_InitWaterSimulationBuffers(unsigned int location)
             PMem_EndAlloc("water buffers", location);
             R_InitWaterSimulationVertexBuffers();
             buffersAllocated = 1;
+            R_WaterSimulationCopyWorldBuffers(); // mod: the map's water (CG_Init's restart had no buffers to copy it to)
         }
     }
     else

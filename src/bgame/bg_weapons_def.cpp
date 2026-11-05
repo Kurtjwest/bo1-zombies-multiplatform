@@ -338,8 +338,12 @@ void __cdecl BG_SetupWeaponAlts(unsigned int weapIndex, void (__cdecl *regWeap)(
         altWeaponIndex = BG_GetWeaponIndexForName((char*)weapVariantDef->szAltWeaponName, regWeap);
         if ( !altWeaponIndex )
         {
+            // mod: a warning, the weapon without its alternate mode (as BG_WeaponVariantPrecache does for a variant's), not
+            // the game's error: a map mod's weapon can name one its zones don't have (House: ak47_upgraded_zm's
+            // ft_ak47_upgraded_zm), and the error stopped the map
             v2 = BG_WeaponName(weapIndex);
-            Com_Error(ERR_DROP, "could not find altWeapon '%s' for weapon '%s'", BO1_VA(weapVariantDef->szAltWeaponName), v2);
+            Com_PrintWarning(17, "WARNING: could not find altWeapon '%s' for weapon '%s': it has no alternate mode\n",
+                BO1_VA(weapVariantDef->szAltWeaponName), v2);
         }
         weapVariantDef->altWeaponIndex = altWeaponIndex;
     }

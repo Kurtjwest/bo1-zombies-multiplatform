@@ -386,6 +386,7 @@ struct waterdata_t // sizeof=0x160A0
 
 void __cdecl R_InitWaterSimulation();
 void __cdecl R_WaterSimulationRestart();
+void R_WaterSimulationCopyWorldBuffers(); // mod: the map's water into the simulation's buffers, if both are there
 void __cdecl ExpireAllMeshes(tile_t *tile);
 void __cdecl ExpireMesh(tile_t *tile);
 void __cdecl R_WaterSimulationTeleport(int posX, int posY);

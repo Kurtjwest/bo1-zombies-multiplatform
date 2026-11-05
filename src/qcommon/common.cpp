@@ -16,6 +16,7 @@
 #include <server_mp/sv_main_mp.h>
 #include <server_mp/sv_init_mp.h>
 #include <gfx_d3d/r_water_sim.h>
+#include "com_mods.h"
 #include <gfx_d3d/r_extracam.h>
 #include <gfx_d3d/r_ui3d.h>
 #include <gfx_d3d/rb_resource.h>
@@ -391,7 +392,9 @@ int __cdecl Com_GetFirstFreeEntityNum()
 
 bool __cdecl Com_IsZombieMap(const char *mapName)
 {
-    return mapName && !I_strncmp(mapName, "zombie", 6);
+    // mod: a map mod's map too, whatever its name (a mod-tools map is a zombies map: Overlook's is "mod1"). As an MP map
+    // it loaded common_mp (its fonts past the pool's 16) and looked for maps/mp/<map>.d3dbsp
+    return mapName && (!I_strncmp(mapName, "zombie", 6) || (*mapName && Mods_MapModFor(mapName)));
 }
 
 // zombies: SP's frontend sets zombiemode before a zombie map loads (main_menu 'setdvar zombiemode 1');
