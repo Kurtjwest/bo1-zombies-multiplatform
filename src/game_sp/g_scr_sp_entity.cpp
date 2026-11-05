@@ -928,6 +928,22 @@ static void G_m_setzombieshrink(scr_entref_t entref)
     ent->s.un1.scale = (unsigned __int8)Scr_GetInt(0, SCRIPTINSTANCE_SERVER);
 }
 
+// mod: setscale( <scale> ) on an entity (map mods: Battery's maps/zombie_battery_sq.gsc scales its mines' lights and a
+// key up). Not a builtin of the game's here, and this engine draws an entity's model at its own size (the client gives
+// every entity the scale 1, cg_ents_mp.cpp), so the scale is taken and left unused: the models keep their size.
+static void G_m_setscale(scr_entref_t entref)
+{
+    if (entref.classnum)
+        Scr_ObjectError("not an entity", SCRIPTINSTANCE_SERVER);
+    Scr_GetFloat(0, SCRIPTINSTANCE_SERVER);
+    static bool s_noted;
+    if (!s_noted)
+    {
+        s_noted = true;
+        Com_Printf(24, "setscale: models are drawn at their own size here (the scale is left unused)\n");
+    }
+}
+
 // zombies: allowmipstoload (SP 0x00651a30, the shared null sub).
 static void G_f_allowmipstoload()
 {
@@ -2066,6 +2082,7 @@ const BuiltinMethodDef g_sp_entity_methods[] =
     { "haseyes", G_m_haseyes, 0 },
     { "issprinting", G_m_issprinting, 0 },
     { "setzombieshrink", G_m_setzombieshrink, 0 },
+    { "setscale", G_m_setscale, 0 },
     { "setenginevolume", G_m_enginevolume_null, 0 },
     { "getenginevolume", G_m_enginevolume_null, 0 },
     { "useweaponhidetags", G_m_useweaponhidetags, 0 },
