@@ -1915,6 +1915,15 @@ void __cdecl CG_FakeEntityEffects(int localClientNum, centity_s *cent)
         CG_PumpEntityLoopSound(localClientNum, cent);
 }
 
+// mod: the scale a script set on a script model (setscale, g_scr_sp_entity.cpp: un2.anim.fWaistPitch, which a script
+// mover doesn't use otherwise); 1 if none. The renderer draws a single, unanimated model at it (a scene model: culled
+// and lodded at it too); one with an anim tree, several models or a ragdoll is skinned at its own size.
+static float CG_ScriptMoverScale(const centity_s *cent)
+{
+    const float scale = cent->nextState.anim.fWaistPitch;
+    return scale > 0.0f && scale <= 100.0f ? scale : 1.0f;
+}
+
 void __cdecl CG_ScriptMover(int localClientNum, centity_s *cent)
 {
     const GfxBrushModel *BrushModel; // eax
@@ -1977,7 +1986,7 @@ void __cdecl CG_ScriptMover(int localClientNum, centity_s *cent)
                 0,
                 0,
                 0.0,
-                1.0);
+                CG_ScriptMoverScale(cent)); // mod: was 1 (setscale)
         }
     }
 }

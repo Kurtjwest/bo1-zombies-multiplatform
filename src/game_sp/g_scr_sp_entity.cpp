@@ -928,20 +928,39 @@ static void G_m_setzombieshrink(scr_entref_t entref)
     ent->s.un1.scale = (unsigned __int8)Scr_GetInt(0, SCRIPTINSTANCE_SERVER);
 }
 
-// mod: setscale( <scale> ) on an entity (map mods: Battery's maps/zombie_battery_sq.gsc scales its mines' lights and a
-// key up). Not a builtin of the game's here, and this engine draws an entity's model at its own size (the client gives
-// every entity the scale 1, cg_ents_mp.cpp), so the scale is taken and left unused: the models keep their size.
+// mod: setscale( <scale> ) on a script model: its model drawn that many times its size (map mods: Battery's
+// maps/zombie_battery_sq.gsc scales its mines' lights by 3 and a key by 1.25). Not one of the zombies scripts' builtins
+// this engine has (it is built from the MP game, with the SP builtins the game's own zombies scripts call), but its
+// renderer draws an entity's model at a scale (R_AddDObjToScene), which the client always gave as 1. The scale goes to
+// the clients in the entity state's un2.anim.fWaistPitch, which a script mover leaves unused and sends whole
+// (msg_mp.cpp scriptMoverStateFields, a float); CG_ScriptMover draws with it (CG_ScriptMoverScale). Only the look: its
+// collision keeps the model's size. Other entities (an actor, a brush model) keep theirs: the console says so once.
 static void G_m_setscale(scr_entref_t entref)
 {
     if (entref.classnum)
-        Scr_ObjectError("not an entity", SCRIPTINSTANCE_SERVER);
-    Scr_GetFloat(0, SCRIPTINSTANCE_SERVER);
-    static bool s_noted;
-    if (!s_noted)
     {
-        s_noted = true;
-        Com_Printf(24, "setscale: models are drawn at their own size here (the scale is left unused)\n");
+        Scr_ObjectError("not an entity", SCRIPTINSTANCE_SERVER);
+        return;
     }
+    gentity_s *ent = &g_entities[entref.entnum];
+    const float scale = Scr_GetFloat(0, SCRIPTINSTANCE_SERVER);
+    if (!(scale > 0.0f) || scale > 100.0f)
+    {
+        Scr_ParamError(0, va("setscale: %g is not a scale (above 0, at most 100)", scale), SCRIPTINSTANCE_SERVER);
+        return;
+    }
+    if (ent->s.eType != ET_SCRIPTMOVER)
+    {
+        static bool s_noted;
+        if (!s_noted)
+        {
+            s_noted = true;
+            Com_Printf(24, "setscale: only a script model is drawn scaled (entity %d is of type %d): left as it is\n",
+                entref.entnum, ent->s.eType);
+        }
+        return;
+    }
+    ent->s.anim.fWaistPitch = scale == 1.0f ? 0.0f : scale; // (0: its own size, as every entity starts)
 }
 
 // zombies: allowmipstoload (SP 0x00651a30, the shared null sub).
