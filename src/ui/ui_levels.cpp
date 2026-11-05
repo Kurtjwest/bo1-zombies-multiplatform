@@ -401,7 +401,9 @@ void UI_Levels_Shutdown(UiContext *dc)
     UI_Scroll_Remove(&s_scroll);
     if ( !s_menu )
         return;
-    // levels_zombie back as the game made it, if it is still loaded (a menu freed with its zone has left the list)
+    // levels_zombie back as the game made it, if it is still loaded (a menu freed with its zone has left the list). Its
+    // zone may stay loaded until the front end's next visit (a patch zone's menu): the game's list items go back where
+    // they were, not where the list last scrolled them (or far below the screen), as the next visit measures them
     for ( int i = 0; i < dc->menuCount; ++i )
     {
         if ( dc->Menus[i] == s_menu && s_menu->items == s_items.data() )
@@ -409,6 +411,14 @@ void UI_Levels_Shutdown(UiContext *dc)
             Levels_SetPanel(dc->contextIndex, "");
             s_menu->items = s_origItems;
             s_menu->itemCount = s_origItemCount;
+            for ( const UiScrollRow &row : s_scroll.rows )
+            {
+                if ( row.flow )
+                    continue; // (ours, freed below)
+                for ( size_t n = 0; n < row.items.size(); ++n )
+                    row.items[n]->window.rectClient.y = row.y + row.offsets[n];
+            }
+            Menu_UpdatePosition(dc->contextIndex, s_menu);
             Menu_SetCursorItem(dc->contextIndex, s_menu, -1);
         }
     }
