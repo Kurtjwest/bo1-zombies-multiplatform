@@ -2419,11 +2419,11 @@ void __cdecl G_PrintFastFileErrors(char *fastfile)
         __debugbreak();
     }
     rawfile = DB_FindXAssetHeader(ASSET_TYPE_RAWFILE, fastfile, 1, -1).rawfile;
-    if ( !rawfile
-        && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\game_mp\\g_main_mp.cpp", 1839, 1, "%s", "rawfile") )
-    {
-        __debugbreak();
-    }
+    // mod: a zone without its build's error list (the rawfile named as the zone, which retail's linker adds) has nothing
+    // to report: a map mod's zone can leave it out (Overlook's zombie_overlook, zombie_ol_expan), and G_InitGame read
+    // through the null
+    if ( !rawfile )
+        return;
     if ( rawfile->len )
     {
         Com_PrintError(1, "There were errors when building fast file '%s'\n", fastfile);
