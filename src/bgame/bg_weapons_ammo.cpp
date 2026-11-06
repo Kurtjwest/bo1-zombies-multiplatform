@@ -1,3 +1,4 @@
+#include "bg_perks.h"
 #include "bg_weapons_ammo.h"
 #include "bg_weapons.h"
 #include <string.h>
@@ -466,6 +467,9 @@ int __cdecl BG_GetAmmoPlayerMax(const playerState_s *ps, unsigned int weaponInde
                 if ( thisWeapDef->iSharedAmmoCapIndex >= 0 )
                     return BG_GetSharedAmmoCapSize(thisWeapDef->iSharedAmmoCapIndex);
                 total += BG_GetMaxAmmo(thisWeapIdx);
+                // mod: LinkerMod game_mod's specialty_stockpile: two more magazines for each weapon
+                if ( (ps->perks[1] & BG_SP_STOCKPILE_PERK_MASK) != 0 )
+                    total += BG_GetClipSize(thisWeapIdx) * 2;
             }
         }
     }

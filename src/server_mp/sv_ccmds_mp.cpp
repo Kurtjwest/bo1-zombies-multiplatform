@@ -25,6 +25,8 @@
 #include <live/live_storage_pub.h>
 #include <universal/q_parse.h>
 #include <game_mp/g_main_mp.h>
+#include <game_sp/g_sp_levelstart.h>
+#include <game_sp/g_sp_player_state.h>
 
 int sv_migrate;
 
@@ -1132,6 +1134,14 @@ void __cdecl SV_SetPerk_f()
     if ( PlayerByName )
     {
         perkName = SV_Cmd_Argv(2);
+        // mod: a zombies game's perks are SP's (and LinkerMod game_mod's), as game_mod's SV_SetPerk_f takes them
+        if ( G_SP_IsSPLevel() )
+        {
+            gentity_s *ent = &g_entities[PlayerByName - svs.clients];
+            if ( ent->client )
+                G_SP_SetPerk(ent->client, perkName, true);
+            return;
+        }
         perkIndex = BG_GetPerkIndexForName(perkName);
         if ( perkIndex < 0x34 )
         {

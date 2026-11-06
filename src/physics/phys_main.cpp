@@ -1433,6 +1433,10 @@ PhysObjUserData *__cdecl Phys_ObjCreateAxis(
     nanassertvec3(velocity);
     iassert(physInited);
     iassert(physPreset);
+    // mod: as LinkerMod's game_mod (Phys_AssertValidPreset): an object without a physics preset (a mod's model naming one
+    // its zones don't have) ends the game with an error instead of reading through the null
+    if ( !physPreset || physPreset == (const PhysPreset *)-1 )
+        Com_Error(ERR_DROP, "Attempted to spawn physics object without a valid physPreset\n");
 
     AxisCopy(axis, state.rotation);
 

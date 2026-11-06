@@ -727,6 +727,95 @@ static std::string Mod_TitleCase(const std::string &s)
     return t;
 }
 
+// a file of a mod (its folder's, else one in its .iwd files: a path as in the .iwd, "level_dependencies.csv"); "" none
+static std::string Mod_ReadModFile(const std::string &dir, const char *path)
+{
+    std::string text = Mod_ReadFile(dir + "/" + path);
+    if ( !text.empty() )
+        return text;
+    int count = 0;
+    char **files = (char **)Sys_ListFiles((char *)dir.c_str(), (char *)"iwd", nullptr, &count, 0);
+    for ( int i = 0; files && i < count && text.empty(); ++i )
+    {
+        unzFile uf = unzOpen((dir + "/" + files[i]).c_str());
+        if ( !uf )
+            continue;
+        char name[256];
+        unz_file_info info;
+        for ( int r = unzGoToFirstFile(uf); r == UNZ_OK; r = unzGoToNextFile(uf) )
+        {
+            if ( unzGetCurrentFileInfo(uf, &info, name, sizeof(name), nullptr, 0, nullptr, 0) != UNZ_OK )
+                break;
+            for ( char *c = name; *c; ++c )
+                *c = *c == '\\' ? '/' : *c;
+            if ( I_stricmp(name, path) || info.uncompressed_size > 256 * 1024 )
+                continue;
+            if ( unzOpenCurrentFile(uf) == UNZ_OK )
+            {
+                text.resize(info.uncompressed_size);
+                const int n = text.empty() ? 0 : unzReadCurrentFile(uf, &text[0], (unsigned)text.size());
+                text.resize(n > 0 ? n : 0);
+                unzCloseCurrentFile(uf);
+            }
+            break;
+        }
+        unzClose(uf);
+    }
+    if ( files )
+        FS_FreeFileList((const char **)files);
+    return text;
+}
+
+// the zones a mod's own level_dependencies.csv has a map load ("<map>,<zone>" lines: the second words), which are no
+// maps of its own
+static std::set<std::string> Mod_LevelDependencyZones(const std::string &dir)
+{
+    std::set<std::string> zones;
+    const std::string text = Mod_ReadModFile(dir, "level_dependencies.csv");
+    size_t p = 0;
+    while ( p < text.size() )
+    {
+        size_t e = text.find('\n', p);
+        if ( e == std::string::npos )
+            e = text.size();
+        std::string line = text.substr(p, e - p);
+        p = e + 1;
+        if ( line.compare(0, 2, "//") == 0 )
+            continue;
+        const size_t comma = line.find(',');
+        if ( comma == std::string::npos )
+            continue;
+        std::string zone = line.substr(comma + 1);
+        const size_t end = zone.find_first_of(",\r\t ");
+        if ( end != std::string::npos )
+            zone.resize(end);
+        for ( char &c : zone )
+            c = (char)tolower((unsigned char)c);
+        if ( !zone.empty() )
+            zones.insert(zone);
+    }
+    return zones;
+}
+
+// the memory a mod's zones that load with a level take: its mod.ff and its mod1.ff .. mod7.ff (each while the one before
+// exists, as LinkerMod's game_mod loads them), its level dependencies' zones and a common_zombie_patch_override.ff
+static unsigned long long Mod_ModZonesMemory(const std::string &dir)
+{
+    unsigned long long total = Mod_ZoneMemory(dir + "/mod.ff");
+    for ( int m = 1; m < 8; ++m )
+    {
+        const std::string path = dir + "/mod" + std::to_string(m) + ".ff";
+        FILE *f = fopen(path.c_str(), "rb");
+        if ( !f )
+            break;
+        fclose(f);
+        total += Mod_ZoneMemory(path);
+    }
+    for ( const std::string &zone : Mod_LevelDependencyZones(dir) )
+        total += Mod_ZoneMemory(dir + "/" + zone + ".ff"); // (its own level dependencies' zones, 0 for the game's)
+    return total + Mod_ZoneMemory(dir + "/common_zombie_patch_override.ff");
+}
+
 // a map mod's maps: those its mod.arena lists, if it has one (Overlook: zombie_overlook and zombie_ol_expan; its
 // mod1.ff, sounds, is no map); else its zone files but mod.ff, a language's (en_<zone>), _patch and _load ones (with a
 // zombie_* among them: those, as a mod-tools zombies map is named). Its memory need beyond what a retail map has (Kino
@@ -751,8 +840,11 @@ static void Mod_FindMaps(const std::string &dir, ModInfo &mod)
             modZone = true;
             continue;
         }
+        // (a mod's other zones, as LinkerMod's game_mod loads them: mod1 .. mod7 after mod.ff, patch overrides)
         bool skip = !IsDvarName(name) || (name.size() > 6 && (!I_stricmp(name.c_str() + name.size() - 6, "_patch")))
-                    || (name.size() > 5 && !I_stricmp(name.c_str() + name.size() - 5, "_load"));
+                    || (name.size() > 5 && !I_stricmp(name.c_str() + name.size() - 5, "_load"))
+                    || (name.size() > 15 && !I_stricmp(name.c_str() + name.size() - 15, "_patch_override"))
+                    || (name.size() == 4 && !I_strnicmp(name.c_str(), "mod", 3) && name[3] >= '1' && name[3] <= '7');
         for ( const char *l : languages )
             skip = skip || !I_strnicmp(name.c_str(), l, 3);
         if ( !skip )
@@ -760,6 +852,14 @@ static void Mod_FindMaps(const std::string &dir, ModInfo &mod)
     }
     if ( files )
         FS_FreeFileList((const char **)files);
+    // (a zone its level_dependencies.csv loads with a map is no map: LinkerMod's game_mod)
+    const std::set<std::string> dependencies = Mod_LevelDependencyZones(dir);
+    maps.erase(std::remove_if(maps.begin(), maps.end(), [&](const std::string &m) {
+        std::string l = m;
+        for ( char &c : l )
+            c = (char)tolower((unsigned char)c);
+        return dependencies.count(l) != 0;
+    }), maps.end());
     if ( maps.empty() )
         return;
     std::sort(maps.begin(), maps.end());
@@ -838,7 +938,7 @@ static void Mod_FindMaps(const std::string &dir, ModInfo &mod)
         const unsigned long long need = Mod_ZoneMemory(dir + "/" + m + ".ff");
         biggest = need > biggest ? need : biggest;
     }
-    const unsigned long long modNeed = modZone ? Mod_ZoneMemory(dir + "/mod.ff") : 0;
+    const unsigned long long modNeed = modZone ? Mod_ModZonesMemory(dir) : 0;
     const long long extraMB = (long long)((biggest + modNeed) >> 20) - 110 + 64;
     if ( extraMB > 0 )
         mod.settings.push_back({ "bo1_mod_memory", va("%d", (int)extraMB), "", true });
@@ -908,7 +1008,7 @@ static void Mod_FindZoneModMaps(const std::string &dir, ModInfo &mod)
                 mod.maps.push_back({ m.map, m.label });
         }
     }
-    const unsigned long long modNeed = Mod_ZoneMemory(dir + "/mod.ff");
+    const unsigned long long modNeed = Mod_ModZonesMemory(dir);
     mod.settings.push_back({ "bo1_mod_memory", va("%d", (int)(modNeed >> 20) + 64), "", true });
 }
 

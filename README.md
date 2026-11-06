@@ -374,6 +374,28 @@ plays on a map mod's map. Its `mod.ff` needs memory set aside when the game star
 for one restart. Such mods are made for SE2Dev's Game Mod, which brings retail's mod loading back to the original
 game; this game loads them itself.
 
+### LinkerMod mods (game_mod)
+
+Mods built with LinkerMod (Nukem9/LinkerMod, the Black Ops mod tools fixes) are made for its `game_mod` loader. What
+of `game_mod` a mod can depend on, this game does itself:
+
+- **Zones:** a mod's `mod.ff`, then its `mod1.ff` .. `mod7.ff` (each while the one before exists: Overlook's `mod1.ff`
+  holds its Moon sounds); a custom map's own `<map>_patch.ff`; `common_zombie_patch_override.ff` and
+  `<map>_patch_override.ff`; `level_dependencies.csv` (a mod's own, in its folder or `.iwd`, read for each map: every
+  zone it names for the map loads before it, and such a zone is not one of the mod's maps).
+- **Perks:** `game_mod`'s six, for `SetPerk` / `HasPerk` / `UnsetPerk` and the console's `setPerk`:
+  `specialty_fastswitch`, `specialty_fastads`, `specialty_fastmelee`, `specialty_fastsprintrecovery` (the weapon
+  timers and animations the original game's perks of that kind scale), `specialty_fastoffhand` (offhand throws at
+  `perk_fastOffhandRate`) and `specialty_stockpile` (two more magazines of reserve ammo for each weapon; not its extra
+  grenade). `perk_weapRateEnhanced 1` is Double Tap 2.0: two bullets a shot with Double Tap.
+- **The rest:** `scr_useFastFileOnly 1` (the mod's raw scripts aren't read); asset limits at least `game_mod`'s
+  while a mod is on; an object without a physics preset ends the game with an error instead of a crash; a missing
+  image is a warning with a default texture; a mod's `video/<name>.bik` replaces the game's.
+
+Not taken over: `game_mod`'s script file functions (`openfile` and the like work only in developer mode there), and
+what concerns the original game's executable rather than mods (Steam and online fixes, its window and Direct3D 9
+options, Radiant live editing, reflection probe building, its own Mods menu).
+
 ### Adding a mod
 
 A mod is a folder in `mods` (the repository's, which the build installs in the game folder, or the game folder's own)

@@ -2784,6 +2784,12 @@ int __cdecl PM_Weapon_WeaponTimeAdjust(pmove_t *pm, pml_t *pml)
         }
         msec = PM_Weapon_RoundTime((float)pml->msec / perk_weapSwitchMultiplier->current.value);
     }
+    // mod: LinkerMod game_mod's specialty_fastoffhand: offhand throws (states 20-25) at perk_fastOffhandRate
+    else if ( *weaponState >= 20 && *weaponState <= 25 && (ps->perks[1] & BG_SP_FASTOFFHAND_PERK_MASK) != 0
+              && perk_fastOffhandRate && perk_fastOffhandRate->current.value > 0.0f )
+    {
+        msec = PM_Weapon_RoundTime((float)pml->msec / perk_fastOffhandRate->current.value);
+    }
     else if ( *weaponState == 19 && (ps->perks[0] & 0x20000) != 0 )
     {
         if ( perk_weapMeleeMultiplier->current.value <= 0.0

@@ -17,6 +17,8 @@
 #include <server_mp/sv_init_mp.h>
 #include <gfx_d3d/r_water_sim.h>
 #include "com_mods.h"
+extern const char *const g_modZoneNames[8]; // mod: "mod", "mod1" .. "mod7" (db_registry.cpp: LinkerMod's game_mod)
+static int Com_GetLevelDependencies(const char *mapName, char (*deps)[64], int max);
 #include <gfx_d3d/r_extracam.h>
 #include <gfx_d3d/r_ui3d.h>
 #include <gfx_d3d/rb_resource.h>
@@ -2943,7 +2945,7 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
 {
     int ControllerIndex; // eax
     const char *basename; // [esp+44h] [ebp-C4h]
-    XZoneInfo zoneInfo[6 + BO1_MOD_ZONES_MAX]; // [esp+48h] [ebp-C0h] BYREF (zombies: +1 for SP's patch_ui; mod: + a map mod's mod.ff, + bo1_mod_zones)
+    XZoneInfo zoneInfo[6 + BO1_MOD_ZONES_MAX + 7 + 2 + 9]; // [esp+48h] [ebp-C0h] BYREF (zombies: +1 for SP's patch_ui; mod: + a map mod's mod.ff, + bo1_mod_zones, + mod1 .. mod7, + 2 patch overrides, + 8 level dependencies and a free of the last ones)
     char specOpsZoneName[68]; // [esp+78h] [ebp-90h] BYREF
     const char *levelSharedFastFile; // [esp+BCh] [ebp-4Ch]
     char levelPatchZoneName[64]; // [esp+C0h] [ebp-48h] BYREF
@@ -2985,13 +2987,35 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
     // zombies: SP 0x004C8940..0x004C8966 loads no common zone for the front end.
     if ( !Com_IsMenuLevel(mapName) && !spFrontEnd )
         Com_LoadCommonFastFile();
-    levelSharedFastFile = Com_GetLevelSharedFastFile(mapName);
-    if ( levelSharedFastFile )
+    // mod: every zone level_dependencies.csv names for the map (LinkerMod's game_mod; retail: the first). A dependency
+    // (alloc 4096) is freed only by the next one's load, so the last level's go first, and one already loaded that
+    // isn't one of them (a permanent zone) is left as it is
+    static char levelDependencies[8][64];
+    static char lastLevelDependencies[8][64];
+    static int lastLevelDependencyCount;
+    const int levelDependencyCount = Com_GetLevelDependencies(mapName, levelDependencies, 8);
+    if ( lastLevelDependencyCount )
     {
-        zoneInfo[zoneCount].name = levelSharedFastFile;
+        zoneInfo[zoneCount].name = 0;
+        zoneInfo[zoneCount].allocFlags = 0;
+        zoneInfo[zoneCount++].freeFlags = 4096;
+    }
+    for ( int d = 0; d < levelDependencyCount; ++d )
+    {
+        bool wasLast = false;
+        for ( int l = 0; l < lastLevelDependencyCount; ++l )
+            wasLast = wasLast || !I_stricmp(lastLevelDependencies[l], levelDependencies[d]);
+        if ( !wasLast && DB_IsZoneLoaded(levelDependencies[d]) )
+            continue;
+        Com_Printf(16, "Adding level dependency: %s\n", levelDependencies[d]);
+        zoneInfo[zoneCount].name = levelDependencies[d];
         zoneInfo[zoneCount].allocFlags = 4096;
         zoneInfo[zoneCount++].freeFlags = 0;
     }
+    memcpy(lastLevelDependencies, levelDependencies, sizeof(lastLevelDependencies));
+    lastLevelDependencyCount = levelDependencyCount;
+    levelSharedFastFile = levelDependencyCount ? levelDependencies[0] : nullptr;
+    (void)levelSharedFastFile;
     if ( !I_strncmp("so_", mapName, strlen("so_")) )
     {
         for ( basename = &mapName[strlen("so_")]; *basename && *basename != 95; ++basename )
@@ -3010,6 +3034,17 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
     // from it is there), ranks as retail's (DB_OverrideAsset), and goes with the level.
     static char modLevelFolder[64];
     modLevelFolder[0] = 0;
+    // (a mod's override of common_zombie_patch, LinkerMod game_mod's: ahead of its mod.ff, which wins over it there)
+    if ( !spFrontEnd && !Com_IsMenuLevel(mapName) && FS_ModsActive() )
+    {
+        char overrideFile[256];
+        if ( DB_FindModZoneFile("common_zombie_patch_override", overrideFile, sizeof(overrideFile)) )
+        {
+            zoneInfo[zoneCount].name = "common_zombie_patch_override";
+            zoneInfo[zoneCount].allocFlags = 0x4000;
+            zoneInfo[zoneCount++].freeFlags = 0;
+        }
+    }
     if ( !spFrontEnd && !Com_IsMenuLevel(mapName) && FS_ModStackActive() )
     {
         char names[16][64];
@@ -3045,6 +3080,19 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
                 zoneInfo[zoneCount].name = "mod";
                 zoneInfo[zoneCount].allocFlags = 0x4000;
                 zoneInfo[zoneCount++].freeFlags = 0;
+                // LinkerMod's game_mod: mod1.ff .. mod7.ff after it, each while the one before exists (Overlook's
+                // mod1.ff: the sounds it takes from Moon)
+                for ( int z = 1; z < 8; ++z )
+                {
+                    Com_sprintf(path, sizeof(path), "%s/mods/%s/%s.ff", (const char *)fs_basepath->current.string,
+                        modLevelFolder, g_modZoneNames[z]);
+                    if ( GetFileAttributesA(path) == (DWORD)-1 )
+                        break;
+                    Com_Printf(16, "mod: %s's %s.ff too\n", modLevelFolder, g_modZoneNames[z]);
+                    zoneInfo[zoneCount].name = g_modZoneNames[z];
+                    zoneInfo[zoneCount].allocFlags = 0x4000;
+                    zoneInfo[zoneCount++].freeFlags = 0;
+                }
             }
         }
     }
@@ -3055,6 +3103,19 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
     else
         zoneInfo[zoneCount].allocFlags = 0x10000;
     zoneInfo[zoneCount++].freeFlags = 0;
+    // mod: a mod's <map>_patch_override.ff, after the level (LinkerMod's game_mod, for legacy mods)
+    static char patchOverrideZone[64];
+    if ( !spFrontEnd && !Com_IsMenuLevel(mapName) && FS_ModsActive() )
+    {
+        char overrideFile[256];
+        Com_sprintf(patchOverrideZone, sizeof(patchOverrideZone), "%s_patch_override", mapName);
+        if ( DB_FindModZoneFile(patchOverrideZone, overrideFile, sizeof(overrideFile)) )
+        {
+            zoneInfo[zoneCount].name = patchOverrideZone;
+            zoneInfo[zoneCount].allocFlags = 0x4000;
+            zoneInfo[zoneCount++].freeFlags = 0;
+        }
+    }
     // mod: bo1_mod_zones "<zone> [<zone> ...]" (only with fs_game set, e.g. mods/horde; read when a map loads): up to six (BO1_MOD_ZONES_MAX)
     // extra zones loaded after the level, freed with it, that add only what the level lacks: a duplicate name keeps the
     // level's copy and the world singletons (clipmap, com/game/gfx world, map ents) are not linked (DB_IsModExtraZone).
@@ -3101,6 +3162,49 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
 int gLevelDependenciesInited = 0;
 int gLevelDependenciesCount;
 char gLevelDependencies[16][2][64];
+// mod: the zones level_dependencies.csv names for a map ("<map>,<zone>" lines, "//" comments), as LinkerMod's game_mod
+// reads it: again for each map, as a stacked mod can have its own (mods/<name>/level_dependencies.csv or in its .iwd,
+// which wins over the code zones' copy), and every line for the map (retail Com_GetLevelSharedFastFile: the first)
+static int Com_GetLevelDependencies(const char *mapName, char (*deps)[64], int max)
+{
+    char loadBuffer[16384];
+    void *fileBuf = nullptr;
+    const char *data_p = nullptr;
+    if ( FS_ModsActive() && FS_ReadFile("level_dependencies.csv", &fileBuf) > 0 && fileBuf )
+        data_p = (const char *)fileBuf;
+    if ( !data_p )
+        data_p = Com_LoadInfoString((char *)"level_dependencies.csv", "level_dependency_info", "", loadBuffer);
+    int count = 0;
+    Com_BeginParseSession("level_dependencies.csv");
+    Com_SetCSV(1);
+    while ( 1 )
+    {
+        const char *src = (const char *)Com_Parse(&data_p);
+        if ( !*src )
+            break;
+        if ( *src == '/' )
+        {
+            Com_ParseRestOfLine(&data_p);
+            continue;
+        }
+        char base[64];
+        I_strncpyz(base, src, sizeof(base));
+        src = (const char *)Com_Parse(&data_p);
+        if ( !I_stricmp(base, mapName) && *src && count < max )
+        {
+            bool listed = false;
+            for ( int i = 0; i < count; ++i )
+                listed = listed || !I_stricmp(deps[i], src);
+            if ( !listed )
+                I_strncpyz(deps[count++], src, 64);
+        }
+    }
+    Com_EndParseSession();
+    if ( fileBuf )
+        FS_FreeFile(fileBuf);
+    return count;
+}
+
 char *__cdecl Com_GetLevelSharedFastFile(char *mapName)
 {
     int i; // [esp+0h] [ebp-4010h]

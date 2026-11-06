@@ -1264,7 +1264,12 @@ char *__cdecl Scr_ReadFile(
         Scr_AddSourceBufferInternal(inst, extFilename, codePos, sourceBuf, len, 1, archive);
         return sourceBuf;
     }
-    if ( FS_ModsActive() ) // mod: was 'fs_game set': with fs_mods the stacked mods' files win over the fastfile's too
+    // mod: LinkerMod game_mod's scr_useFastFileOnly 1: a mod's raw script files are not read (its zones' are)
+    static const dvar_s *scr_useFastFileOnly;
+    if ( !scr_useFastFileOnly )
+        scr_useFastFileOnly = _Dvar_RegisterInt("scr_useFastFileOnly", 0, 0, 1, 0,
+            "Disable the loading of raw script files from the current mod's directory");
+    if ( FS_ModsActive() && !scr_useFastFileOnly->current.integer ) // mod: was 'fs_game set': with fs_mods the stacked mods' files win over the fastfile's too
     {
         if ( (FS_FOpenFileRead(extFilename, &file) & 0x80000000) != 0 )
         {

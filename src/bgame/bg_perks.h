@@ -10,6 +10,13 @@ void __cdecl Perks_RegisterDvars();
 // zombies: endurance has no MP perk. Reserve unused bit 52 in the existing 64-bit
 // PS/session perk wire storage; BG_HasPerk's 52 named MP perks remain unchanged.
 const unsigned int BG_SP_ENDURANCE_PERK_MASK = 1u << 20; // perks[1]
+// mod: LinkerMod's game_mod perks that have no MP perk either, in the bits after it (perks[1], sent with the player
+// state): specialty_fastoffhand (offhand throws at perk_fastOffhandRate) and specialty_stockpile (two more magazines of
+// reserve ammo for each weapon). Its other four are MP perks under other names (G_SP_SetPerk)
+const unsigned int BG_SP_FASTOFFHAND_PERK_MASK = 1u << 21; // perks[1]
+const unsigned int BG_SP_STOCKPILE_PERK_MASK = 1u << 22;   // perks[1]
+extern const dvar_t *perk_weapRateEnhanced; // mod: game_mod's Double Tap 2.0 (two bullets a shot)
+extern const dvar_t *perk_fastOffhandRate;  // mod: game_mod's specialty_fastoffhand rate
 
 extern const dvar_t *perk_skillSet;
 extern const dvar_t *perk_weapSpreadMultiplier;

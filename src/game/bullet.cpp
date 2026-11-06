@@ -314,6 +314,11 @@ void __cdecl Bullet_Fire(
         shotCount = 1;
         range = sv_bullet_range->current.value;
     }
+    // mod: LinkerMod game_mod's Double Tap 2.0 (BO2's): with perk_weapRateEnhanced (a mod's scripts set it), a zombies
+    // player with specialty_rof (KB perk bit 40) fires two bullets a shot
+    if ( perk_weapRateEnhanced && perk_weapRateEnhanced->current.integer && zombiemode && zombiemode->current.enabled
+         && attacker->client && attacker->s.eType == ET_PLAYER && (attacker->client->ps.perks[1] & 0x100) != 0 )
+        shotCount *= 2;
     for ( shotIndex = 0; shotIndex < shotCount; ++shotIndex )
     {
         if ( weaponEnt )

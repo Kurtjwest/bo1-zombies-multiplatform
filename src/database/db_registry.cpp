@@ -56,7 +56,7 @@
 #define POOLSIZE_XANIM            6000 // zombies: SP g_poolSize (.data 0x00B73EF8); MP was 5100, and a resident common_mp (3355) + common_zombie (1893) + Five (215) + code zones (12) = 5475
 #define POOLSIZE_XANIM_MOD 8000 // mod: capacity for bo1_mod_zones; in use only with it on the command line (DB_InitXAssets)
 #define POOLSIZE_XMODEL           1000
-#define POOLSIZE_XMODEL_MOD 2000 // mod: capacity for bo1_mod_zones; in use only with it on the command line (DB_InitXAssets)
+#define POOLSIZE_XMODEL_MOD 2560 // mod: capacity for bo1_mod_zones; in use only with it on the command line (DB_InitXAssets). At least LinkerMod game_mod's 2048
 #define POOLSIZE_MATERIAL         4096
 #define POOLSIZE_MATERIAL_MOD 6144 // mod: capacity for bo1_mod_zones; in use only with it on the command line (DB_InitXAssets)
 #define POOLSIZE_TECHSET          2048
@@ -3066,16 +3066,40 @@ void __cdecl DB_DelayedCloneXAsset(XAssetEntry *newEntry)
     }
 }
 
-// mod: a map mod's mod.ff (and its language zone) loaded as a level zone (Com_LoadLevelFastFiles: flags 0x4000 / 0x8000,
-// priority 55 / 5) ranks as retail's fs_game mod.ff does (DB_LoadGraphicsAssetsForPC: flags 64 / 128, 61 / 11): above
-// the patch zones, so its own scripts (maps/_zombiemode.gsc, ...) win over common_zombie_patch's as they do in retail
+// mod: a mod's zones as LinkerMod's game_mod loads them: mod.ff, then mod1.ff .. mod7.ff, each while the one before
+// exists (Overlook's mod1.ff holds the sounds it takes from Moon); a mod's patch overrides, common_zombie_patch_override
+// (with the common zone) and <map>_patch_override (after the level)
+extern const char *const g_modZoneNames[8];
+const char *const g_modZoneNames[8] = { "mod", "mod1", "mod2", "mod3", "mod4", "mod5", "mod6", "mod7" };
+
+bool DB_IsModZoneName(const char *name)
+{
+    for ( const char *z : g_modZoneNames )
+    {
+        if ( name && !I_stricmp(name, z) )
+            return true;
+    }
+    return false;
+}
+
+static bool DB_IsPatchOverrideZoneName(const char *name)
+{
+    const size_t n = name ? strlen(name) : 0;
+    return n > 15 && !I_stricmp(name + n - 15, "_patch_override");
+}
+
+// mod: a mod's zones loaded as level zones (Com_LoadLevelFastFiles: flags 0x4000 / 0x8000, priority 55 / 5) rank as
+// retail's fs_game mod.ff does (DB_LoadGraphicsAssetsForPC: flags 64 / 128, 61 / 11): above the patch zones, so a map
+// mod's own scripts (maps/_zombiemode.gsc, ...) win over common_zombie_patch's as they do in retail. The same for its
+// mod1 .. mod7 and patch overrides (the later loaded wins among them: newPriority >= existing)
 static int DB_ZonePriorityOf(unsigned int zoneIndex)
 {
     const int flags = g_zoneNames[zoneIndex].flags & 0x17FFFFFF;
     const char *name = g_zoneNames[zoneIndex].name;
-    if ( flags == 0x4000 && !I_stricmp(name, "mod") )
+    if ( flags == 0x4000 && (DB_IsModZoneName(name) || DB_IsPatchOverrideZoneName(name)) )
         return 61;
-    if ( flags == 0x8000 && strchr(name, '_') && !I_stricmp(strchr(name, '_') + 1, "mod") )
+    if ( flags == 0x8000 && strchr(name, '_')
+         && (DB_IsModZoneName(strchr(name, '_') + 1) || DB_IsPatchOverrideZoneName(strchr(name, '_') + 1)) )
         return 11;
     return DB_GetZonePriority(flags);
 }
@@ -3367,6 +3391,20 @@ static const char *s_spPatchedZoneNames[12] =
     "zombietron",
 };
 
+bool DB_IsModZoneName(const char *name);
+static bool DB_IsPatchOverrideZoneName(const char *name);
+
+// mod: a level zone of a mod's folder with its own patch zone there (mods/<name>/<map>_patch.ff), not a mod zone
+static bool DB_ModZoneHasPatch(const char *zoneName)
+{
+    if ( !zoneName || DB_IsModZoneName(zoneName) || DB_IsPatchOverrideZoneName(zoneName) || I_stristr(zoneName, "_patch") )
+        return false;
+    char patch[64];
+    char filename[256];
+    Com_sprintf(patch, sizeof(patch), "%s_patch", zoneName);
+    return DB_FindModZoneFile(patch, filename, sizeof(filename));
+}
+
 static bool DB_ZoneHasSpPatch(const char *zoneName)
 {
     for (unsigned int i = 0; i < ARRAY_COUNT(s_spPatchedZoneNames); ++i)
@@ -3396,8 +3434,8 @@ void __cdecl DB_LoadXAssets(XZoneInfo *zoneInfo, unsigned int zoneCount, int syn
     int language; // [esp+4h] [ebp-324h] BYREF
     unsigned int k; // [esp+8h] [ebp-320h]
     int maxZones; // [esp+Ch] [ebp-31Ch]
-    XZoneInfo locZoneInfo[32]; // [esp+10h] [ebp-318h] BYREF
-    char zoneName[32][64]; // [esp+88h] [ebp-2A0h] BYREF
+    XZoneInfo locZoneInfo[64]; // [esp+10h] [ebp-318h] BYREF (mod: 32 in the exe)
+    char zoneName[64][64]; // [esp+88h] [ebp-2A0h] BYREF
     unsigned int count; // [esp+310h] [ebp-18h]
     XZone *zone; // [esp+314h] [ebp-14h]
     unsigned int j; // [esp+318h] [ebp-10h]
@@ -3552,7 +3590,7 @@ void __cdecl DB_LoadXAssets(XZoneInfo *zoneInfo, unsigned int zoneCount, int syn
     if ( sync )
         DB_ArchiveAssets();
 
-    maxZones = 32; // mod: 10 in the exe; 32 so six bo1_mod_zones (each with its language and _patch zone) fit (L61; was 20 for four)
+    maxZones = 64; // mod: 10 in the exe; 64 so six bo1_mod_zones and a mod's mod1 .. mod7 (each with its language and _patch zone) fit (L61; was 20 for four, then 32)
     if ( 2 * zoneCount >= maxZones
         && !Assert_MyHandler(
                     "C:\\projects_pc\\cod\\codsrc\\src\\database\\db_registry.cpp",
@@ -3571,7 +3609,10 @@ void __cdecl DB_LoadXAssets(XZoneInfo *zoneInfo, unsigned int zoneCount, int syn
         // or level (SP 0x800) zone whose name is in its patch table, with SP flags 0x400 / 0x2000. Here common is
         // 256 and a level is 0x4000; their patch zones take 1024 and 0x40000, the unused slots whose
         // DB_GetZonePriority (60, 57) is above the base zone's (52, 55), so patched assets override the originals.
-        if ( (allocFlags == 256 || allocFlags == 0x4000) && DB_ZoneHasSpPatch(zoneInfo[k].name) )
+        // mod: and, as LinkerMod's game_mod lets any map have one, a mod's own '<map>_patch' (a level zone whose patch
+        // zone is in a mod's folder: DB_FindModZoneFile)
+        if ( (allocFlags == 256 || allocFlags == 0x4000)
+             && (DB_ZoneHasSpPatch(zoneInfo[k].name) || (allocFlags == 0x4000 && DB_ModZoneHasPatch(zoneInfo[k].name))) )
         {
             if ( count + 3 > (unsigned int)maxZones )
                 Com_Error(ERR_DROP, "DB_LoadXAssets: too many zones with '%s_patch'", BO1_VA(zoneInfo[k].name));
@@ -4007,6 +4048,13 @@ void __cdecl DB_LoadXZone(XZoneInfo *zoneInfo, unsigned int zoneCount)
     for ( j = 0; j < zoneCount; ++j )
     {
         zoneName = zoneInfo[j].name;
+        if ( zoneName && zoneInfoCount >= 0x20 )
+        {
+            // mod: DB_LoadXAssets' list can be longer than the queue (a mod's mod1 .. mod7 and patch overrides, with
+            // their language and patch zones): the rest is left out, not written past it
+            Com_PrintWarning(16, "DB_LoadXZone: more than %d zones queued, '%s' and the rest left out\n", 0x20, zoneName);
+            break;
+        }
         if ( zoneName )
         {
             if ( zoneInfoCount >= 0x20
@@ -4561,7 +4609,7 @@ bool DB_FindModZoneFile(const char *zoneName, char *filename, unsigned int size)
                 return true;
         }
     }
-    const bool modZone = !I_stricmp(zoneName, "mod");
+    const bool modZone = DB_IsModZoneName(zoneName); // (mod, mod1 .. mod7)
     if ( modZone && s_modLevelFolder[0] )
     {
         Com_sprintf(filename, size, "%s/mods/%s/%s.ff", (const char *)fs_basepath->current.string, s_modLevelFolder, zoneName);
@@ -5577,7 +5625,7 @@ void __cdecl DB_LoadFastFilesForPC()
 
 void __cdecl DB_LoadGraphicsAssetsForPC()
 {
-    XZoneInfo zoneInfo[6]; // [esp+0h] [ebp-50h] BYREF
+    XZoneInfo zoneInfo[6 + 7]; // [esp+0h] [ebp-50h] BYREF (mod: + mod1 .. mod7)
     unsigned int zoneCount; // [esp+4Ch] [ebp-4h]
 
     // zombies: bo1_zombies adds SP's code zones, the two SP's DB_LoadGraphicsAssetsForPC (0x00571DB0) loads:
@@ -5616,8 +5664,19 @@ void __cdecl DB_LoadGraphicsAssetsForPC()
         zoneInfo[zoneCount].name = "mod";
         zoneInfo[zoneCount].allocFlags = 64;
         zoneInfo[zoneCount++].freeFlags = 0;
+        // mod: and mod1.ff .. mod7.ff, each while the one before exists (LinkerMod's game_mod)
+        for ( int m = 1; m < 8; ++m )
+        {
+            char filename[256];
+            DB_BuildOSPath_FromSource(g_modZoneNames[m], FFD_MOD_DIR, sizeof(filename), filename);
+            if ( GetFileAttributesA(filename) == (DWORD)-1 )
+                break;
+            zoneInfo[zoneCount].name = g_modZoneNames[m];
+            zoneInfo[zoneCount].allocFlags = 64;
+            zoneInfo[zoneCount++].freeFlags = 0;
+        }
     }
-    if ( zoneCount > 6
+    if ( zoneCount > 6 + 7
         && !Assert_MyHandler(
                     "C:\\projects_pc\\cod\\codsrc\\src\\database\\db_registry.cpp",
                     6304,

@@ -313,6 +313,13 @@ void __cdecl StartWeaponAnim(
         }
         rate = rate / perk_weapMeleeMultiplier->current.value;
     }
+    // mod: LinkerMod game_mod's specialty_fastoffhand: the offhand anims (states 20-25) as fast as its timers
+    else if ( cgameGlob->predictedPlayerState.weaponstate >= 20 && cgameGlob->predictedPlayerState.weaponstate <= 25
+                 && (cgameGlob->predictedPlayerState.perks[1] & BG_SP_FASTOFFHAND_PERK_MASK) != 0
+                 && perk_fastOffhandRate && perk_fastOffhandRate->current.value > 0.0f )
+    {
+        rate = rate / perk_fastOffhandRate->current.value;
+    }
     else if ( cgameGlob->predictedPlayerState.weaponstate == 29
                  && (cgameGlob->predictedPlayerState.perks[1] & 0x4000) != 0 )
     {

@@ -15,14 +15,31 @@
 
 // zombies: SP names at 0x00B6DFE8, lookup 0x00584480. Preserve the exe's
 // "scavanger" spelling. MP's numeric perk bits have different meanings.
+// mod: then LinkerMod's game_mod perks (its bg_perks.cpp), which its mods' scripts set
 static const char *s_spPerkNames[] =
 {
     "specialty_longersprint", "specialty_unlimitedsprint", "specialty_scavanger",
     "specialty_fastreload", "specialty_bulletdamage", "specialty_bulletaccuracy",
     "specialty_flakjacket", "specialty_armorvest", "specialty_quickrevive",
     "specialty_altmelee", "specialty_rof", "specialty_extraammo",
-    "specialty_endurance", "specialty_deadshot", "specialty_additionalprimaryweapon"
+    "specialty_endurance", "specialty_deadshot", "specialty_additionalprimaryweapon",
+    "specialty_fastswitch", "specialty_stockpile", "specialty_fastads",
+    "specialty_fastoffhand", "specialty_fastsprintrecovery", "specialty_fastmelee"
 };
+
+// mod: game_mod's perks that are MP perks under another name (what the shared weapon code tests): fast switch
+// (perk_weapSwitchMultiplier), melee (perk_weapMeleeMultiplier) and sprint recovery (perk_sprintRecoveryMultiplier), as
+// game_mod scales those timers; specialty_fastads has its MP name already. Its other two have bits of their own
+static const char *SP_MPPerkName(const char *name)
+{
+    if ( !I_stricmp(name, "specialty_fastswitch") )
+        return "specialty_fastweaponswitch";
+    if ( !I_stricmp(name, "specialty_fastmelee") )
+        return "specialty_fastmeleerecovery";
+    if ( !I_stricmp(name, "specialty_fastsprintrecovery") )
+        return "specialty_sprintrecovery";
+    return name;
+}
 
 static unsigned int SP_PerkIndex(const char *name)
 {
@@ -33,60 +50,80 @@ static unsigned int SP_PerkIndex(const char *name)
     return 0;
 }
 
+// the bit of the player state's (and session's) perks a perk sets, which the shared code reads: its own for endurance
+// and game_mod's specialty_fastoffhand / specialty_stockpile (no MP perk), else the MP perk of that name (game_mod's
+// others: SP_MPPerkName); false for an SP-only perk without one
+static bool SP_PerkWireBit(const char *name, unsigned int *word, unsigned int *mask)
+{
+    const unsigned int own = !I_stricmp(name, "specialty_endurance")   ? BG_SP_ENDURANCE_PERK_MASK
+                           : !I_stricmp(name, "specialty_fastoffhand") ? BG_SP_FASTOFFHAND_PERK_MASK
+                           : !I_stricmp(name, "specialty_stockpile")   ? BG_SP_STOCKPILE_PERK_MASK
+                                                                       : 0;
+    if (own)
+    {
+        *word = 1;
+        *mask = own;
+        return true;
+    }
+    const unsigned int mp = BG_GetPerkIndexForName(SP_MPPerkName(name));
+    if (mp >= 52)
+        return false;
+    *word = mp >> 5;
+    *mask = 1u << (mp & 31);
+    return true;
+}
+
+// (retail's 15 perks: the SP two-bit store; game_mod's six after them: only their wire bits)
+static const unsigned int kSPRetailPerkCount = 15;
+
 bool G_SP_HasPerk(gclient_s *client, const char *name)
 {
+    const unsigned int i = SP_PerkIndex(name);
+    if (i >= kSPRetailPerkCount)
+    {
+        unsigned int word, mask;
+        return SP_PerkWireBit(name, &word, &mask) && (client->ps.perks[word] & mask) != 0;
+    }
     // zombies: hasperk tests either of the two bits (SP 0x007D90B0).
-    return (G_SP_PlayerBuiltinState(client - level.clients).perks & (3u << (SP_PerkIndex(name) * 2))) != 0;
+    return (G_SP_PlayerBuiltinState(client - level.clients).perks & (3u << (i * 2))) != 0;
 }
 
 void G_SP_SetPerk(gclient_s *client, const char *name, bool enabled)
 {
     // zombies: setperk / unsetperk update both PS and session (SP 0x007D8FF0 / 0x007D9170).
-    const unsigned int mask = 3u << (SP_PerkIndex(name) * 2);
-    unsigned int &perks = G_SP_PlayerBuiltinState(client - level.clients).perks;
-    unsigned int &sessionPerks = G_ClientSpExt(client).sessionPerks;
-    if (enabled)
+    const unsigned int i = SP_PerkIndex(name);
+    if (i < kSPRetailPerkCount)
     {
-        perks |= mask;
-        sessionPerks |= mask;
-    }
-    else
-    {
-        perks &= ~mask;
-        sessionPerks &= ~mask;
+        const unsigned int mask = 3u << (i * 2);
+        unsigned int &perks = G_SP_PlayerBuiltinState(client - level.clients).perks;
+        unsigned int &sessionPerks = G_ClientSpExt(client).sessionPerks;
+        if (enabled)
+        {
+            perks |= mask;
+            sessionPerks |= mask;
+        }
+        else
+        {
+            perks &= ~mask;
+            sessionPerks &= ~mask;
+        }
     }
     // Keep KB's existing consumers and network layout for identically named perks.
     // SP-only perks remain in side storage unless they have an explicitly reserved wire bit.
     // zombies: endurance reaches shared/predicted movement (SP 0x0076058D).
-    // Bit 52 is outside the 52 named MP perks, not an alias of an unrelated perk.
-    if (!I_stricmp(name, "specialty_endurance"))
-    {
-        if (enabled)
-        {
-            client->ps.perks[1] |= BG_SP_ENDURANCE_PERK_MASK;
-            client->sess.cs.perks[1] |= BG_SP_ENDURANCE_PERK_MASK;
-        }
-        else
-        {
-            client->ps.perks[1] &= ~BG_SP_ENDURANCE_PERK_MASK;
-            client->sess.cs.perks[1] &= ~BG_SP_ENDURANCE_PERK_MASK;
-        }
+    // Bit 52 is outside the 52 named MP perks, not an alias of an unrelated perk (mod: 53, 54 game_mod's).
+    unsigned int word, bit;
+    if (!SP_PerkWireBit(name, &word, &bit))
         return;
-    }
-    const unsigned int mp = BG_GetPerkIndexForName(name);
-    if (mp < 52)
+    if (enabled)
     {
-        const unsigned int bit = 1u << (mp & 31);
-        if (enabled)
-        {
-            client->ps.perks[mp >> 5] |= bit;
-            client->sess.cs.perks[mp >> 5] |= bit;
-        }
-        else
-        {
-            client->ps.perks[mp >> 5] &= ~bit;
-            client->sess.cs.perks[mp >> 5] &= ~bit;
-        }
+        client->ps.perks[word] |= bit;
+        client->sess.cs.perks[word] |= bit;
+    }
+    else
+    {
+        client->ps.perks[word] &= ~bit;
+        client->sess.cs.perks[word] &= ~bit;
     }
 }
 

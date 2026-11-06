@@ -117,8 +117,17 @@ const char *__cdecl BG_GetPerkNameForIndex(unsigned int perkIndex)
     return bg_perkNames[perkIndex];
 }
 
+const dvar_t *perk_weapRateEnhanced;
+const dvar_t *perk_fastOffhandRate;
+
 void __cdecl Perks_RegisterDvars()
 {
+    // mod: LinkerMod's game_mod dvars (a mod's scripts set them): Double Tap 2.0, a zombies player with specialty_rof
+    // firing two bullets a shot (Bullet_Fire), and the rate of its specialty_fastoffhand (PM_Weapon_WeaponTimeAdjust)
+    perk_weapRateEnhanced = _Dvar_RegisterInt("perk_weapRateEnhanced", 0, 0, 1, 0x80u,
+        "Double tap will shoot 2x the bullets for every shot");
+    perk_fastOffhandRate = _Dvar_RegisterFloat("perk_fastOffhandRate", 0.5, 0.0099999998, 1.0, 0x80u,
+        "Multiplier for specialty_fastoffhand");
     perk_skillSet = _Dvar_RegisterInt("skills", 0, 0, 0x7FFFFFFF, 0x82u, "SP character skill levels");
     perk_weapSpreadMultiplier = _Dvar_RegisterFloat(
                                                                 "perk_weapSpreadMultiplier",
