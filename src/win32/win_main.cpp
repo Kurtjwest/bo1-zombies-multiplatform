@@ -757,7 +757,9 @@ static void Sys_HeadlessMenuDump()
         return;
     if (!UI_GetInfo(0))
         return;
-    UiContext *dc = &UI_GetInfo(0)->uiDC;
+    // (the UI's menus and the in-game HUD's, cgame's)
+    UiContext *dcs[2] = { &UI_GetInfo(0)->uiDC, &cgDC[0] };
+    for (UiContext *dc : dcs)
     for (int m = 0; m < dc->menuCount; ++m)
     {
         const menuDef_t *menu = dc->Menus[m];
@@ -776,7 +778,9 @@ static void Sys_HeadlessMenuDump()
         }
         if (!wanted)
             continue;
-        Com_Printf(16, "bo1_menudump: menu '%s' items %d\n", BO1_VA(menu->window.name), menu->itemCount);
+        Com_Printf(16, "bo1_menudump: menu '%s' items %d showBits 0x%llx hideBits 0x%llx visible: %s\n",
+            BO1_VA(menu->window.name), menu->itemCount, (unsigned long long)menu->showBits,
+            (unsigned long long)menu->hideBits, Sys_HeadlessExpToString(&menu->visibleExp));
         Sys_HeadlessMenuDumpEvents(menu->window.name, menu->onEvent);
         for (const ItemKeyHandler *key = menu->onKey; key; key = key->next)
             for (const GenericEventScript *script = key->keyScript; script; script = script->next)
@@ -785,12 +789,12 @@ static void Sys_HeadlessMenuDump()
         {
             const itemDef_s *item = menu->items[i];
             Com_Printf(16, "bo1_menudump: %s/%d '%s' type %d style %d rect %g %g %g %g bg '%s' dvar '%s' dvarTest '%s' "
-                "enableDvar '%s' dvarFlags 0x%x flags 0x%x text '%s'\n", BO1_VA(menu->window.name), i,
+                "enableDvar '%s' dvarFlags 0x%x flags 0x%x ownerDraw %d text '%s'\n", BO1_VA(menu->window.name), i,
                 BO1_VA(item->window.name ? item->window.name : ""), item->type, item->window.style, item->window.rect.x,
                 item->window.rect.y, item->window.rect.w, item->window.rect.h,
                 item->window.background ? Material_GetName(item->window.background) : "", BO1_VA(item->dvar ? item->dvar : ""),
                 BO1_VA(item->dvarTest ? item->dvarTest : ""), BO1_VA(item->enableDvar ? item->enableDvar : ""), item->dvarFlags,
-                item->window.dynamicFlags[0],
+                item->window.dynamicFlags[0], item->window.ownerDraw,
                 BO1_VA((item->type == 0 || item->type == 1) && item->typeData.textDef && item->typeData.textDef->text
                     ? item->typeData.textDef->text : ""));
             if (item->visibleExp.filename)

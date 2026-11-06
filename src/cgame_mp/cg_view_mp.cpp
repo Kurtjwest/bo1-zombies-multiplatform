@@ -14,6 +14,7 @@
 #include <cgame/cg_scr_sp_blur.h>
 #include <cgame/cg_sp_client_ext.h>
 #include <bgame/bg_misc.h>
+void CG_OffsetTopDownView(int localClientNum); // zombies: Dead Ops Arcade (player_topDownCamMode), below
 #include <EffectsCore/fx_update.h>
 #include "cg_predict_mp.h"
 #include <gfx_d3d/r_dpvs.h>
@@ -2357,7 +2358,11 @@ void __cdecl CG_CalcViewValues(int localClientNum)
             }
             AnglesToAxis(cgameGlob->refdefViewAngles, cgameGlob->refdef.viewaxis);
             CG_ApplyViewAnimation(localClientNum);
-            if (cgameGlob->renderingThirdPerson == TP_FOR_MODEL && CG_ShouldRenderThirdPerson(camMode))
+            if (cgameGlob->renderingThirdPerson == TP_FOR_MODEL && camMode == CAM_TOP_DOWN)
+            {
+                CG_OffsetTopDownView(localClientNum);
+            }
+            else if (cgameGlob->renderingThirdPerson == TP_FOR_MODEL && CG_ShouldRenderThirdPerson(camMode))
             {
                 CG_OffsetThirdPersonView(localClientNum);
             }
@@ -2738,6 +2743,41 @@ void    CG_OffsetThirdPersonView(int localClientNum)
     }
 }
 #endif
+
+// zombies: Dead Ops Arcade's top-down camera (player_topDownCamMode 1 .. 4; SP's is not in the decompile, the dvars'
+// descriptions say what it does): at player_topDownCamAngles, player_topDownCamOffset from the player (modes 1, 2),
+// or from player_topDownCamCenterPos (DOA's arena centre), "influenced" by the player: a little of the player's
+// movement (3), none of it (4, the end scene). The player is drawn (CG_UpdateThirdPerson), the gun isn't.
+void CG_OffsetTopDownView(int localClientNum)
+{
+    cg_s *cgameGlob = CG_GetLocalClientGlobals(localClientNum);
+    const int mode = player_topDownCamMode->current.integer;
+    const float *offset = player_topDownCamOffset->current.vector;
+    const float *center = player_topDownCamCenterPos->current.vector;
+    const float *player = cgameGlob->predictedPlayerState.origin;
+    float base[3];
+
+    if ( mode >= 3 )
+    {
+        const float influence = mode == 3 ? 0.15f : 0.0f;
+        base[0] = center[0] + (player[0] - center[0]) * influence;
+        base[1] = center[1] + (player[1] - center[1]) * influence;
+        base[2] = center[2];
+    }
+    else
+    {
+        base[0] = player[0];
+        base[1] = player[1];
+        base[2] = player[2];
+    }
+    cgameGlob->refdef.vieworg[0] = base[0] + offset[0];
+    cgameGlob->refdef.vieworg[1] = base[1] + offset[1];
+    cgameGlob->refdef.vieworg[2] = base[2] + offset[2];
+    cgameGlob->refdefViewAngles[0] = player_topDownCamAngles->current.vector[0];
+    cgameGlob->refdefViewAngles[1] = player_topDownCamAngles->current.vector[1];
+    cgameGlob->refdefViewAngles[2] = player_topDownCamAngles->current.vector[2];
+    AnglesToAxis(cgameGlob->refdefViewAngles, cgameGlob->refdef.viewaxis);
+}
 
 void CG_OffsetThirdPersonView(int localClientNum)
 {
@@ -3900,6 +3940,9 @@ void __cdecl CG_UpdateThirdPerson(int localClientNum, bool forExtraCam)
     if ( (unsigned __int8)CG_ScrCamActive(localClientNum) )
         cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
     if ( Demo_IsThirdPersonCamera() || Demo_IsMovieCamera() )
+        cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
+    // zombies: Dead Ops Arcade's top-down camera shows the player (CG_OffsetTopDownView)
+    if ( player_topDownCamMode->current.integer > 0 )
         cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
     if ( cgameGlob->cameraMode == 1 || cgameGlob->cameraMode == 2 )
         cgameGlob->renderingThirdPerson = TP_FOR_MODEL;

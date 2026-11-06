@@ -1122,6 +1122,54 @@ void __cdecl CL_RandomMove(usercmd_s *cmd)
     }
 }
 
+// zombies: Dead Ops Arcade's mouse (player_topDownCamMode, the top-down camera; SP's is not in the decompile, the
+// dvars say what it does): the mouse moves a virtual cursor around the player, player_topDownCursorDist away
+// (player_topDownCursorPos: where, relative to the player), and the player faces it, level. The view doesn't turn:
+// the camera is fixed. Moving the mouse right turns the aim toward the right of the screen, up toward its top.
+static float s_topDownCursor[4][2];   // x: toward the right of the screen, y: toward its top (camera yaw)
+static float s_topDownDeltaYaw[4];    // delta_angles' yaw when the cursor was last set: the server turned the
+static bool s_topDownCursorSet[4];    // player (SetPlayerAngles), the cursor starts again from where it faces
+
+static bool CL_TopDownMouseActive()
+{
+    return player_topDownCamMode && player_topDownCamMode->current.integer > 0 && zombietron
+        && zombietron->current.enabled;
+}
+
+static void CL_TopDownMouseMove(int localClientNum, clientActive_t *cl, float mx, float my)
+{
+    const int lc = localClientNum & 3;
+    const float camYaw = player_topDownCamAngles->current.vector[1];
+    const float dist = player_topDownCursorDist->current.value > 1.0f ? player_topDownCursorDist->current.value : 250.0f;
+    float *c = s_topDownCursor[lc];
+    if ( !s_topDownCursorSet[lc] || s_topDownDeltaYaw[lc] != cl->snap.ps.delta_angles[1] )
+    {
+        // (from the way the player faces: relative to the camera's yaw)
+        const float rel = (cl->snap.ps.viewangles[1] - camYaw) * (3.14159265f / 180.0f);
+        c[0] = -sinf(rel) * dist;
+        c[1] = cosf(rel) * dist;
+        s_topDownCursorSet[lc] = true;
+        s_topDownDeltaYaw[lc] = cl->snap.ps.delta_angles[1];
+    }
+    c[0] += mx * 1.5f;
+    c[1] -= my * 1.5f;
+    const float len = sqrtf(c[0] * c[0] + c[1] * c[1]);
+    if ( len < 0.001f )
+    {
+        c[1] = dist;
+    }
+    else
+    {
+        c[0] *= dist / len;
+        c[1] *= dist / len;
+    }
+    Dvar_SetVec2((dvar_s *)player_topDownCursorPos, c[0], c[1]);
+    // the world yaw toward the cursor (screen right is the camera's right: yaw - 90)
+    const float yaw = camYaw + atan2f(-c[0], c[1]) * (180.0f / 3.14159265f);
+    cl->viewangles[1] = AngleNormalize360(yaw - cl->snap.ps.delta_angles[1]);
+    cl->viewangles[0] = AngleNormalize360(-cl->snap.ps.delta_angles[0]);
+}
+
 void __cdecl CL_MouseMove(int localClientNum, usercmd_s *cmd)
 {
     float v2; // [esp+10h] [ebp-E0h]
@@ -1160,6 +1208,12 @@ void __cdecl CL_MouseMove(int localClientNum, usercmd_s *cmd)
         {
             mx = mx * accelSensitivity;
             my = my * accelSensitivity;
+            if ( CL_TopDownMouseActive() )
+            {
+                if ( mx != 0.0f || my != 0.0f || !s_topDownCursorSet[localClientNum & 3] )
+                    CL_TopDownMouseMove(localClientNum, LocalClientGlobals, mx, my);
+                return;
+            }
             if ( mx != 0.0 || my != 0.0 )
             {
                 yawMove = 0;

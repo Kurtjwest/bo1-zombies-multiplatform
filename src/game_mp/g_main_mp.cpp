@@ -22,6 +22,7 @@
 #include <game_sp/g_sp_levelstart.h>
 #include <cgame/cg_event.h>
 #include <game_sp/g_scr_sp_entity.h>
+#include <game_sp/g_scr_sp_zombietron.h>
 #include <game_sp/g_sp_level_exit.h>
 #include <game_sp/g_scr_sp_ai.h>
 #include <game_sp/g_sp_player_state.h>
@@ -953,6 +954,7 @@ void __cdecl    G_InitGame(int levelTime, int randomSeed, int restart, int regis
     // override (ai_zombietronCorpseCount when zombietron and > 0).
     if (G_SP_IsSPLevel())
     {
+        G_SP_ZombietronReset();
         const int zombietronCorpseCount = Dvar_GetInt("ai_zombietronCorpseCount");
         if (Dvar_GetBool("zombietron") && zombietronCorpseCount > 0)
             level.actorCorpseCount = zombietronCorpseCount;
@@ -3921,7 +3923,26 @@ int G_PopulateMatchState()
     // scripts' `attacker.headshots++` in maps/_gameskill). BO1Zombies's MP clientState has no such field, so in
     // zombiemode the headshots go to the client through the MP scoreboard-column transport (KB transport,
     // not the SP wire format). Scripts that set their own columns (setscoreboardcolumns) are left alone.
-    if ( zombiemode && zombiemode->current.enabled
+    // Dead Ops Arcade: its HUD (CG_DrawPlayerScoreBar's zombietron row) shows each player's lives, speed boosts and
+    // score multiplier, which its scripts keep in .revives / .downs (maps/_zombietron_score.gsc update_hud) and with
+    // setscoremultiplier; they go to the clients in the scoreboard columns (the bombs, .assists, are the score's own)
+    if ( zombietron && zombietron->current.enabled )
+    {
+        level.matchState.unarchivedState.scoreboardColumnTypes[0] = SB_TYPE_DEFENDS;
+        level.matchState.unarchivedState.scoreboardColumnTypes[1] = SB_TYPE_PLANTS;
+        level.matchState.unarchivedState.scoreboardColumnTypes[2] = SB_TYPE_RETURNS;
+        level.matchState.unarchivedState.scoreboardColumnTypes[3] = SB_TYPE_HEADSHOTS;
+        for ( int i = 0; i < level.maxclients; ++i )
+        {
+            gclient_s *client = g_entities[i].client;
+            if ( !client || !g_entities[i].r.inuse )
+                continue;
+            client->sess.cs.score.scoreboardColumns[0] = G_ClientSpExt(client).revives;
+            client->sess.cs.score.scoreboardColumns[1] = G_ClientSpExt(client).downs;
+            client->sess.cs.score.scoreboardColumns[2] = G_SP_ScoreMultiplier(i);
+        }
+    }
+    else if ( zombiemode && zombiemode->current.enabled
         && level.matchState.unarchivedState.scoreboardColumnTypes[0] == SB_TYPE_INVALID )
     {
         level.matchState.unarchivedState.scoreboardColumnTypes[0] = SB_TYPE_HEADSHOTS;

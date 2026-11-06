@@ -262,6 +262,9 @@ void __cdecl CG_ModFov_Update()
 
     if ( !bo1_mod_fov || !cg_fov )
         return;
+    // (not with Dead Ops Arcade's top-down camera: its scripts set the field of view the arenas are framed for)
+    if ( player_topDownCamMode && player_topDownCamMode->current.integer > 0 )
+        return;
     modFov = bo1_mod_fov->current.value;
     changed = modFov != lastModFov;
     if ( changed )

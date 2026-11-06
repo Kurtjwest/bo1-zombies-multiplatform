@@ -495,6 +495,19 @@ void __cdecl CG_OwnerDraw(
     rect.horzAlign = horzAlign;
     rect.vertAlign = vertAlign;
     v12 = (clUI->keyCatchers & 0x10) != 0 && UI_GetActiveMenu(localClientNum) == UIMENU_INGAME;
+    // zombies: Dead Ops Arcade's HUD (menu zombietronscores) and paused background (zombietron_pausedbkgnd)
+    if ( ownerDraw == 354 && zombietron && zombietron->current.enabled )
+    {
+        CG_SP_OwnerDraw_ZombietronScores(localClientNum, &rect);
+        return;
+    }
+    if ( ownerDraw == 382 && zombietron && zombietron->current.enabled )
+    {
+        static const float dim[4] = { 0.0f, 0.0f, 0.0f, 0.6f };
+        CL_DrawStretchPic(&scrPlaceView[localClientNum], x, y, w, h, horzAlign, vertAlign, 0.0f, 0.0f, 1.0f, 1.0f, dim,
+            Material_RegisterHandle("white", 7));
+        return;
+    }
     if ( ownerDraw == 288 && zombiemode && zombiemode->current.enabled )
     {
         CG_SP_OwnerDraw_MiniScoreboard(localClientNum, &rect); // zombies: the points (SP CG_OwnerDrawHud 0x005accb0 -> 0x005bfed0)

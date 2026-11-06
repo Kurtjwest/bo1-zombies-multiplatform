@@ -416,6 +416,12 @@ void __cdecl Com_SetGameModeForMap(const char *mapName)
         Dvar_SetBool((dvar_s *)zombiemode, 1);
         Dvar_SetBool((dvar_s *)zombietron, 1);
     }
+    else if ( player_topDownCamMode && player_topDownCamMode->current.integer )
+    {
+        // zombies: Dead Ops Arcade's scripts leave its top-down camera on when the game is left mid-arena (to the
+        // menus, another map): every other level is seen as usual
+        Dvar_SetInt((dvar_s *)player_topDownCamMode, 0);
+    }
     if ( I_stristr(mapName, "zombie_cod5_") )
     {
         Dvar_SetBool((dvar_s *)zombiemode, 1);
@@ -2366,17 +2372,14 @@ void Com_InitDvars()
     // zombies: SP Com_Init (SP 0x0082BCFF..0x0082BD69) registers both "discovered" dvars with 1 and the two
     // _override dvars (1, flags 0x4000); SP GamerProfile_UpdateDvarsFromProfile (SP 0x0061F665..0x0061F6B8)
     // sets discovered = profile value || override. So on PC Five and Dead Ops Arcade are always selectable:
-    // the front end's levels_zombie shows the Five row only when zombiefive_discovered is 1. MP registers 0.
-    // menu-1: deliberate deviation from SP (a deliberate choice): Dead Ops Arcade is not offered, so under bo1_zombies
-    // zombietron_discovered and its override are 0 (SP: 1 and 1), and zombietron_discovered is read only (0x40,
-    // not archived) so the players config's `seta zombietron_discovered "1"` cannot flip it back; the profile path
-    // (GamerProfile_UpdateDvarsFromProfile) leaves it 0 too. levels_zombie hides its row when it is not 1.
+    // the front end's levels_zombie shows the Five and Dead Ops Arcade rows only when their dvar is 1 (else a
+    // redacted bar). MP registers 0.
     const bool spDiscovered = bo1_zombies && bo1_zombies->current.enabled;
-    zombietron_discovered = _Dvar_RegisterBool("zombietron_discovered", 0, spDiscovered ? 0x4040u : 0x4001u, "Zombietron mode discovered");
+    zombietron_discovered = _Dvar_RegisterBool("zombietron_discovered", spDiscovered, 0x4001u, "Zombietron mode discovered");
     zombiefive_discovered = _Dvar_RegisterBool("zombiefive_discovered", spDiscovered, 0x4001u, "Zombie Five map discovered");
     if (spDiscovered)
     {
-        zombietron_discovered_override = _Dvar_RegisterBool("zombietron_discovered_override", 0, 0x4000u, "");
+        zombietron_discovered_override = _Dvar_RegisterBool("zombietron_discovered_override", 1, 0x4000u, "");
         zombiefive_discovered_override = _Dvar_RegisterBool("zombiefive_discovered_override", 1, 0x4000u, "");
     }
 

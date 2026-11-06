@@ -1174,8 +1174,23 @@ static void __cdecl CScr_GiveGamerPicture()
 {
 }
 
+// zombies: ShowScores( <localClientNum> ) / HideScores( <localClientNum> ): Dead Ops Arcade's clientscripts show
+// the scoreboard while a client flag is set (console only: on PC _zombietron.csc returns first), as holding the
+// scoreboard key does
+static void __cdecl CScr_ShowScores()
+{
+    CG_GetLocalClientGlobals(CScr_GetLocalClientNum(0))->showScores = 1;
+}
+
+static void __cdecl CScr_HideScores()
+{
+    CG_GetLocalClientGlobals(CScr_GetLocalClientNum(0))->showScores = 0;
+}
+
 const BuiltinFunctionDef g_csp_client_functions[] =
 {
+    { "showscores", CScr_ShowScores, 0 },
+    { "hidescores", CScr_HideScores, 0 },
     { "setsunlight", CScr_SetSunLight, 0 },
     { "resetsunlight", CScr_ResetSunLight, 0 },
     { "setvolfogforclient", CScr_SetVolFogForClient, 0 },

@@ -238,6 +238,20 @@ Settings for the Linux build, besides `BO1_DUMP_FAILED_SHADERS`, `BO1_SYNC_SHADE
 | `SDL_VIDEODRIVER=wayland` / `x11` | the window system SDL uses (SDL's own setting) |
 | `SDL_AUDIODRIVER=pipewire` / `pulseaudio` / `alsa` | the sound system SDL uses (SDL's own setting) |
 
+## Dead Ops Arcade
+
+Dead Ops Arcade, the top-down twin-stick game, is the last row of the zombies menu's Mission Select (Solo, Host
+Game), as in the original game on PC: no terminal code needed. It needs the original game's `zombietron.ff` (with
+`zombietron_patch.ff` and `en_zombietron.ff`), which every full install has. Move with the movement keys (the camera
+stays over the arena: up on the keys is up on the screen), aim with the mouse (it turns the player toward where you
+move it), shoot with the fire button; the jump key uses a speed boost and the grenade key a bomb. Each player's score,
+multiplier, lives, bombs and boosts are in a corner of the screen.
+
+What of the original's engine side this game had to rebuild (not being in the decompile): the top-down camera, the
+mouse aiming, the corner scores and the builtins its scripts call (GetDvarVector, ClearAllCorpses, Fire, ...). The
+arenas' 3D objective markers (the tutorial's text over the arena, the exits' markers) aren't drawn, and a gamepad's
+right stick turns the player as a mouse does rather than aiming where it points.
+
 ## Co-op
 
 Two to four players, each on their own computer, play a zombies map together, as in the original game's co-op, on a

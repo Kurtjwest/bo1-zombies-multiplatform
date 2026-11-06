@@ -13245,6 +13245,77 @@ void __cdecl GScr_Launch(scr_entref_t entref)
     }
 }
 
+// zombies: SP G_f_magicbullet's firing (SP 0x0056f4a0), for magicbullet in zombiemode and Dead Ops Arcade's fire()
+// (g_scr_sp_zombietron.cpp): SPREAD takes fHipSpreadStandMin and builds right/up (SP 0x004c64e0); bullets pass the
+// attacker as weaponEnt; GAS fires the flamethrower; PISTOL/ROCKETLAUNCHER/TURRET projectiles fire as rockets
+// (quantum_bomb.gsc:410 MagicBullets ray_gun_zm, projectile/pistol); SP sets no eventParm = attacker. The projectile
+// fired, if any.
+gentity_s *G_SP_MagicBulletFire(int weapon, const float *source, const float *dest, gentity_s *attacker,
+    gentity_s *targetEnt, const float *targetOffset)
+{
+    weaponParms wp;
+    float dir[3];
+    float angles[3];
+    float offset[3] = { targetOffset[0], targetOffset[1], targetOffset[2] };
+    gentity_s *projectile = 0;
+
+    Weapon_SetWeaponParamsWeapon(&wp, weapon);
+    wp.muzzleTrace[0] = source[0];
+    wp.muzzleTrace[1] = source[1];
+    wp.muzzleTrace[2] = source[2];
+    dir[0] = dest[0] - source[0];
+    dir[1] = dest[1] - source[1];
+    dir[2] = dest[2] - source[2];
+    Vec3Normalize(dir);
+    wp.forward[0] = dir[0];
+    wp.forward[1] = dir[1];
+    wp.forward[2] = dir[2];
+    memset(wp.right, 0, 24);
+    float spread = 0.0f;
+    if ( wp.weapDef->weapClass == WEAPCLASS_SPREAD )
+    {
+        spread = wp.weapDef->fHipSpreadStandMin;
+        PerpendicularVector(wp.forward, wp.right);
+        Vec3Cross(wp.forward, wp.right, wp.up);
+    }
+    const weapType_t weapType = wp.weapDef->weapType;
+    if ( weapType == WEAPTYPE_BULLET )
+    {
+        Bullet_Fire(attacker, spread, &wp, attacker, level.time);
+    }
+    else if ( weapType == WEAPTYPE_GAS )
+    {
+        Weapon_Flamethrower_Fire(attacker, &wp);
+    }
+    else if ( weapType == WEAPTYPE_PROJECTILE )
+    {
+        switch ( wp.weapDef->weapClass )
+        {
+            case WEAPCLASS_GRENADE:
+                projectile = Weapon_GrenadeLauncher_Fire(attacker, weapon, 0, &wp);
+                break;
+            case WEAPCLASS_PISTOL:
+            case WEAPCLASS_ROCKETLAUNCHER:
+            case WEAPCLASS_TURRET:
+                projectile = Weapon_RocketLauncher_Fire(attacker, weapon, 0.0, &wp, vec3_origin, targetEnt, offset);
+                break;
+            default:
+                Scr_Error("MagicBullet(): Unhandled projectile weapClass.\n", 0);
+                break;
+        }
+    }
+    else
+    {
+        Scr_Error(va("MagicBullet(): Unhandled weapType \"%s\".\n", BG_GetWeaponTypeName(wp.weapDef->weapType)), 0);
+    }
+    gentity_s *tempEnt = G_TempEntity(source, EV_FIRE_WEAPON);
+    vectoangles(dir, angles);
+    G_SetAngle(tempEnt, angles);
+    tempEnt->s.weapon = weapon;
+    tempEnt->s.eventParms[tempEnt->s.eventSequence & 3] = 0;
+    return projectile;
+}
+
 void __cdecl GScr_MagicBullet()
 {
     const char *WeaponTypeName; // eax
@@ -13310,49 +13381,7 @@ void __cdecl GScr_MagicBullet()
     // rockets (quantum_bomb.gsc:410 MagicBullets ray_gun_zm, projectile/pistol); SP sets no eventParm = attacker.
     if ( zombiemode && zombiemode->current.enabled )
     {
-        float spread = 0.0f;
-        if ( wp.weapDef->weapClass == WEAPCLASS_SPREAD )
-        {
-            spread = wp.weapDef->fHipSpreadStandMin;
-            PerpendicularVector(wp.forward, wp.right);
-            Vec3Cross(wp.forward, wp.right, wp.up);
-        }
-        weapType = wp.weapDef->weapType;
-        if ( weapType == WEAPTYPE_BULLET )
-        {
-            Bullet_Fire(attacker, spread, &wp, attacker, level.time);
-        }
-        else if ( weapType == WEAPTYPE_GAS )
-        {
-            Weapon_Flamethrower_Fire(attacker, &wp);
-        }
-        else if ( weapType == WEAPTYPE_PROJECTILE )
-        {
-            switch ( wp.weapDef->weapClass )
-            {
-                case WEAPCLASS_GRENADE:
-                    projectile = Weapon_GrenadeLauncher_Fire(attacker, weapon, 0, &wp);
-                    break;
-                case WEAPCLASS_PISTOL:
-                case WEAPCLASS_ROCKETLAUNCHER:
-                case WEAPCLASS_TURRET:
-                    projectile = Weapon_RocketLauncher_Fire(attacker, weapon, 0.0, &wp, vec3_origin, targetEnt, targetOffset);
-                    break;
-                default:
-                    Scr_Error("MagicBullet(): Unhandled projectile weapClass.\n", 0);
-                    break;
-            }
-        }
-        else
-        {
-            WeaponTypeName = BG_GetWeaponTypeName(wp.weapDef->weapType);
-            Scr_Error(va("MagicBullet(): Unhandled weapType \"%s\".\n", WeaponTypeName), 0);
-        }
-        tempEnt = G_TempEntity(source, EV_FIRE_WEAPON);
-        vectoangles(dir, angles);
-        G_SetAngle(tempEnt, angles);
-        tempEnt->s.weapon = weapon;
-        tempEnt->s.eventParms[tempEnt->s.eventSequence & 3] = 0;
+        projectile = G_SP_MagicBulletFire(weapon, source, dest, attacker, targetEnt, targetOffset);
         if ( projectile )
             Scr_AddEntity(projectile, SCRIPTINSTANCE_SERVER);
         return;
