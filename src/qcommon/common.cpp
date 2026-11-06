@@ -18,6 +18,7 @@
 #include <gfx_d3d/r_water_sim.h>
 #include "com_mods.h"
 extern const char *const g_modZoneNames[8]; // mod: "mod", "mod1" .. "mod7" (db_registry.cpp: LinkerMod's game_mod)
+void DB_SetModZoneFile(int index, const char *path); // mod: the file of a mod zone name this level (db_registry.cpp)
 static int Com_GetLevelDependencies(const char *mapName, char (*deps)[64], int max);
 #include <gfx_d3d/r_extracam.h>
 #include <gfx_d3d/r_ui3d.h>
@@ -3034,6 +3035,8 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
     // from it is there), ranks as retail's (DB_OverrideAsset), and goes with the level.
     static char modLevelFolder[64];
     modLevelFolder[0] = 0;
+    for ( int z = 0; z < 8; ++z )
+        DB_SetModZoneFile(z, ""); // (zone mods played together: set below)
     // (a mod's override of common_zombie_patch, LinkerMod game_mod's: ahead of its mod.ff, which wins over it there)
     if ( !spFrontEnd && !Com_IsMenuLevel(mapName) && FS_ModsActive() )
     {
@@ -3057,14 +3060,19 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
                 I_strncpyz(modLevelFolder, names[m], sizeof(modLevelFolder));
         }
         // a retail map: a stacked mod-tools mod that isn't a map (a weapon mod, ModInfo::zoneMod) has its mod.ff loaded
-        // the same way (the last stacked one that has one: later wins, as its files do; the Mods menu stacks one)
+        // the same way. Several (zone mods a combining mod lets play together): each one's mod.ff (and mod1.ff ..) under
+        // the next mod zone name, in stack order (the later wins an asset both have, as its files do)
         const bool mapInMod = modLevelFolder[0] != 0;
-        for ( int m = count - 1; m >= 0 && !modLevelFolder[0]; --m )
+        int zoneModFolders[16];
+        int zoneModFolderCount = 0;
+        for ( int m = 0; m < count && !mapInMod; ++m )
         {
             Com_sprintf(path, sizeof(path), "%s/mods/%s/mod.ff", (const char *)fs_basepath->current.string, names[m]);
             if ( GetFileAttributesA(path) != (DWORD)-1 )
-                I_strncpyz(modLevelFolder, names[m], sizeof(modLevelFolder));
+                zoneModFolders[zoneModFolderCount++] = m;
         }
+        if ( zoneModFolderCount )
+            I_strncpyz(modLevelFolder, names[zoneModFolders[zoneModFolderCount - 1]], sizeof(modLevelFolder));
         if ( modLevelFolder[0] )
         {
             Com_sprintf(path, sizeof(path), "%s/mods/%s/mod.ff", (const char *)fs_basepath->current.string, modLevelFolder);
@@ -3072,11 +3080,37 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
             if ( mapInMod )
                 Com_Printf(16, "mod: %s is in mods/%s%s\n", mapName, modLevelFolder,
                     GetFileAttributesA(path) == (DWORD)-1 ? "" : modFromGame ? " (its mod.ff loaded with fs_game)" : ", with its mod.ff");
+            else if ( zoneModFolderCount > 1 )
+                Com_Printf(16, "mod: %s with the mod.ff of %d mods played together%s\n", mapName, zoneModFolderCount,
+                    modFromGame ? " (fs_game's mod.ff loaded instead)" : "");
             else
                 Com_Printf(16, "mod: %s with mods/%s's mod.ff%s\n", mapName, modLevelFolder,
                     modFromGame ? " (fs_game's mod.ff loaded instead)" : "");
             if ( GetFileAttributesA(path) != (DWORD)-1 && !modFromGame )
             {
+                if ( zoneModFolderCount > 1 )
+                {
+                    // (zone mods played together: their zones by name and file, in stack order)
+                    int z = 0;
+                    for ( int f = 0; f < zoneModFolderCount && z < 8; ++f )
+                    {
+                        const char *folder = names[zoneModFolders[f]];
+                        for ( int k = 0; k < 8 && z < 8; ++k )
+                        {
+                            Com_sprintf(path, sizeof(path), "%s/mods/%s/%s.ff", (const char *)fs_basepath->current.string,
+                                folder, g_modZoneNames[k]);
+                            if ( GetFileAttributesA(path) == (DWORD)-1 )
+                                break;
+                            Com_Printf(16, "mod: mods/%s/%s.ff as zone '%s'\n", folder, g_modZoneNames[k], g_modZoneNames[z]);
+                            DB_SetModZoneFile(z, path);
+                            zoneInfo[zoneCount].name = g_modZoneNames[z++];
+                            zoneInfo[zoneCount].allocFlags = 0x4000;
+                            zoneInfo[zoneCount++].freeFlags = 0;
+                        }
+                    }
+                }
+                else
+                {
                 zoneInfo[zoneCount].name = "mod";
                 zoneInfo[zoneCount].allocFlags = 0x4000;
                 zoneInfo[zoneCount++].freeFlags = 0;
@@ -3092,6 +3126,7 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
                     zoneInfo[zoneCount].name = g_modZoneNames[z];
                     zoneInfo[zoneCount].allocFlags = 0x4000;
                     zoneInfo[zoneCount++].freeFlags = 0;
+                }
                 }
             }
         }

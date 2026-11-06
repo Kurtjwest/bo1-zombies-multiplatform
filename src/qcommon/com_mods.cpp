@@ -443,6 +443,19 @@ static void Mod_ParseOption(ModTokens &t, ModInfo &mod)
     mod.options.push_back(o);
 }
 
+// mod.txt's keywords (a word after a map's name or the mods combined that is one of them starts the next line)
+static bool Mod_IsKeyword(const std::string &word)
+{
+    static const char *const keywords[] = { "name", "description", "order", "map", "needs", "set", "startup", "option",
+        "clear", "version", "combines" };
+    for ( const char *kw : keywords )
+    {
+        if ( word == kw )
+            return true;
+    }
+    return false;
+}
+
 static bool Mod_Parse(const std::string &folder, const std::string &file, const std::string &text, ModInfo &mod)
 {
     ModTokens t;
@@ -469,13 +482,20 @@ static bool Mod_Parse(const std::string &folder, const std::string &file, const 
             ModMap m;
             m.name = t.next();
             // (the label is optional: the next word is a keyword or a map's label)
-            static const char *const keywords[] = { "name", "description", "order", "map", "needs", "set", "startup", "option",
-                "clear", "version" };
-            bool keyword = !t.more();
-            for ( const char *kw : keywords )
-                keyword = keyword || t.peek() == kw;
-            m.label = keyword ? m.name : t.next();
+            m.label = !t.more() || Mod_IsKeyword(t.peek()) ? m.name : t.next();
             mod.maps.push_back(m);
+        }
+        else if ( k == "combines" )
+        {
+            // combines <mod> <mod> ...: zone mods by their names (folders), to the end of the line's words
+            while ( t.more() && !Mod_IsKeyword(t.peek()) )
+            {
+                char id[64];
+                FS_ModIdForFolder(t.next().c_str(), id, sizeof(id));
+                mod.combines.push_back(id);
+            }
+            if ( mod.combines.size() < 2 )
+                t.error("combines: the names of two mods or more (their folders in mods/)");
         }
         else if ( k == "option" )
             Mod_ParseOption(t, mod);
@@ -1083,6 +1103,12 @@ void Mods_Discover()
             mod.zoneMod = true;
             Mod_FindZoneModMaps(modDir, mod);
         }
+        if ( !mod.combines.empty() && (mod.mapMod || mod.zoneMod) )
+        {
+            Com_PrintWarning(10, "mods: mods/%s combines mods but has zones of its own (a map, a mod.ff): it is a mod "
+                "like the others, its combines line is not used\n", dirName.c_str());
+            mod.combines.clear();
+        }
         if ( text.empty() && !mod.mapMod && !mod.zoneMod )
             continue;
         const std::string json = Mod_ReadFile(modDir + "/mod.json");
@@ -1097,6 +1123,58 @@ void Mods_Discover()
     std::stable_sort(mods.begin(), mods.end(), [](const ModInfo &a, const ModInfo &b) {
         return a.order != b.order ? a.order < b.order : I_stricmp(a.folder.c_str(), b.folder.c_str()) < 0;
     });
+    // a combining mod: the zone mods it names; its maps, those they all play on (none named: every map); the memory
+    // they need together, the sum of theirs (their mod.ff files all load), unless its mod.txt sets it
+    for ( ModInfo &mod : mods )
+    {
+        if ( mod.combines.empty() )
+            continue;
+        bool memorySet = false;
+        for ( const ModSetting &s : mod.settings )
+            memorySet = memorySet || (s.startup && s.dvar == "bo1_mod_memory");
+        int memory = 0;
+        std::vector<ModMap> maps;
+        bool first = true;
+        for ( const std::string &folder : mod.combines )
+        {
+            const ModInfo *combined = nullptr;
+            for ( const ModInfo &m : mods )
+                combined = !I_stricmp(m.folder.c_str(), folder.c_str()) ? &m : combined;
+            if ( !combined || !combined->zoneMod )
+            {
+                Com_PrintWarning(10, "mods: %s combines %s, %s\n", mod.name.c_str(), folder.c_str(),
+                    combined ? "which isn't a mod-tools mod with a mod.ff of its own" : "which isn't in mods/");
+                continue;
+            }
+            int need = 0; // (its mod.txt's or its zones', the larger)
+            for ( const ModSetting &s : combined->settings )
+                need = s.startup && s.dvar == "bo1_mod_memory" ? std::max(need, atoi(s.value.c_str())) : need;
+            memory += need;
+            if ( first )
+                maps = combined->maps;
+            else if ( !combined->maps.empty() )
+            {
+                std::vector<ModMap> both;
+                for ( const ModMap &m : maps.empty() ? combined->maps : maps )
+                {
+                    for ( const ModMap &c : combined->maps )
+                    {
+                        if ( !I_stricmp(m.name.c_str(), c.name.c_str()) )
+                        {
+                            both.push_back(m);
+                            break;
+                        }
+                    }
+                }
+                maps.swap(both);
+            }
+            first = false;
+        }
+        if ( mod.maps.empty() )
+            mod.maps = maps;
+        if ( !memorySet && memory )
+            mod.settings.push_back({ "bo1_mod_memory", va("%d", memory), "", true });
+    }
     // the menu's choices: archived dvars (players/config.cfg)
     for ( ModInfo &mod : mods )
     {
@@ -1202,9 +1280,54 @@ static bool Mod_StartupMet(const std::vector<ModSetting> &settings)
     return true;
 }
 
+static const ModInfo *Mod_Find(const std::string &folder)
+{
+    for ( const ModInfo &mod : s_mods )
+    {
+        if ( !I_stricmp(mod.folder.c_str(), folder.c_str()) )
+            return &mod;
+    }
+    return nullptr;
+}
+
 bool Mods_IsEnabled(const ModInfo &mod)
 {
+    // (a combining mod: while the mods it combines all are)
+    if ( !mod.combines.empty() )
+    {
+        for ( const std::string &folder : mod.combines )
+        {
+            const ModInfo *combined = Mod_Find(folder);
+            if ( !combined || !combined->zoneMod || !Mods_IsEnabled(*combined) )
+                return false;
+        }
+        return true;
+    }
     return mod.enabled && mod.enabled->current.enabled;
+}
+
+// a combining mod that names every one of mods (nullptr: none)
+static const ModInfo *Mod_CombiningFor(const std::vector<const ModInfo *> &mods)
+{
+    for ( const ModInfo &c : s_mods )
+    {
+        bool all = !c.combines.empty();
+        for ( const ModInfo *m : mods )
+        {
+            bool named = false;
+            for ( const std::string &folder : c.combines )
+                named = named || !I_stricmp(folder.c_str(), m->folder.c_str());
+            all = all && named;
+        }
+        if ( all )
+            return &c;
+    }
+    return nullptr;
+}
+
+const ModInfo *Mods_CombiningMod(const ModInfo &a, const ModInfo &b)
+{
+    return &a != &b && a.zoneMod && b.zoneMod ? Mod_CombiningFor({ &a, &b }) : nullptr;
 }
 
 static bool Mod_OnMap(const ModInfo &mod, const char *map)
@@ -1235,6 +1358,17 @@ bool Mods_IsAvailable(const ModInfo &mod, std::string *why)
 {
     std::vector<std::string> missing;
     bool any = false;
+    // (a combining mod: the mods it combines are all there and can play)
+    for ( const std::string &folder : mod.combines )
+    {
+        const ModInfo *combined = Mod_Find(folder);
+        if ( !combined || !combined->zoneMod || !Mods_IsAvailable(*combined, nullptr) )
+        {
+            if ( why )
+                *why = "Needs the mod " + folder + ", which isn't installed.";
+            return false;
+        }
+    }
     if ( mod.maps.empty() )
     {
         any = Mod_NeedsMet(mod.needs, nullptr, &missing);
@@ -1474,7 +1608,8 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
     // the map's own mod (a map mod), first: its zones and files (mod.ff, .iwd) come from its folder. On or off (the
     // Mods menu's ON lists it in the zombies menu's Mission Select and sets its memory aside; "/map" plays it anyway)
     const ModInfo *mapMod = Mods_MapModFor(mapName);
-    const ModInfo *zoneMod = nullptr; // (the game's one zone mod: its mod.ff loads with the level)
+    // (the game's zone mods: each one's mod.ff loads with the level. One, or those a combining mod lets play together)
+    std::vector<const ModInfo *> zoneMods;
     if ( mapMod )
     {
         fsMods = mapMod->folder;
@@ -1486,7 +1621,7 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
     }
     for ( const ModInfo &mod : s_mods )
     {
-        if ( mod.mapMod || !Mods_IsEnabled(mod) )
+        if ( mod.mapMod || !mod.combines.empty() || !Mods_IsEnabled(mod) )
             continue;
         std::vector<std::string> missing;
         if ( mod.zoneMod && mapMod )
@@ -1494,13 +1629,6 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
             if ( log )
                 Com_Printf(10, "mods: %s is not for %s (a map mod's map, with its own mod.ff): left out\n",
                     mod.name.c_str(), mapName);
-            continue;
-        }
-        if ( mod.zoneMod && zoneMod )
-        {
-            if ( log )
-                Com_PrintWarning(10, "mods: %s left out: a game has one mod with its own mod.ff (%s is on)\n",
-                    mod.name.c_str(), zoneMod->name.c_str());
             continue;
         }
         if ( !Mod_OnMap(mod, mapName) )
@@ -1524,10 +1652,40 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
                     mod.name.c_str());
             continue;
         }
+        if ( mod.zoneMod && !zoneMods.empty() )
+        {
+            // another mod with its own mod.ff: only if a combining mod lets them play together, with the memory for both
+            std::vector<const ModInfo *> together = zoneMods;
+            together.push_back(&mod);
+            const ModInfo *combining = Mod_CombiningFor(together);
+            if ( !combining )
+            {
+                if ( log )
+                    Com_PrintWarning(10, "mods: %s left out: a game has one mod with its own mod.ff (%s is on) unless a "
+                        "mod combines them (README.md, combines)\n", mod.name.c_str(), zoneMods[0]->name.c_str());
+                continue;
+            }
+            if ( !Mod_StartupMet(combining->settings) )
+            {
+                if ( log )
+                    Com_PrintWarning(10, "mods: %s left out: %s needs a restart of the game first (memory for both "
+                        "mods; the Mods menu has saved it)\n", mod.name.c_str(), combining->name.c_str());
+                continue;
+            }
+        }
         if ( mod.zoneMod )
-            zoneMod = &mod;
+            zoneMods.push_back(&mod);
         fsMods += (fsMods.empty() ? "" : " ") + mod.folder;
         Mod_AddSettings(mod, mapName, sets, log);
+    }
+    // zone mods played together: the combining mod's files after theirs (its scripts win)
+    if ( zoneMods.size() > 1 )
+    {
+        if ( const ModInfo *combining = Mod_CombiningFor(zoneMods) )
+        {
+            fsMods += " " + combining->folder;
+            Mod_AddSettings(*combining, mapName, sets, log);
+        }
     }
 }
 
@@ -1628,9 +1786,12 @@ static void Mods_List_f()
         std::string why;
         const bool available = Mods_IsAvailable(mod, &why);
         const std::string restart = Mods_RestartReason(mod);
-        Com_Printf(0, "  %-10s %-3s %s (order %d; %s)%s%s%s\n", mod.folder.c_str(),
+        std::string combines;
+        for ( const std::string &folder : mod.combines )
+            combines += (combines.empty() ? "; combines " : ", ") + folder;
+        Com_Printf(0, "  %-10s %-3s %s (order %d; %s%s)%s%s%s\n", mod.folder.c_str(),
             Mods_IsEnabled(mod) ? "ON" : "off", mod.name.c_str(), mod.order,
-            ((mod.mapMod ? "a map: " : "maps: ") + Mods_MapList(mod)).c_str(),
+            ((mod.mapMod ? "a map: " : "maps: ") + Mods_MapList(mod)).c_str(), combines.c_str(),
             available ? "" : " - ", why.c_str(), restart.empty() ? "" : " - needs a restart");
         for ( const ModSetting &s : mod.settings )
         {

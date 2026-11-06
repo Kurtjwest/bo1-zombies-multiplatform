@@ -194,10 +194,22 @@ static float List_RowsY()
     return 72.0f;
 }
 
-// the mods listed (at most kMaxPages), and the rows shown at once (more: the list scrolls)
+// the mods listed (at most kMaxPages): not a combining mod (ModInfo::combines: on while the mods it combines are, their
+// pages say so); and the rows shown at once (more: the list scrolls)
+static std::vector<const ModInfo *> List_Mods()
+{
+    std::vector<const ModInfo *> listed;
+    for ( const ModInfo &mod : Mods_List() )
+    {
+        if ( mod.combines.empty() && (int)listed.size() < kMaxPages )
+            listed.push_back(&mod);
+    }
+    return listed;
+}
+
 static int List_Count()
 {
-    return std::min((int)Mods_List().size(), kMaxPages);
+    return (int)List_Mods().size();
 }
 
 static int List_Rows()
@@ -207,7 +219,7 @@ static int List_Rows()
 
 static std::string List_MenuText()
 {
-    const std::vector<ModInfo> &mods = Mods_List();
+    const std::vector<const ModInfo *> mods = List_Mods();
     const int count = List_Count();
     const int rows = List_Rows();
     const bool scrolls = count > rows;
@@ -226,7 +238,7 @@ static std::string List_MenuText()
     const float w = p.w - 30.0f - (scrolls ? 12.0f : 0.0f);
     for ( int i = 0; i < count; ++i )
     {
-        const ModInfo &mod = mods[i];
+        const ModInfo &mod = *mods[i];
         const float y = rowsY + i * kRowStep;
         const int n = i + 1;
         const std::string part = Fmt("bo1_mods_rowpart_%d", i);
@@ -348,7 +360,17 @@ static std::string Mods_Info(const ModInfo *mod, int row)
                          : mod->mapMod ? "A map: " + MapLabel(*mod) + "."
                                        : "Plays on " + Mods_MapList(*mod) + ".";
         if ( row == 1 && mod->zoneMod )
-            text += " One such mod at a time (each has its own mod.ff), not on map mods.";
+        {
+            // (the zone mods a combining mod lets it play together with)
+            std::string with;
+            for ( const ModInfo &other : Mods_List() )
+            {
+                if ( const ModInfo *combining = Mods_CombiningMod(*mod, other) )
+                    with += (with.empty() ? "" : ", ") + other.name + " (" + combining->name + ")";
+            }
+            text += with.empty() ? " One such mod at a time (each has its own mod.ff), not on map mods."
+                                 : " Plays together with " + with + "; otherwise one such mod at a time, not on map mods.";
+        }
         if ( !available )
             text += " " + why;
         else if ( Mods_IsEnabled(*mod) && !restart.empty() )
@@ -371,7 +393,7 @@ static std::string Mods_Info(const ModInfo *mod, int row)
 }
 
 // after the player changed a mod: one that can't play (its zone files aren't installed) stays off; a zone mod turned on
-// (changed) turns the others off (a game loads one mod.ff)
+// (changed) turns the others off (a game loads one mod.ff), but those a combining mod lets it play together with
 static void Mods_KeepOff(const char *changed = nullptr)
 {
     const ModInfo *on = changed ? FindMod(changed) : nullptr;
@@ -379,7 +401,9 @@ static void Mods_KeepOff(const char *changed = nullptr)
         on = nullptr;
     for ( const ModInfo &mod : Mods_List() )
     {
-        if ( Mods_IsEnabled(mod) && (!Mods_IsAvailable(mod, nullptr) || (on && mod.zoneMod && &mod != on)) )
+        if ( !mod.combines.empty() || !Mods_IsEnabled(mod) )
+            continue;
+        if ( !Mods_IsAvailable(mod, nullptr) || (on && mod.zoneMod && &mod != on && !Mods_CombiningMod(*on, mod)) )
             Dvar_SetBool((dvar_s *)mod.enabled, false);
     }
 }
@@ -477,7 +501,7 @@ static void UI_Mods_SetUpListScroll(UiContext *dc)
         else if ( !strncmp(name, "bo1_mods_row_", 13) )
         {
             for ( int i = 0; i < List_Count(); ++i )
-                row = !I_stricmp(name + 13, Mods_List()[i].folder.c_str()) ? i : row;
+                row = !I_stricmp(name + 13, List_Mods()[i]->folder.c_str()) ? i : row;
             if ( row >= 0 )
                 list.rows[row].focus = item;
         }
@@ -512,8 +536,8 @@ void UI_Mods_LoadMenus(int localClientNum, UiContext *dc)
     Mods_Discover();
     s_modsMenuCount = 0; // (any earlier ones went with the UI's last shutdown)
     std::string text = List_MenuText();
-    for ( int i = 0; i < List_Count(); ++i )
-        text += Page_MenuText(Mods_List()[i]);
+    for ( const ModInfo *mod : List_Mods() )
+        text += Page_MenuText(*mod);
     MenuList *list = UI_LoadMenusFromMemory("bo1_mods.menu", text.c_str(), 3);
     for ( int i = 0; i < list->menuCount; ++i )
     {
@@ -602,8 +626,8 @@ bool UI_Mods_MenuScript(int localClientNum, UiContext *dc, const char *name, con
     {
         Mods_Refresh();
         const ModInfo *mod = FindMod(s_lastFolder);
-        if ( !mod && !Mods_List().empty() )
-            mod = &Mods_List()[0];
+        if ( !mod && List_Count() )
+            mod = List_Mods()[0];
         Mods_Focus(localClientNum, dc, "bo1_mods", mod ? "bo1_mods_row_" + mod->folder : "bo1_mods_done");
     }
     else if ( !I_stricmp(name, "bo1ModsPageOpened") && String_Parse(args, arg1, sizeof(arg1)) )

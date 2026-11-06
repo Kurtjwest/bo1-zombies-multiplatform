@@ -76,6 +76,10 @@ struct ModInfo
     // and its mod.ff loads with the level. One at a time (a game loads one mod.ff), never on a map mod's map
     bool zoneMod = false;
     std::string version; // mod.json's "vers"
+    // a combining mod (mod.txt "combines <mod> <mod> ..."): the zone mods it lets play together in one game (each one's
+    // mod.ff loads), its own files (their map scripts merged, say) stacked after theirs. Not a row of the Mods menu: it
+    // is on while they all are
+    std::vector<std::string> combines;
 };
 
 // WinMain, before PMem_Init: reads the startup settings the Mods menu saved (players/mods_startup.cfg) unless the command
@@ -105,6 +109,8 @@ std::string Mods_RestartReason(const ModInfo &mod); // "" if this session has wh
 std::string Mods_MapList(const ModInfo &mod);
 // the map mod that has map's zone (nullptr: none)
 const ModInfo *Mods_MapModFor(const char *map);
+// the combining mod that lets zone mods a and b play together (nullptr: none)
+const ModInfo *Mods_CombiningMod(const ModInfo &a, const ModInfo &b);
 // writes players/mods_startup.cfg if what the enabled mods need at startup changed; true if a restart is needed
 bool Mods_SaveStartup(std::string *who);
 void Mods_RegisterCommands();

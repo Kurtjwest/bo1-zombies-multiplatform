@@ -369,10 +369,27 @@ A mod made with the Black Ops mod tools that isn't a map, such as Waffen der Sch
 it has its own script for (`maps/<map>.gsc` in its folder or `.iwd`: wds's are Kino der Toten, Five, Ascension and
 Moon, the WaW weapon mod's all ten), or on every map if it has none. Turned on, it is stacked with the other mods that
 are on in games on those maps: its scripts win over the game's (as with retail's `fs_game`), and its `mod.ff` loads with
-the map. A game loads one `mod.ff`, so one such mod is on at a time (turning one on turns the others off), and none
-plays on a map mod's map. Its `mod.ff` needs memory set aside when the game starts, as a map does: turning it on asks
-for one restart. Such mods are made for SE2Dev's Game Mod, which brings retail's mod loading back to the original
-game; this game loads them itself.
+the map. One such mod is on at a time (turning one on turns the others off), unless a combining mod lets them play
+together (below), and none plays on a map mod's map. Its `mod.ff` needs memory set aside when the game starts, as a
+map does: turning it on asks for one restart. Such mods are made for SE2Dev's Game Mod, which brings retail's mod
+loading back to the original game; this game loads them itself.
+
+**wds and the WaW weapon mod together.** Both replace the scripts of Kino der Toten, Five, Ascension and Moon, so on
+those maps one would undo the other. `tools/merge_wds_waw.py` makes the folder that combines them, `mods/wds_waw`:
+those four maps' scripts as wds has them, with the WaW guns wds hasn't added (their `include_weapon` lines and the WaW
+mod's prices and hints), and a `mod.txt` that says `combines wds WAW_Weapons_for_BO1`. With both mods in a `mods`
+folder (their folders as they come), run it once with that folder, `python3 tools/merge_wds_waw.py <mods folder>`
+(without it, the repository's `mods`), and again if either mod is updated; it also gives each of the two mods a
+`mod.txt` (its name and description in the menu) if it has none. Then turn both on in the Mods
+menu (one restart for the memory of both). On those four maps both `mod.ff` load, the WaW mod's first, so wds's
+version of a gun both have wins (wds's `thundergun_zm` is its Staff of Wind), and `wds_waw` is stacked after both; on
+the other six maps only the WaW mod plays.
+
+A combining mod is a folder with a `mod.txt` whose `combines` line names two or more such mods, and the files that make
+them work together (scripts merging theirs, usually). It isn't a row of the Mods menu: while the mods it names are all
+on, they can be on together (each one's page says with which), each one's `mod.ff` loads in their order (`mod.ff` as
+zone `mod`, the next as `mod1`, ...; the later wins an asset both have), and the combining mod is stacked after them,
+with the memory they need together (the sum of theirs, unless its `mod.txt` sets `startup bo1_mod_memory`).
 
 ### LinkerMod mods (game_mod)
 
@@ -424,6 +441,8 @@ The words of a `mod.txt` (`//` and `/* */` are comments; text with spaces goes i
   game started with less. `startup bo1_mod_zones "<zones>"` sets aside memory for that many extra zones.
 - `clear <dvar>` or `clear <start>*`: dvars the mod's scripts set (SetDvar) that should be empty again at the start of
   each game, so a choice made in one game doesn't stay for the next.
+- `combines <mod> <mod> ...`: a combining mod (Mod-tools mods above): the mod-tools mods it lets play together, by
+  their names in `fs_mods`.
 - `option <dvar> { ... }`: a row of its page, saved in that dvar (the one its scripts read):
   `label "..."`, `help "..."` (shown under the rows), `type toggle | choice | range`, `default <value>`, and its
   values: `value <value> "<label>"` each, optionally followed by `{ set ... startup ... needs ... }` that apply when

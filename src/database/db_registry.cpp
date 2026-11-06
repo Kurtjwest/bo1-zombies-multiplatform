@@ -4593,6 +4593,17 @@ void DB_SetModLevelFolder(const char *folder)
     I_strncpyz(s_modLevelFolder, folder ? folder : "", sizeof(s_modLevelFolder));
 }
 
+// mod: the file of each mod zone name ("mod", "mod1" .. "mod7") for this level when they come from several folders: a
+// retail level with zone mods that a combining mod lets play together (Com_LoadLevelFastFiles, in stack order: the WaW
+// weapons mod's mod.ff as "mod", wds's as "mod1"); "" for the level mod folder's own
+static char s_modZoneFiles[8][256];
+
+void DB_SetModZoneFile(int index, const char *path)
+{
+    if ( index >= 0 && index < 8 )
+        I_strncpyz(s_modZoneFiles[index], path ? path : "", sizeof(s_modZoneFiles[index]));
+}
+
 bool DB_FindModZoneFile(const char *zoneName, char *filename, unsigned int size)
 {
     if ( !zoneName || !*zoneName || strchr(zoneName, '/') || strchr(zoneName, '\\') || !fs_basepath )
@@ -4610,6 +4621,14 @@ bool DB_FindModZoneFile(const char *zoneName, char *filename, unsigned int size)
         }
     }
     const bool modZone = DB_IsModZoneName(zoneName); // (mod, mod1 .. mod7)
+    for ( int z = 0; modZone && z < 8; ++z )
+    {
+        if ( !I_stricmp(zoneName, g_modZoneNames[z]) && s_modZoneFiles[z][0] )
+        {
+            I_strncpyz(filename, s_modZoneFiles[z], size);
+            return GetFileAttributesA(filename) != (DWORD)-1;
+        }
+    }
     if ( modZone && s_modLevelFolder[0] )
     {
         Com_sprintf(filename, size, "%s/mods/%s/%s.ff", (const char *)fs_basepath->current.string, s_modLevelFolder, zoneName);
