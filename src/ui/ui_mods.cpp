@@ -342,9 +342,13 @@ static std::string Mods_Info(const ModInfo *mod, int row)
     const std::string restart = Mods_RestartReason(*mod);
     if ( row == 0 || row == 1 )
     {
-        std::string text = row == 0 ? (mod->mapMod && mod->description.empty() ? "A map." : mod->description)
+        std::string text = row == 0 ? (mod->mapMod && mod->description.empty() ? "A map."
+                                       : mod->zoneMod && mod->description.empty() ? "A mod-tools mod."
+                                                                                   : mod->description)
                          : mod->mapMod ? "A map: " + MapLabel(*mod) + "."
                                        : "Plays on " + Mods_MapList(*mod) + ".";
+        if ( row == 1 && mod->zoneMod )
+            text += " One such mod at a time (each has its own mod.ff), not on map mods.";
         if ( !available )
             text += " " + why;
         else if ( Mods_IsEnabled(*mod) && !restart.empty() )
@@ -366,12 +370,16 @@ static std::string Mods_Info(const ModInfo *mod, int row)
     return text;
 }
 
-// after the player changed a mod: one that can't play (its zone files aren't installed) stays off
-static void Mods_KeepOff()
+// after the player changed a mod: one that can't play (its zone files aren't installed) stays off; a zone mod turned on
+// (changed) turns the others off (a game loads one mod.ff)
+static void Mods_KeepOff(const char *changed = nullptr)
 {
+    const ModInfo *on = changed ? FindMod(changed) : nullptr;
+    if ( on && !(on->zoneMod && Mods_IsEnabled(*on)) )
+        on = nullptr;
     for ( const ModInfo &mod : Mods_List() )
     {
-        if ( Mods_IsEnabled(mod) && !Mods_IsAvailable(mod, nullptr) )
+        if ( Mods_IsEnabled(mod) && (!Mods_IsAvailable(mod, nullptr) || (on && mod.zoneMod && &mod != on)) )
             Dvar_SetBool((dvar_s *)mod.enabled, false);
     }
 }
@@ -618,7 +626,7 @@ bool UI_Mods_MenuScript(int localClientNum, UiContext *dc, const char *name, con
     {
         if ( const ModInfo *mod = FindMod(arg1) )
             Dvar_SetBool((dvar_s *)mod->enabled, atoi(arg2) != 0);
-        Mods_KeepOff();
+        Mods_KeepOff(arg1);
         Mods_Refresh();
     }
     else if ( !I_stricmp(name, "bo1ModsNext") && String_Parse(args, arg1, sizeof(arg1))
@@ -626,7 +634,7 @@ bool UI_Mods_MenuScript(int localClientNum, UiContext *dc, const char *name, con
     {
         if ( const ModInfo *mod = FindMod(arg1) )
             Mods_Next(*mod, atoi(arg2));
-        Mods_KeepOff();
+        Mods_KeepOff(arg1);
         Mods_Refresh();
     }
     else if ( !I_stricmp(name, "bo1ModsChanged") )

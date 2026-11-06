@@ -3021,12 +3021,25 @@ void __cdecl Com_LoadLevelFastFiles(char *mapName)
             if ( GetFileAttributesA(path) != (DWORD)-1 )
                 I_strncpyz(modLevelFolder, names[m], sizeof(modLevelFolder));
         }
+        // a retail map: a stacked mod-tools mod that isn't a map (a weapon mod, ModInfo::zoneMod) has its mod.ff loaded
+        // the same way (the last stacked one that has one: later wins, as its files do; the Mods menu stacks one)
+        const bool mapInMod = modLevelFolder[0] != 0;
+        for ( int m = count - 1; m >= 0 && !modLevelFolder[0]; --m )
+        {
+            Com_sprintf(path, sizeof(path), "%s/mods/%s/mod.ff", (const char *)fs_basepath->current.string, names[m]);
+            if ( GetFileAttributesA(path) != (DWORD)-1 )
+                I_strncpyz(modLevelFolder, names[m], sizeof(modLevelFolder));
+        }
         if ( modLevelFolder[0] )
         {
             Com_sprintf(path, sizeof(path), "%s/mods/%s/mod.ff", (const char *)fs_basepath->current.string, modLevelFolder);
             const bool modFromGame = fs_gameDirVar && *(const char *)fs_gameDirVar->current.string && DB_ModFileExists();
-            Com_Printf(16, "mod: %s is in mods/%s%s\n", mapName, modLevelFolder,
-                GetFileAttributesA(path) == (DWORD)-1 ? "" : modFromGame ? " (its mod.ff loaded with fs_game)" : ", with its mod.ff");
+            if ( mapInMod )
+                Com_Printf(16, "mod: %s is in mods/%s%s\n", mapName, modLevelFolder,
+                    GetFileAttributesA(path) == (DWORD)-1 ? "" : modFromGame ? " (its mod.ff loaded with fs_game)" : ", with its mod.ff");
+            else
+                Com_Printf(16, "mod: %s with mods/%s's mod.ff%s\n", mapName, modLevelFolder,
+                    modFromGame ? " (fs_game's mod.ff loaded instead)" : "");
             if ( GetFileAttributesA(path) != (DWORD)-1 && !modFromGame )
             {
                 zoneInfo[zoneCount].name = "mod";

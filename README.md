@@ -361,6 +361,19 @@ mod: `+set bo1_zombies 1 +set fs_game mods/Perish +set bo1_mod_memory 384 +devma
 final, patched game (its scripts call functions the patch zones added) and can use images, sounds and models of the
 original maps and DLC, so the whole game, updated, has to be installed.
 
+### Mod-tools mods (weapon mods)
+
+A mod made with the Black Ops mod tools that isn't a map, such as Waffen der Schönheit (`wds`) or the WaW weapon mod
+(`WAW_Weapons_for_BO1`), comes as a folder with `mod.ff`, `.iwd` files and `mod.json`. Put the folder as it comes in
+`mods`. The Mods menu lists it (the folder's name, `mod.json`'s description), off at first; it plays on the original maps
+it has its own script for (`maps/<map>.gsc` in its folder or `.iwd`: wds's are Kino der Toten, Five, Ascension and
+Moon, the WaW weapon mod's all ten), or on every map if it has none. Turned on, it is stacked with the other mods that
+are on in games on those maps: its scripts win over the game's (as with retail's `fs_game`), and its `mod.ff` loads with
+the map. A game loads one `mod.ff`, so one such mod is on at a time (turning one on turns the others off), and none
+plays on a map mod's map. Its `mod.ff` needs memory set aside when the game starts, as a map does: turning it on asks
+for one restart. Such mods are made for SE2Dev's Game Mod, which brings retail's mod loading back to the original
+game; this game loads them itself.
+
 ### Adding a mod
 
 A mod is a folder in `mods` (the repository's, which the build installs in the game folder, or the game folder's own)

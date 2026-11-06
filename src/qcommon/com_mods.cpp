@@ -10,6 +10,7 @@
 #include <database/db_registry.h>
 #include <win32/win_common.h>
 #include "bo1_inflate.h"
+#include "unzip.h"
 
 #include <algorithm>
 #include <cctype>
@@ -843,6 +844,74 @@ static void Mod_FindMaps(const std::string &dir, ModInfo &mod)
         mod.settings.push_back({ "bo1_mod_memory", va("%d", (int)extraMB), "", true });
 }
 
+// the retail zombie maps, in Mission Select's order
+static const struct
+{
+    const char *map;
+    const char *label;
+} kRetailMaps[] = {
+    { "zombie_theater", "Kino der Toten" },
+    { "zombie_pentagon", "Five" },
+    { "zombie_cosmodrome", "Ascension" },
+    { "zombie_coast", "Call of the Dead" },
+    { "zombie_temple", "Shangri-La" },
+    { "zombie_moon", "Moon" },
+    { "zombie_cod5_prototype", "Nacht der Untoten" },
+    { "zombie_cod5_asylum", "Verruckt" },
+    { "zombie_cod5_sumpf", "Shi No Numa" },
+    { "zombie_cod5_factory", "Der Riese" },
+};
+
+static bool Mod_FileExists(const std::string &path)
+{
+    FILE *f = fopen(path.c_str(), "rb");
+    if ( f )
+        fclose(f);
+    return f != nullptr;
+}
+
+// a zone mod's maps (ModInfo::zoneMod): the retail maps it has a maps/<map>.gsc for, in its folder or its .iwd files
+// (wds: Kino der Toten, Five, Ascension and Moon; WAW weapons: the ten), as its scripts replace those maps' own; none,
+// every map. And the memory its mod.ff needs on top of a retail map's (the memory is sized for ~110 MB, a retail map's
+// most), with room to spare, as a map mod's (Mod_FindMaps)
+static void Mod_FindZoneModMaps(const std::string &dir, ModInfo &mod)
+{
+    std::set<std::string> scripts;
+    int count = 0;
+    char **files = (char **)Sys_ListFiles((char *)dir.c_str(), (char *)"iwd", nullptr, &count, 0);
+    for ( int i = 0; files && i < count; ++i )
+    {
+        unzFile uf = unzOpen((dir + "/" + files[i]).c_str());
+        if ( !uf )
+            continue;
+        char name[256];
+        unz_file_info info;
+        for ( int r = unzGoToFirstFile(uf); r == UNZ_OK; r = unzGoToNextFile(uf) )
+        {
+            if ( unzGetCurrentFileInfo(uf, &info, name, sizeof(name), nullptr, 0, nullptr, 0) != UNZ_OK )
+                break;
+            for ( char *c = name; *c; ++c )
+                *c = *c == '\\' ? '/' : (char)tolower((unsigned char)*c);
+            if ( !strncmp(name, "maps/", 5) )
+                scripts.insert(name);
+        }
+        unzClose(uf);
+    }
+    if ( files )
+        FS_FreeFileList((const char **)files);
+    if ( mod.maps.empty() )
+    {
+        for ( const auto &m : kRetailMaps )
+        {
+            const std::string path = std::string("maps/") + m.map + ".gsc";
+            if ( scripts.count(path) || Mod_FileExists(dir + "/" + path) )
+                mod.maps.push_back({ m.map, m.label });
+        }
+    }
+    const unsigned long long modNeed = Mod_ZoneMemory(dir + "/mod.ff");
+    mod.settings.push_back({ "bo1_mod_memory", va("%d", (int)(modNeed >> 20) + 64), "", true });
+}
+
 // mod.json (a mod-tools mod's): "desc" and "vers"
 static std::string Mod_JsonString(const std::string &json, const char *key)
 {
@@ -906,9 +975,15 @@ void Mods_Discover()
             mod.mapMod = false;
         }
         mod.dir = dirName;
-        // a map mod (with or without a mod.txt): its zone files; mod.json's text unless the mod.txt has one
+        // a map mod (with or without a mod.txt): its zone files; mod.json's text unless the mod.txt has one. A mod-tools
+        // mod that isn't a map (a mod.ff): a zone mod
         Mod_FindMaps(modDir, mod);
-        if ( text.empty() && !mod.mapMod )
+        if ( !mod.mapMod && Mod_FileExists(modDir + "/mod.ff") )
+        {
+            mod.zoneMod = true;
+            Mod_FindZoneModMaps(modDir, mod);
+        }
+        if ( text.empty() && !mod.mapMod && !mod.zoneMod )
             continue;
         const std::string json = Mod_ReadFile(modDir + "/mod.json");
         if ( mod.description.empty() )
@@ -1298,7 +1373,9 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
         return;
     // the map's own mod (a map mod), first: its zones and files (mod.ff, .iwd) come from its folder. On or off (the
     // Mods menu's ON lists it in the zombies menu's Mission Select and sets its memory aside; "/map" plays it anyway)
-    if ( const ModInfo *mapMod = Mods_MapModFor(mapName) )
+    const ModInfo *mapMod = Mods_MapModFor(mapName);
+    const ModInfo *zoneMod = nullptr; // (the game's one zone mod: its mod.ff loads with the level)
+    if ( mapMod )
     {
         fsMods = mapMod->folder;
         if ( log && !Mod_StartupMet(mapMod->settings) )
@@ -1312,6 +1389,20 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
         if ( mod.mapMod || !Mods_IsEnabled(mod) )
             continue;
         std::vector<std::string> missing;
+        if ( mod.zoneMod && mapMod )
+        {
+            if ( log )
+                Com_Printf(10, "mods: %s is not for %s (a map mod's map, with its own mod.ff): left out\n",
+                    mod.name.c_str(), mapName);
+            continue;
+        }
+        if ( mod.zoneMod && zoneMod )
+        {
+            if ( log )
+                Com_PrintWarning(10, "mods: %s left out: a game has one mod with its own mod.ff (%s is on)\n",
+                    mod.name.c_str(), zoneMod->name.c_str());
+            continue;
+        }
         if ( !Mod_OnMap(mod, mapName) )
         {
             if ( log )
@@ -1333,6 +1424,8 @@ static void Mod_Compute(const char *mapName, std::string &fsMods, std::vector<st
                     mod.name.c_str());
             continue;
         }
+        if ( mod.zoneMod )
+            zoneMod = &mod;
         fsMods += (fsMods.empty() ? "" : " ") + mod.folder;
         Mod_AddSettings(mod, mapName, sets, log);
     }

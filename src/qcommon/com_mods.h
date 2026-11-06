@@ -71,6 +71,10 @@ struct ModInfo
     // is a row of the zombies menu's Mission Select (src/ui/ui_levels.cpp) and its memory is set aside at startup;
     // stacked first with fs_mods in every game on its map(s), on or off
     bool mapMod;
+    // a mod-tools mod that isn't a map (mods/<dir>/mod.ff, its .iwd files, mod.txt optional: wds, WAW weapons): its
+    // maps are the retail ones it has a maps/<map>.gsc for (none: every map); on, it is stacked with fs_mods on those
+    // and its mod.ff loads with the level. One at a time (a game loads one mod.ff), never on a map mod's map
+    bool zoneMod = false;
     std::string version; // mod.json's "vers"
 };
 
