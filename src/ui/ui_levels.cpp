@@ -25,7 +25,7 @@
 // Mods menu (ui_mods.cpp) after the game's maps, and scrolls when its rows don't fit.
 //
 // The game's menu stays as it is; when the front end's menus load, it gets more items:
-// - a row per map mod (shown while the mod is on): items in the look of the list's first row (its bar, highlight,
+// - a row per map of a map mod (shown while the mod is on; Overlook has two): items in the look of the list's first row (its bar, highlight,
 //   button and texts: their type, rect, colors, material and font read from that row's items), a row's step below the
 //   list's last row. Its button starts the map as the game's rows start theirs (ui_load_level, then the front end
 //   script's startlevel);
@@ -41,10 +41,12 @@ static const dvar_t *bo1_levels_title; // a map mod's name, when its row has the
 static const dvar_t *bo1_levels_desc;  // its text
 static const dvar_t *bo1_levels_panel; // 1 while a map mod's row has the focus: our panel instead of the game's
 
-// a map mod's row (its items are a row of s_scroll)
+// a map mod's map's row (its items are a row of s_scroll)
 struct LevelsModRow
 {
     std::string folder;
+    std::string map;
+    std::string label;
     itemDef_s *button;
 };
 
@@ -65,7 +67,7 @@ static UiScrollList s_scroll;
 static std::vector<LevelsModRow> s_rows;
 static std::vector<LevelsPanelItem> s_stockPanel;
 static bool s_stockPanelHidden;
-static std::string s_panelFolder;
+static std::string s_panelRow; // the row whose name and text the panel has ("folder map")
 
 static std::string Fmt(const char *format, ...)
 {
@@ -106,9 +108,31 @@ static const ModInfo *FindMod(const std::string &folder)
     return nullptr;
 }
 
-static std::string MapLabel(const ModInfo &mod)
+// a map mod's rows in Mission Select: one per map, named as the mod when it has one map, else as the map
+struct LevelsRowSpec
 {
-    return mod.maps.empty() ? mod.name : mod.maps[0].label;
+    const ModInfo *mod;
+    std::string map;
+    std::string label;
+};
+
+static std::vector<LevelsRowSpec> Levels_RowSpecs()
+{
+    std::vector<LevelsRowSpec> rows;
+    for ( const ModInfo &mod : Mods_List() )
+    {
+        if ( !mod.mapMod )
+            continue;
+        for ( const ModMap &m : mod.maps )
+            rows.push_back({ &mod, m.name, mod.maps.size() == 1 ? mod.name : m.label });
+    }
+    return rows;
+}
+
+// our row items' names: bo1_levels_r<row>_<item>
+static std::string Levels_RowPrefix(int row)
+{
+    return Fmt("bo1_levels_r%d_", row);
 }
 
 // ----- reading the game's menu -----
@@ -249,12 +273,12 @@ static std::string Levels_MenuText(itemDef_s *const *rowItems, int rowItemCount,
     const float rowY = button->window.rectClient.y;
     std::string text = "menuDef { name \"bo1_levels_parts\" rect 0 0 640 480 0 0 ";
     int n = highlight0;
-    for ( const ModInfo &mod : Mods_List() )
+    const std::vector<LevelsRowSpec> specs = Levels_RowSpecs();
+    for ( size_t k = 0; k < specs.size(); ++k )
     {
-        if ( !mod.mapMod || mod.maps.empty() )
-            continue;
+        const ModInfo &mod = *specs[k].mod;
         ++n;
-        const std::string label = Quote(Upper(mod.name));
+        const std::string label = Quote(Upper(specs[k].label));
         const std::string shown = Fmt("dvarint( \"bo1_mods_%s\" ) == 1", mod.folder.c_str());
         for ( int i = 0; i < rowItemCount; ++i )
         {
@@ -278,7 +302,7 @@ static std::string Levels_MenuText(itemDef_s *const *rowItems, int rowItemCount,
             {
                 continue; // (the row's other pictures: a map not found yet, ...)
             }
-            text += Fmt("itemDef { name \"bo1_levels_%s_%d\" %s", mod.folder.c_str(), i,
+            text += Fmt("itemDef { name \"%s%d\" %s", Levels_RowPrefix((int)k).c_str(), i,
                 Item_Look(t, t->window.rectClient.y - rowY + flowY).c_str());
             if ( Item_IsTextDefType(t) )
                 text += Fmt("text \"%s\" ", label.c_str());
@@ -287,7 +311,8 @@ static std::string Levels_MenuText(itemDef_s *const *rowItems, int rowItemCount,
             {
                 text += Fmt("onFocus { play \"%s\" ; setLocalVarInt ui_highlight %d ; setLocalVarString ui_choicegroup "
                             "\"%s\" ; } leaveFocus { setLocalVarInt ui_highlight 0 ; } ", over.c_str(), n, group.c_str());
-                text += Fmt("action { play \"%s\" ; uiScript bo1LevelsPlay %s ; } ", click.c_str(), mod.folder.c_str());
+                text += Fmt("action { play \"%s\" ; uiScript bo1LevelsPlay %s %s ; } ", click.c_str(), mod.folder.c_str(),
+                    specs[k].map.c_str());
             }
             text += "} ";
         }
@@ -323,9 +348,11 @@ static std::string Levels_MenuText(itemDef_s *const *rowItems, int rowItemCount,
 // ----- the panel -----
 
 // the game's title, description and picture hidden while a map mod's row has the focus (and ours shown), back after
-static void Levels_SetPanel(int contextIndex, const std::string &folder)
+// (row: nullptr)
+static void Levels_SetPanel(int contextIndex, const LevelsModRow *row)
 {
-    const bool mod = !folder.empty();
+    const bool mod = row != nullptr;
+    const std::string key = row ? row->folder + " " + row->map : "";
     if ( mod != s_stockPanelHidden )
     {
         for ( LevelsPanelItem &p : s_stockPanel )
@@ -343,26 +370,26 @@ static void Levels_SetPanel(int contextIndex, const std::string &folder)
         s_stockPanelHidden = mod;
         Dvar_SetInt((dvar_s *)bo1_levels_panel, mod);
     }
-    if ( mod && folder != s_panelFolder )
+    if ( mod && key != s_panelRow )
     {
-        const ModInfo *info = FindMod(folder);
+        const ModInfo *info = FindMod(row->folder);
         std::string desc;
         std::string title;
         if ( info )
         {
-            title = Upper(MapLabel(*info));
+            title = Upper(row->label);
             desc = info->description.empty() ? "A map mod." : info->description;
             std::string why;
             if ( !Mods_IsAvailable(*info, &why) )
                 desc = why;
             else if ( !Mods_RestartReason(*info).empty() )
-                desc = "Restart the game first: " + MapLabel(*info) + " needs more memory set aside when the game "
+                desc = "Restart the game first: " + row->label + " needs more memory set aside when the game "
                        "starts. " + desc;
         }
         Dvar_SetString((dvar_s *)bo1_levels_title, Quote(title).c_str());
         Dvar_SetString((dvar_s *)bo1_levels_desc, Quote(desc).c_str());
     }
-    s_panelFolder = folder;
+    s_panelRow = key;
 }
 
 void UI_Levels_Frame(int localClientNum, UiContext *dc, menuDef_t *menu)
@@ -374,13 +401,13 @@ void UI_Levels_Frame(int localClientNum, UiContext *dc, menuDef_t *menu)
     {
         if ( !row.focus || !(Window_GetDynamicFlags(dc->contextIndex, &row.focus->window) & 2) )
             continue;
-        std::string folder;
+        const LevelsModRow *modRow = nullptr;
         for ( const LevelsModRow &r : s_rows )
         {
             if ( r.button == row.focus )
-                folder = r.folder;
+                modRow = &r;
         }
-        Levels_SetPanel(dc->contextIndex, folder);
+        Levels_SetPanel(dc->contextIndex, modRow);
         break;
     }
     (void)localClientNum;
@@ -408,7 +435,7 @@ void UI_Levels_Shutdown(UiContext *dc)
     {
         if ( dc->Menus[i] == s_menu && s_menu->items == s_items.data() )
         {
-            Levels_SetPanel(dc->contextIndex, "");
+            Levels_SetPanel(dc->contextIndex, nullptr);
             s_menu->items = s_origItems;
             s_menu->itemCount = s_origItemCount;
             for ( const UiScrollRow &row : s_scroll.rows )
@@ -440,7 +467,7 @@ void UI_Levels_Shutdown(UiContext *dc)
     s_rows.clear();
     s_stockPanel.clear();
     s_stockPanelHidden = false;
-    s_panelFolder.clear();
+    s_panelRow.clear();
 }
 
 void UI_Levels_LoadMenus(int localClientNum, UiContext *dc)
@@ -613,10 +640,7 @@ void UI_Levels_LoadMenus(int localClientNum, UiContext *dc)
             scroll.track = item;
         if ( !strcmp(name, "bo1_levels_thumb") )
             scroll.thumb = item;
-        bool row = false;
-        for ( const ModInfo &mod : Mods_List() )
-            row = row || (mod.mapMod && !I_strnicmp(name, ("bo1_levels_" + mod.folder + "_").c_str(),
-                                                    (int)mod.folder.size() + 12));
+        const bool row = !strncmp(name, "bo1_levels_r", 12) && isdigit((unsigned char)name[12]);
         (row ? rowsOurs : restOurs).push_back(item);
     }
     parts->itemCount = 0; // (its items are levels_zombie's now)
@@ -629,18 +653,17 @@ void UI_Levels_LoadMenus(int localClientNum, UiContext *dc)
             s_items.insert(s_items.end(), rowsOurs.begin(), rowsOurs.end());
     }
     s_items.insert(s_items.end(), restOurs.begin(), restOurs.end());
-    // the map mods' rows: after the game's, each shown while its mod is on
-    for ( const ModInfo &mod : Mods_List() )
+    // the map mods' rows (a row per map): after the game's, each shown while its mod is on
+    const std::vector<LevelsRowSpec> specs = Levels_RowSpecs();
+    for ( size_t k = 0; k < specs.size(); ++k )
     {
-        if ( !mod.mapMod || mod.maps.empty() )
-            continue;
         UiScrollRow row;
         row.flow = true;
-        row.shownDvar = "bo1_mods_" + mod.folder;
-        const std::string prefix = "bo1_levels_" + mod.folder + "_";
+        row.shownDvar = "bo1_mods_" + specs[k].mod->folder;
+        const std::string prefix = Levels_RowPrefix((int)k);
         for ( itemDef_s *item : rowsOurs )
         {
-            if ( I_strnicmp((const char *)item->window.name, prefix.c_str(), (int)prefix.size()) )
+            if ( strncmp((const char *)item->window.name, prefix.c_str(), prefix.size()) )
                 continue;
             row.items.push_back(item);
             row.offsets.push_back(item->window.rectClient.y - flowY);
@@ -649,7 +672,7 @@ void UI_Levels_LoadMenus(int localClientNum, UiContext *dc)
         }
         if ( !row.focus )
             continue;
-        s_rows.push_back({ mod.folder, row.focus });
+        s_rows.push_back({ specs[k].mod->folder, specs[k].map, specs[k].label, row.focus });
         scroll.rows.push_back(row);
     }
     scroll.menu = menu;
@@ -681,11 +704,14 @@ bool UI_Levels_MenuScript(int localClientNum, UiContext *dc, const char *name, c
     char folder[256] = "";
     if ( !String_Parse(args, folder, sizeof(folder)) )
         return true;
+    // (the row's map: its mod's first if not named)
+    char mapName[256] = "";
+    String_Parse(args, mapName, sizeof(mapName));
     const ModInfo *mod = FindMod(folder);
     const LevelsModRow *row = nullptr;
     for ( const LevelsModRow &r : s_rows )
     {
-        if ( !I_stricmp(r.folder.c_str(), folder) )
+        if ( !I_stricmp(r.folder.c_str(), folder) && (!row || !I_stricmp(r.map.c_str(), mapName)) )
             row = &r;
     }
     if ( !mod || !row || !mod->mapMod || mod->maps.empty() || !s_menu )
@@ -693,7 +719,7 @@ bool UI_Levels_MenuScript(int localClientNum, UiContext *dc, const char *name, c
     if ( !Mods_IsAvailable(*mod, nullptr) || !Mods_RestartReason(*mod).empty() )
         return true; // (the text under the box says why)
     // the game's rows' way (their action): ui_load_level, then the front end script's startlevel
-    const std::string &map = mod->maps[0].name;
+    const std::string &map = row->map;
     Com_Printf(13, "mods: starting %s (mods/%s)\n", map.c_str(), mod->dir.c_str());
     const std::string script = Fmt("setDvar ui_mapname \"%s\" ; setDvar ui_load_level \"%s\" ; "
         "exec \"set arcademode_lives 2; set arcademode_combined_score 0\" ; close self ; open dummy_menu ; "

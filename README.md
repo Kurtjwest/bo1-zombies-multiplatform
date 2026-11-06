@@ -348,11 +348,11 @@ When the map loads, its folder is stacked with the other mods that are on and pl
 perks); mods made for other maps are left out. Its zones, `.iwd` files and videos come
 from its folder; its `mod.ff` loads with the map, just before it, and is freed with it (as with retail's `fs_game`, its
 scripts and assets win over the game's patch zones). Its own loading screen picture isn't shown (it is in `mod.ff`,
-which loads after the loading screen is set up). Its map can have any name (Overlook's is `mod1`): it is played as a
-zombies map. A map with water (Facility, Temple) is played without the water's moving surface: the dynamic water
-simulation is off (`r_watersim_enabled 1` turns on this port's reconstruction of it, which no map has shown working
-yet). A weapon's alternate mode that the map's zones don't have (House's upgraded AK-47 names a flamethrower) is left
-out, with a warning in the console, instead of stopping the map.
+which loads after the loading screen is set up). If the folder has a `mod.arena` (most do), its maps are the ones listed
+there; other zones in the folder are not maps (Overlook's `mod1.ff` holds sounds). A mod with more than one map has a
+row for each in Mission Select, named as the map is in the mod (Overlook and Overlook Revisited). A map is played as a
+zombies map whatever its name. A weapon's alternate mode that the map's zones don't have (House's upgraded AK-47 names
+a flamethrower) is left out, with a warning in the console, instead of stopping the map.
 
 From the console: `/map zombie_perish` (once the main menu has loaded; on or off, but its memory is only set aside
 while it is on). On the command line, retail's way to play a map

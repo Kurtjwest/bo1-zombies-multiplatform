@@ -551,8 +551,186 @@ static unsigned int Mod_ZoneMemory(const std::string &path)
     return total > 0xFFFFFFFFull ? 0xFFFFFFFFu : (unsigned int)total;
 }
 
-// a map mod's maps: its zone files but mod.ff, a language's (en_<zone>), _patch and _load ones; its memory need beyond
-// what a retail map has (Kino 103 MB, the memory is sized for ~110), with room to spare
+// mod.arena (a mod-tools mod's list of its maps, as retail's .arena files): a { } block per map, "map" its zone's name,
+// "longname" the localization key of its name
+struct ModArenaMap
+{
+    std::string map;
+    std::string longname;
+};
+
+static std::vector<ModArenaMap> Mod_ReadArena(const std::string &path)
+{
+    const std::string text = Mod_ReadFile(path);
+    std::vector<std::string> tokens;
+    for ( size_t i = 0; i < text.size(); )
+    {
+        const char c = text[i];
+        if ( isspace((unsigned char)c) )
+        {
+            ++i;
+        }
+        else if ( c == '/' && i + 1 < text.size() && text[i + 1] == '/' )
+        {
+            while ( i < text.size() && text[i] != '\n' )
+                ++i;
+        }
+        else if ( c == '{' || c == '}' )
+        {
+            tokens.push_back(std::string(1, c));
+            ++i;
+        }
+        else if ( c == '"' )
+        {
+            std::string t;
+            for ( ++i; i < text.size() && text[i] != '"'; ++i )
+                t += text[i];
+            ++i;
+            tokens.push_back(t);
+        }
+        else
+        {
+            std::string t;
+            while ( i < text.size() && !isspace((unsigned char)text[i]) && text[i] != '{' && text[i] != '}'
+                    && text[i] != '"' )
+                t += text[i++];
+            tokens.push_back(t);
+        }
+    }
+    std::vector<ModArenaMap> maps;
+    ModArenaMap cur;
+    bool in = false;
+    for ( size_t i = 0; i < tokens.size(); ++i )
+    {
+        if ( tokens[i] == "{" )
+        {
+            in = true;
+            cur = ModArenaMap();
+        }
+        else if ( tokens[i] == "}" )
+        {
+            if ( in && IsDvarName(cur.map) )
+                maps.push_back(cur);
+            in = false;
+        }
+        else if ( in && i + 1 < tokens.size() && tokens[i + 1] != "{" && tokens[i + 1] != "}" )
+        {
+            if ( !I_stricmp(tokens[i].c_str(), "map") )
+                cur.map = tokens[i + 1];
+            else if ( !I_stricmp(tokens[i].c_str(), "longname") )
+                cur.longname = tokens[i + 1];
+            ++i;
+        }
+    }
+    return maps;
+}
+
+// the text a zone gives localization keys: its localize assets as the loader reads them, the two pointers -1 and then
+// the value and the key inline (a value the zone has already is a pointer to it instead: not found here). A zone is read
+// once a session (a map mod's mod.ff, ~40 MB inflated: ~0.3 s)
+static std::map<std::string, std::map<std::string, std::string>> s_zoneStrings; // zone path -> key -> text
+
+static const std::map<std::string, std::string> &Mod_ZoneStrings(const std::string &path,
+    const std::vector<std::string> &keys)
+{
+    std::map<std::string, std::string> &found = s_zoneStrings[path];
+    bool all = true;
+    for ( const std::string &k : keys )
+        all = all && found.count(k);
+    if ( all )
+        return found;
+    for ( const std::string &k : keys )
+        found[k] = ""; // (not found, unless it is below)
+    FILE *f = fopen(path.c_str(), "rb");
+    if ( !f )
+        return found;
+    unsigned char header[12];
+    z_stream s;
+    memset(&s, 0, sizeof(s));
+    if ( fread(header, 1, sizeof(header), f) != sizeof(header) || memcmp(header, "IWff", 4)
+         || Bo1_InflateInit2(&s, MAX_WBITS) != Z_OK )
+    {
+        fclose(f);
+        return found;
+    }
+    std::vector<unsigned char> in(1 << 20);
+    std::string raw;
+    const size_t step = 4 << 20;
+    int ret = Z_OK;
+    while ( ret == Z_OK && raw.size() < (768u << 20) )
+    {
+        if ( !s.avail_in )
+        {
+            const size_t n = fread(in.data(), 1, in.size(), f);
+            if ( !n )
+                break;
+            s.next_in = in.data();
+            s.avail_in = (uInt)n;
+        }
+        const size_t at = raw.size();
+        raw.resize(at + step);
+        s.next_out = (Bytef *)&raw[at];
+        s.avail_out = (uInt)step;
+        ret = Bo1_Inflate(&s, Z_NO_FLUSH);
+        raw.resize(at + step - s.avail_out);
+    }
+    Bo1_InflateEnd(&s);
+    fclose(f);
+    for ( const std::string &key : keys )
+    {
+        const std::string pattern = key + std::string(1, '\0');
+        for ( size_t p = raw.find(pattern); p != std::string::npos; p = raw.find(pattern, p + 1) )
+        {
+            if ( p < 10 || raw[p - 1] != '\0' )
+                continue;
+            size_t start = p - 1;
+            while ( start > 0 && p - 1 - start < 256 && (unsigned char)raw[start - 1] >= 0x20
+                    && (unsigned char)raw[start - 1] != 0xFF && raw[start - 1] != 0x7F )
+                --start;
+            if ( start == p - 1 || start < 8 || raw.compare(start - 8, 8, std::string(8, '\xFF')) )
+                continue;
+            found[key] = raw.substr(start, p - 1 - start);
+            break;
+        }
+    }
+    return found;
+}
+
+// a map's name from its zone name, when its mod doesn't give one ("zombie_ol_expan": "Ol Expan")
+static std::string Mod_MapNameFromZone(const std::string &zone)
+{
+    std::string name = zone;
+    for ( const char *prefix : { "nazi_zombie_", "zombie_" } )
+    {
+        if ( !I_strnicmp(name.c_str(), prefix, (int)strlen(prefix)) && name.size() > strlen(prefix) )
+        {
+            name = name.substr(strlen(prefix));
+            break;
+        }
+    }
+    return name;
+}
+
+// "OVERLOOK REVISITED", "ol expan": "Overlook Revisited", "Ol Expan"
+static std::string Mod_TitleCase(const std::string &s)
+{
+    std::string t;
+    bool start = true;
+    for ( char c : s )
+    {
+        if ( c == '_' )
+            c = ' ';
+        t += start ? (char)toupper((unsigned char)c) : (char)tolower((unsigned char)c);
+        start = c == ' ';
+    }
+    return t;
+}
+
+// a map mod's maps: those its mod.arena lists, if it has one (Overlook: zombie_overlook and zombie_ol_expan; its
+// mod1.ff, sounds, is no map); else its zone files but mod.ff, a language's (en_<zone>), _patch and _load ones (with a
+// zombie_* among them: those, as a mod-tools zombies map is named). Its memory need beyond what a retail map has (Kino
+// 103 MB, the memory is sized for ~110), with room to spare. A mod with more than one map names each from its mod.arena
+// longname (the text its zones give that key: Mission Select has a row per map), or from the map's zone name
 static void Mod_FindMaps(const std::string &dir, ModInfo &mod)
 {
     static const char *const languages[] = { "en_", "fr_", "de_", "it_", "es_", "ru_", "pl_", "ja_", "ko_", "tw_", "cn_",
@@ -584,15 +762,78 @@ static void Mod_FindMaps(const std::string &dir, ModInfo &mod)
     if ( maps.empty() )
         return;
     std::sort(maps.begin(), maps.end());
-    mod.mapMod = true;
-    unsigned long long biggest = 0;
-    for ( const std::string &m : maps )
+    // the maps the mod.arena lists, in its order (those with a zone here)
+    std::vector<ModArenaMap> arena;
+    for ( const ModArenaMap &a : Mod_ReadArena(dir + "/mod.arena") )
     {
+        for ( const std::string &m : maps )
+        {
+            if ( !I_stricmp(m.c_str(), a.map.c_str()) )
+            {
+                arena.push_back({ m, a.longname });
+                break;
+            }
+        }
+    }
+    if ( !arena.empty() )
+    {
+        maps.clear();
+        for ( const ModArenaMap &a : arena )
+            maps.push_back(a.map);
+    }
+    else
+    {
+        std::vector<std::string> zombie;
+        for ( const std::string &m : maps )
+        {
+            if ( I_stristr(m.c_str(), "zombie") )
+                zombie.push_back(m);
+        }
+        if ( !zombie.empty() )
+            maps.swap(zombie);
+    }
+    mod.mapMod = true;
+    // (more than one map: each one's longname key, and without "_CAPS", looked for in mod.ff, then in its own zone)
+    std::vector<std::vector<std::string>> keys(maps.size());
+    std::vector<std::string> allKeys;
+    for ( size_t n = 0; maps.size() > 1 && n < arena.size() && n < maps.size(); ++n )
+    {
+        const std::string &key = arena[n].longname;
+        if ( !IsDvarName(key) )
+            continue;
+        keys[n].push_back(key);
+        if ( key.size() > 5 && !I_stricmp(key.c_str() + key.size() - 5, "_CAPS") )
+            keys[n].push_back(key.substr(0, key.size() - 5));
+        allKeys.insert(allKeys.end(), keys[n].begin(), keys[n].end());
+    }
+    const std::map<std::string, std::string> noText;
+    const std::map<std::string, std::string> &modText =
+        modZone && !allKeys.empty() ? Mod_ZoneStrings(dir + "/mod.ff", allKeys) : noText;
+    unsigned long long biggest = 0;
+    for ( size_t n = 0; n < maps.size(); ++n )
+    {
+        const std::string &m = maps[n];
         bool listed = false;
         for ( const ModMap &mm : mod.maps )
             listed = listed || !I_stricmp(mm.name.c_str(), m.c_str());
         if ( !listed )
-            mod.maps.push_back({ m, maps.size() == 1 ? mod.name : m });
+        {
+            std::string label = maps.size() > 1 ? "" : mod.name;
+            for ( int zone = 0; zone < 2 && label.empty() && !keys[n].empty(); ++zone )
+            {
+                const std::map<std::string, std::string> &text =
+                    zone == 0 ? modText : Mod_ZoneStrings(dir + "/" + m + ".ff", keys[n]);
+                for ( const std::string &k : keys[n] )
+                {
+                    const auto it = text.find(k);
+                    if ( label.empty() && it != text.end() && !it->second.empty() )
+                        label = Mod_TitleCase(it->second);
+                }
+            }
+            if ( label.empty() )
+                label = Mod_TitleCase(Mod_MapNameFromZone(m));
+            mod.maps.push_back({ m, label });
+        }
         const unsigned long long need = Mod_ZoneMemory(dir + "/" + m + ".ff");
         biggest = need > biggest ? need : biggest;
     }

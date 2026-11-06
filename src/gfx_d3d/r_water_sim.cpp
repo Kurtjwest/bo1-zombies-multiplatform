@@ -262,12 +262,7 @@ void __cdecl R_InitWaterSimulation()
     else
     {
         waterSimInitialized = 1;
-        // mod: off unless set. The simulation (R_WaterSimulationRender, ..TrackView, ..UpdateFrame) is a reconstruction
-        // that no map has run yet (the stock zombie maps have no water cells; a mod-tools map with water does), and its
-        // render differs from the decompiled original (the tile row it marks updated, the mesh queue's test, the start
-        // tile). Off, a map with water loads without its moving water surface; the game's water queries use the world's
-        // water heights (R_WaterSimulationGetHeightGlobal) and leave the simulation alone (data.enabled stays 0)
-        r_watersim_enabled = _Dvar_RegisterBool("r_watersim_enabled", 0, 0x5500u, "Enables dynamic water simulation");
+        r_watersim_enabled = _Dvar_RegisterBool("r_watersim_enabled", 1, 0x5500u, "Enables dynamic water simulation");
         r_watersim_debug = _Dvar_RegisterBool("r_watersim_debug", 0, 0x4400u, "Enables bullet debug markers");
         r_watersim_flatten = _Dvar_RegisterBool("r_watersim_flatten", 0, 0x4400u, "Flattens the water surface out");
         r_watersim_waveSeedDelay = _Dvar_RegisterFloat(
