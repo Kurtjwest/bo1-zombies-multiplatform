@@ -340,3 +340,7 @@ extern unsigned int flame_spawn_id;
 extern unsigned int flame_freeze_id;
 
 extern cspField_t flameTableFields[119];
+
+// BO1Zombies: a flame's start on a gun (FX_GetBoneOrientation, with the client's own player posed as he is drawn)
+struct orientation_t;
+bool Flame_GetBoneOrientation(int localClientNum, int dobjHandle, int boneIndex, orientation_t *orient);

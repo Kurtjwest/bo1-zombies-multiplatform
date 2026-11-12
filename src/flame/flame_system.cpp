@@ -24,6 +24,9 @@
 #include <cgame/cg_drawtools.h>
 #include <cgame/cg_world.h>
 #include <game_mp/g_utils_mp.h>
+#include <cgame_mp/cg_ents_mp.h>
+#include <qcommon/dobj_management.h>
+#include <xanim/dobj_utils.h>
 
 flameVarDef_t flameVars[128] =
 {
@@ -1711,6 +1714,24 @@ void __cdecl Flame_Render_Sprites(
 }
 
 
+// BO1Zombies: the client's own player entity isn't in its snapshots and isn't positioned (MP draws
+// cg.predictedPlayerEntity, which poses the same DObj), so in zombie mode his gun's tag comes from that pose (SP's
+// own player entity has it). Dead Ops Arcade's top-down camera draws him in third person: his flame starts there.
+bool Flame_GetBoneOrientation(int localClientNum, int dobjHandle, int boneIndex, orientation_t *orient)
+{
+    const cg_s *cgameGlob = CG_GetLocalClientGlobals(localClientNum);
+    if ( zombiemode && zombiemode->current.enabled && cgameGlob->nextSnap
+        && dobjHandle == cgameGlob->predictedPlayerState.clientNum && boneIndex >= 0 && boneIndex != 255 )
+    {
+        DObj *obj = Com_GetClientDObj(dobjHandle, localClientNum);
+        if ( obj && boneIndex < DObjNumBones(obj)
+            && CG_DObjGetWorldBoneMatrix(&cgameGlob->predictedPlayerEntity.pose, obj, boneIndex, orient->axis,
+                orient->origin) )
+            return true;
+    }
+    return FX_GetBoneOrientation(localClientNum, dobjHandle, boneIndex, orient) != 0;
+}
+
 int __cdecl Flame_GetLocalClientFlameSource(int localClientNum, int EntNum)
 {
     return EntNum;
@@ -1877,6 +1898,12 @@ LABEL_25:
                             isFirstPerson = cgameGlob->nextSnap->ps.clientNum == i
                                                      && ((cgameGlob->nextSnap->ps.otherFlags & 2) == 0
                                                         || cgameGlob->renderingThirdPerson != TP_FOR_MODEL);
+                            // zombies: SP (0x005e5664): first person while the player isn't drawn in third person.
+                            // Dead Ops Arcade's top-down camera draws him (CG_UpdateThirdPerson): the flame comes out
+                            // of his gun, not the hidden view model's (MP's rule says first person for anyone playing).
+                            if ( zombiemode && zombiemode->current.enabled )
+                                isFirstPerson = cgameGlob->nextSnap->ps.clientNum == i
+                                             && cgameGlob->renderingThirdPerson != TP_FOR_MODEL;
                             if ( Demo_IsThirdPersonCamera() || Demo_IsMovieCamera() )
                                 isFirstPerson = 0;
                             if ( !weapDef->bUseAltTagFlash || isFirstPerson )
@@ -1925,7 +1952,7 @@ LABEL_25:
                                     }
                                     else
                                     {
-                                        FX_GetBoneOrientation(localClientNum, thirdDobjHandle, thirdBoneIndex, &thirdOrient);
+                                        Flame_GetBoneOrientation(localClientNum, thirdDobjHandle, thirdBoneIndex, &thirdOrient);
                                     }
                                 }
                                 if ( isFirstPerson )

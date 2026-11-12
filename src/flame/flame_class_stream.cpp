@@ -1,4 +1,5 @@
 #include "flame_class_stream.h"
+#include "flame_system.h"
 #include "flame_class_drips.h"
 #include <gfx_d3d/r_scene.h>
 #include "flame_cull.h"
@@ -419,7 +420,16 @@ void __cdecl Flame_Class_Stream_Render_Item(
                             dobjHandle = source->thirdDobjHandle;
                             boneIndex = source->thirdBoneIndex;
                         }
-                        if ( FX_GetBoneOrientation(localClientNum, dobjHandle, boneIndex, &orient) )
+                        // zombies: the local player drawn in third person (Dead Ops Arcade's top-down camera): the
+                        // stream starts at his gun, as his flame does (CG_Flame_Update_Source), not at the hidden view
+                        // model's, whose tag it never looked up (the stream then started at the world's origin)
+                        else if ( zombiemode && zombiemode->current.enabled
+                            && LocalClientGlobals->renderingThirdPerson == TP_FOR_MODEL )
+                        {
+                            dobjHandle = source->thirdDobjHandle;
+                            boneIndex = source->thirdBoneIndex;
+                        }
+                        if ( Flame_GetBoneOrientation(localClientNum, dobjHandle, boneIndex, &orient) )
                         {
                             beam.begin[0] = orient.origin[0];
                             beam.begin[1] = orient.origin[1];

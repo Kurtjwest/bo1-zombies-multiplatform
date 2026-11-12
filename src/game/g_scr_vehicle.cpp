@@ -1,3 +1,4 @@
+#include <new>
 #include <universal/bo1_ptrcast.h>
 #include "g_scr_vehicle.h"
 #include <universal/q_shared.h>
@@ -2948,13 +2949,13 @@ void __cdecl G_SpawnVehicle(gentity_s *ent, char *typeName, int load)
     //    atexit(G_SpawnVehicle_::_16_::_dynamic_atexit_destructor_for__dummy__);
     //}
 
-    static colgeom_visitor_inlined_t<200> dummy_0;
-
     //veh->vehicle_cache.proximity_data.__vftable = dummy_0.__vftable;
-    veh->vehicle_cache.proximity_data = dummy_0;
-
     //colgeom_visitor_inlined_t<500>::reset(&veh->vehicle_cache.proximity_data);
-    veh->vehicle_cache.proximity_data.reset();
+    // port: the memset above cleared the visitor's vtable pointer, which the exe copies back from a static one. A C++
+    // assignment never copies a vtable pointer, so it is constructed again in place (vtable, reset). Without it the
+    // vehicle's first world trace (VEH_GroundPlant from Scr_Vehicle_Init) called visit() through a null vtable
+    // (Dead Ops Arcade's tank and helicopter crashed the server).
+    new (&veh->vehicle_cache.proximity_data) colgeom_visitor_inlined_t<200>();
     for ( i = 0; i < 6; ++i )
     {
         veh->vehicle_cache.hit_indices[i] = -1;
