@@ -39,6 +39,7 @@ void CG_OffsetTopDownView(int localClientNum); // zombies: Dead Ops Arcade (play
 #include "cg_newDraw_mp.h"
 #include <cgame/cg_main.h>
 #include "cg_snapshot_mp.h"
+#include <client_mp/cl_cgame_mp.h>
 #include <bgame/bg_wind.h>
 #include <cgame/cg_draw_indicators.h>
 #include <cgame/cg_bolt.h>
@@ -2322,6 +2323,11 @@ void __cdecl CG_CalcViewValues(int localClientNum)
             case CAM_TURRET:
                 CG_CalcTurretViewValues(localClientNum);
                 break;
+            case CAM_TOP_DOWN:
+                // zombies: SP CG_CalcViewValues (0x00793fb0) builds Dead Ops Arcade's camera here, before the shake, fov
+                // and CG_UpdateCameraTween, which keeps it as cameraData.lastViewOrg (mode 3 follows that)
+                CG_OffsetTopDownView(localClientNum);
+                break;
             case CAM_VEHICLE:
             case CAM_VEHICLE_THIRDPERSON:
                 CG_OffsetVehicleView(localClientNum, camMode);
@@ -2358,9 +2364,9 @@ void __cdecl CG_CalcViewValues(int localClientNum)
             }
             AnglesToAxis(cgameGlob->refdefViewAngles, cgameGlob->refdef.viewaxis);
             CG_ApplyViewAnimation(localClientNum);
-            if (cgameGlob->renderingThirdPerson == TP_FOR_MODEL && camMode == CAM_TOP_DOWN)
+            if (camMode == CAM_TOP_DOWN)
             {
-                CG_OffsetTopDownView(localClientNum);
+                // zombies: built in the camMode switch above (SP CG_CalcViewValues)
             }
             else if (cgameGlob->renderingThirdPerson == TP_FOR_MODEL && CG_ShouldRenderThirdPerson(camMode))
             {
@@ -2744,39 +2750,168 @@ void    CG_OffsetThirdPersonView(int localClientNum)
 }
 #endif
 
-// zombies: Dead Ops Arcade's top-down camera (player_topDownCamMode 1 .. 4; SP's is not in the decompile, the dvars'
-// descriptions say what it does): at player_topDownCamAngles, player_topDownCamOffset from the player (modes 1, 2),
-// or from player_topDownCamCenterPos (DOA's arena centre), "influenced" by the player: a little of the player's
-// movement (3), none of it (4, the end scene). The player is drawn (CG_UpdateThirdPerson), the gun isn't.
+// zombies: Dead Ops Arcade's top-down camera, SP 0x00413b50 (player_topDownCamMode 1 .. 4). The tuning numbers are
+// SP file statics, not dvars.
+static const float topDownCam_smoothRate = 5.0f;    // 1/s, the follow of last frame's camera (mode 3)
+static const float topDownCam_zoomDist = 350.0f;
+static const float topDownCam_spreadXMax = 600.0f;
+static const float topDownCam_spreadXMin = 50.0f;
+static const float topDownCam_spreadYMax = 1800.0f;
+static const float topDownCam_spreadYMin = 200.0f;
+static const float topDownCam_soloInfluence = 1.4f; // one player: 70% of the way from the centre position to him
+
+// SP 0x00572d40: a player's origin, or his vehicle's while he drives one
+static void CG_TopDownPlayerOrigin(int localClientNum, const centity_s *cent, float *out)
+{
+    if ( (cent->nextState.lerp.eFlags & 0x4000) != 0 && !cent->nextState.lerp.u.player.vehicleSeat )
+    {
+        const centity_s *vehicle = CG_GetEntity(localClientNum, cent->nextState.otherEntityNum);
+        out[0] = vehicle->pose.origin[0];
+        out[1] = vehicle->pose.origin[1];
+        out[2] = vehicle->pose.origin[2];
+        return;
+    }
+    out[0] = cent->pose.origin[0];
+    out[1] = cent->pose.origin[1];
+    out[2] = cent->pose.origin[2];
+}
+
+// Modes 1, 2: player_topDownCamOffset from the player (1 turns with him), 4: from player_topDownCamCenterPos (the end
+// scene), 3: framed on the (up to four) players and the centre position, the offset in the camera's axes, pulled back
+// as they spread out, gliding after last frame's camera. The player is drawn (CG_UpdateThirdPerson), the gun isn't.
 void CG_OffsetTopDownView(int localClientNum)
 {
     cg_s *cgameGlob = CG_GetLocalClientGlobals(localClientNum);
     const int mode = player_topDownCamMode->current.integer;
-    const float *offset = player_topDownCamOffset->current.vector;
-    const float *center = player_topDownCamCenterPos->current.vector;
-    const float *player = cgameGlob->predictedPlayerState.origin;
-    float base[3];
+    const float *camAngles = player_topDownCamAngles->current.vector;
 
-    if ( mode >= 3 )
+    if ( mode == 1 )
     {
-        const float influence = mode == 3 ? 0.15f : 0.0f;
-        base[0] = center[0] + (player[0] - center[0]) * influence;
-        base[1] = center[1] + (player[1] - center[1]) * influence;
-        base[2] = center[2];
+        cgameGlob->refdefViewAngles[0] = camAngles[0];
+        cgameGlob->refdefViewAngles[1] = cgameGlob->predictedPlayerState.viewangles[1];
+        cgameGlob->refdefViewAngles[2] = 0.0f;
     }
     else
     {
-        base[0] = player[0];
-        base[1] = player[1];
-        base[2] = player[2];
+        cgameGlob->refdefViewAngles[0] = camAngles[0];
+        cgameGlob->refdefViewAngles[1] = camAngles[1];
+        cgameGlob->refdefViewAngles[2] = camAngles[2];
     }
-    cgameGlob->refdef.vieworg[0] = base[0] + offset[0];
-    cgameGlob->refdef.vieworg[1] = base[1] + offset[1];
-    cgameGlob->refdef.vieworg[2] = base[2] + offset[2];
-    cgameGlob->refdefViewAngles[0] = player_topDownCamAngles->current.vector[0];
-    cgameGlob->refdefViewAngles[1] = player_topDownCamAngles->current.vector[1];
-    cgameGlob->refdefViewAngles[2] = player_topDownCamAngles->current.vector[2];
     AnglesToAxis(cgameGlob->refdefViewAngles, cgameGlob->refdef.viewaxis);
+
+    const float *offset = player_topDownCamOffset->current.vector;
+    const float *center = player_topDownCamCenterPos->current.vector;
+    if ( mode != 3 )
+    {
+        const float *base = mode == 4 ? center : cgameGlob->predictedPlayerState.origin;
+        cgameGlob->refdef.vieworg[0] = base[0] + offset[0];
+        cgameGlob->refdef.vieworg[1] = base[1] + offset[1];
+        cgameGlob->refdef.vieworg[2] = base[2] + offset[2];
+        return;
+    }
+
+    float mins[3], maxs[3], org[3];
+    int count = 0;
+    ClearBounds(mins, maxs);
+    for ( int i = 0; i < 4; ++i )
+    {
+        const playerState_s *ps = &cgameGlob->predictedPlayerState;
+        if ( i == ps->clientNum )
+        {
+            // BO1Zombies: MP snapshots never carry the client's own entity (SV_AddEntitiesVisibleFromPoint), so
+            // he is his predicted state here (SP: his entity, in every snapshot)
+            if ( (ps->eFlags & 0x4000) != 0 && !ps->vehiclePos )
+            {
+                const centity_s *vehicle = CG_GetEntity(localClientNum, ps->viewlocked_entNum);
+                org[0] = vehicle->pose.origin[0];
+                org[1] = vehicle->pose.origin[1];
+                org[2] = vehicle->pose.origin[2];
+            }
+            else
+            {
+                org[0] = ps->origin[0];
+                org[1] = ps->origin[1];
+                org[2] = ps->origin[2];
+            }
+        }
+        else
+        {
+            const centity_s *cent = CG_GetEntity(localClientNum, i);
+            if ( !cent->nextValid )
+                continue;
+            CG_TopDownPlayerOrigin(localClientNum, cent, org);
+        }
+        AddPointToBounds(org, mins, maxs);
+        ++count;
+    }
+    const float spreadX = maxs[0] - mins[0];
+    const float spreadY = maxs[1] - mins[1];
+    AddPointToBounds(center, mins, maxs);
+
+    float focus[3];
+    focus[0] = (mins[0] + maxs[0]) * 0.5f;
+    focus[1] = (mins[1] + maxs[1]) * 0.5f;
+    focus[2] = (mins[2] + maxs[2]) * 0.5f;
+    if ( count <= 1 )
+    {
+        focus[0] = center[0] + (focus[0] - center[0]) * topDownCam_soloInfluence;
+        focus[1] = center[1] + (focus[1] - center[1]) * topDownCam_soloInfluence;
+        focus[2] = center[2] + (focus[2] - center[2]) * topDownCam_soloInfluence;
+    }
+
+    const float (*axis)[3] = cgameGlob->refdef.viewaxis;
+    float pos[3];
+    for ( int k = 0; k < 3; ++k )
+        pos[k] = focus[k] - offset[2] * axis[0][k] + offset[0] * axis[1][k] + offset[1] * axis[2][k];
+
+    float fracY = 0.0f;
+    if ( fabsf(spreadY) > topDownCam_spreadYMin )
+    {
+        int width, height;
+        float aspect;
+        CL_GetScreenDimensions(&width, &height, &aspect);
+        fracY = (fabsf(spreadY) - topDownCam_spreadYMin) / (topDownCam_spreadYMax - topDownCam_spreadYMin);
+        if ( aspect == 4.0f / 3.0f )
+            fracY = fracY * 2.0f;
+    }
+    float fracX = 0.0f;
+    if ( fabsf(spreadX) > topDownCam_spreadXMin )
+    {
+        fracX = (fabsf(spreadX) - topDownCam_spreadXMin) / (topDownCam_spreadXMax - topDownCam_spreadXMin);
+        float t = fracX;
+        if ( t - 1.0f >= 0.0f )
+            t = 1.0f;
+        if ( -t >= 0.0f )
+            t = 0.0f;
+        pos[1] = pos[1] + (center[1] - pos[1]) * t;
+    }
+    const float frac = fracY - fracX >= 0.0f ? fracY : fracX;
+
+    float zoom = topDownCam_zoomDist;
+    if ( count > 1 )
+    {
+        const float pull = frac > 1.0f ? frac * 200.0f : 200.0f;
+        Vec3Mad(pos, -pull, axis[0], pos);
+        zoom = topDownCam_zoomDist - 200.0f;
+    }
+    Vec3Mad(pos, -(zoom * frac), axis[0], pos);
+
+    float d[3];
+    Vec3Sub(pos, cgameGlob->cameraData.lastViewOrg, d);
+    if ( d[0] * d[0] + d[1] * d[1] + d[2] * d[2] < 1000000.0f )
+    {
+        const float elapsed = (float)(cgameGlob->time - cgameGlob->cameraData.tweenStartTime) * 0.001f;
+        if ( !(cgameGlob->cameraData.tweenDuration > elapsed) )
+        {
+            const float s = (float)cgameGlob->frametime * 0.001f * topDownCam_smoothRate;
+            pos[0] = cgameGlob->cameraData.lastViewOrg[0] + d[0] * s;
+            pos[1] = cgameGlob->cameraData.lastViewOrg[1] + d[1] * s;
+            pos[2] = cgameGlob->cameraData.lastViewOrg[2] + d[2] * s;
+        }
+    }
+    cgameGlob->refdef.vieworg[0] = pos[0];
+    cgameGlob->refdef.vieworg[1] = pos[1];
+    cgameGlob->refdef.vieworg[2] = pos[2];
 }
 
 void CG_OffsetThirdPersonView(int localClientNum)
@@ -3941,14 +4076,15 @@ void __cdecl CG_UpdateThirdPerson(int localClientNum, bool forExtraCam)
         cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
     if ( Demo_IsThirdPersonCamera() || Demo_IsMovieCamera() )
         cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
-    // zombies: Dead Ops Arcade's top-down camera shows the player (CG_OffsetTopDownView)
-    if ( player_topDownCamMode->current.integer > 0 )
-        cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
     if ( cgameGlob->cameraMode == 1 || cgameGlob->cameraMode == 2 )
         cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
     if ( cgameGlob->radiantCamInUse && cgameGlob->cameraData.lastCamMode == CAM_RADIANT )
         cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
     if ( forExtraCam )
+        cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
+    // zombies: SP CG_UpdateThirdPerson (0x00792e50): Dead Ops Arcade's top-down camera shows the player, last frame's
+    // camera mode (this runs before CG_CalcViewValues), not in a vehicle
+    if ( cgameGlob->cameraData.lastCamMode == CAM_TOP_DOWN && (cgameGlob->predictedPlayerState.eFlags & 0x4000) == 0 )
         cgameGlob->renderingThirdPerson = TP_FOR_MODEL;
     if ( !r_enablePlayerShadow->current.enabled
         || cgameGlob->renderingThirdPerson

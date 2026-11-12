@@ -22,6 +22,11 @@
 #include <client_mp/cl_cgame_mp.h>
 #include <win32/win_shared.h>
 #include <sound/snd_public_async.h>
+#include <stringed/stringed_hooks.h>
+#include <client/cl_voice.h>
+#include <client_mp/cl_ui_mp.h>
+#include <client_mp/cl_main_pc_mp.h>
+#include <cgame_mp/cg_main_mp.h>
 
 // SP dvars BO1Zombies's MP client does not register (SP registers them at 0x005c7860..0x005c7ae6, in the
 // same function as cg_scoreboardItemHeight / cg_scoreboardFont). Defaults and bounds are the exe's.
@@ -168,113 +173,316 @@ static void CG_DrawScoreBarColumnText(
 
 static int CG_SP_ScoreColumn(const cg_s *cgameGlob, const score_s *score, scoreboardColumnType_t columnType);
 
-// Dead Ops Arcade's panel of a player (SP's zombietron table, 0x00a60680, and CG_DrawZombietronScores, ownerdraw
-// 354, are not in the decompile: this draws what they show from what DOA's scripts send). The player's bar with the
-// score and the score multiplier (with how far its bar has filled), and under it an icon for each life, bomb and
-// speed boost (a count after the icon past a few). The server sends lives, boosts and the multiplier in the
-// scoreboard columns (G_PopulateMatchState); bombs are the score's assists. alignRight: the panel's contents from
-// its right edge (the players at the right of the screen).
-static void CG_DrawZombietronPanel(int localClientNum, int clientNum, const score_s *score, float x, float y, float w,
-    float h, int horzAlign, int vertAlign, bool alignRight, float alpha)
+// ---- Dead Ops Arcade (zombietron): SP CG_DrawPlayerScoreBar's zombietron path and its caller, ownerdraw 354 ----
+// SP's score_s carries what DOA's HUD shows (SP CG_CopyScoreFromClientState 0x008977d0, clientState netfields
+// 0x00a5c138): assists +0x14 (bombs, as BO1Zombies's MP score_s), downs +0x28 (speed boosts), revives +0x2c (lives),
+// headshots +0x30 (the power-up weapon's time left, or the auto-respawn countdown, 0..1000) and scoreMultiplier
+// +0x34 ((progress << 4) | (multiplier - 1)), from maps/_zombietron_score.gsc. BO1Zombies's MP score_s has the
+// four scoreboard columns instead; in zombietron the server puts headshots, revives, downs and the multiplier in them
+// (G_PopulateMatchState; types HEADSHOTS, DEFENDS, PLANTS, RETURNS) and the client reads them back by type.
+struct zombietronScore_s
 {
-    static const char *const kBars[4] = { "scorebar_zom_1", "scorebar_zom_2", "scorebar_zom_3", "scorebar_zom_4" };
-    cg_s *cgameGlob = CG_GetLocalClientGlobals(localClientNum);
-    const ScreenPlacement *scrPlace = &scrPlaceView[localClientNum];
-    const bool isLocal = clientNum == cgameGlob->clientNum;
-    float color[4];
-    Dvar_GetUnpackedColor(cg_ScoresColor_Zombie, color);
-    color[0] += isLocal ? 0.05f : 0.0f;
-    color[3] = cg_ScoresColor_TransparencyZombie->current.value * (isLocal ? 2.0f : 1.4f) * alpha;
-    float textColor[4];
-    CG_ScoreBarZombieColor("cg_ScoresColor_Gamertag", clientNum, textColor);
-    textColor[3] = alpha;
-    const float white[4] = { 1.0f, 1.0f, 1.0f, alpha };
-    const int lives = CG_SP_ScoreColumn(cgameGlob, score, SB_TYPE_DEFENDS);
-    const int boosts = CG_SP_ScoreColumn(cgameGlob, score, SB_TYPE_PLANTS);
-    const int packed = CG_SP_ScoreColumn(cgameGlob, score, SB_TYPE_RETURNS);
-    const int bombs = score->assists;
-    const int multiplier = (packed & 15) + 1;
-    float progress = (float)(packed >> 4) / 512.0f; // (level.zombie_vars["max_prize_inc_range"])
-    progress = progress < 0.0f ? 0.0f : progress > 1.0f ? 1.0f : progress;
+    int score;
+    int assists;
+    int downs;
+    int revives;
+    int headshots;
+    int scoreMultiplier;
+};
 
-    // the bar: the score, the multiplier at the other end
-    const float barH = h * 0.6f;
-    UI_DrawHandlePic(scrPlace, x, y, w, barH, horzAlign, vertAlign, color, Material_RegisterHandle(kBars[clientNum & 3], 7));
-    Font_s *font = UI_GetFontHandle(scrPlace, cg_scoreboardFont->current.integer, 0.35f);
-    const float scale = isLocal ? 0.39f : 0.33f;
-    char *points = va("%i", CG_ScoreBarColumnValue(clientNum, score->score));
-    const float pointsW = (float)UI_TextWidth(points, 0x7FFFFFFF, font, scale);
-    const float textY = y + barH * 0.5f + (float)UI_TextHeight(font, scale) * 0.5f;
-    UI_DrawText(scrPlace, points, 0x7FFFFFFF, font, alignRight ? x + w - pointsW - 6.0f : x + 6.0f, textY, horzAlign,
-        vertAlign, scale, textColor, 3);
-    char *mult = va("x%i", multiplier);
-    const float multW = (float)UI_TextWidth(mult, 0x7FFFFFFF, font, 0.33f);
-    const float barW = w * 0.22f;
-    const float mx = alignRight ? x + 6.0f : x + w - barW - 6.0f;
-    UI_DrawText(scrPlace, mult, 0x7FFFFFFF, font, mx + (barW - multW) * 0.5f, textY - 2.0f, horzAlign, vertAlign, 0.33f,
-        multiplier > 1 ? white : textColor, 3);
-    const float back[4] = { 0.0f, 0.0f, 0.0f, 0.5f * alpha };
-    const float fill[4] = { 1.0f, 0.8f, 0.2f, alpha };
-    Material *whiteMaterial = Material_RegisterHandle("white", 7);
-    const float meterY = y + barH - 4.0f;
-    UI_DrawHandlePic(scrPlace, mx, meterY, barW, 2.5f, horzAlign, vertAlign, back, whiteMaterial);
-    UI_DrawHandlePic(scrPlace, alignRight ? mx + barW * (1.0f - progress) : mx, meterY, barW * progress, 2.5f, horzAlign,
-        vertAlign, fill, whiteMaterial);
-    // under it, the icons, each kind together
-    const float size = h - barH;
-    const float iconY = y + barH + 1.0f;
-    float ix = alignRight ? x + w - size : x;
-    const float step = alignRight ? -size * 0.85f : size * 0.85f;
-    struct { int count; const char *material; } icons[3] = {
-        { lives, "zom_icon_player_life" }, { bombs, "hud_zombie_bomb" }, { boosts, "hud_lightning_bolt" } };
-    Font_s *small = UI_GetFontHandle(scrPlace, cg_scoreboardFont->current.integer, 0.25f);
-    for ( const auto &icon : icons )
+static zombietronScore_s CG_ZombietronScore(const cg_s *cgameGlob, const score_s *score)
+{
+    zombietronScore_s z;
+    z.score = score->score;
+    z.assists = score->assists;
+    z.headshots = CG_SP_ScoreColumn(cgameGlob, score, SB_TYPE_HEADSHOTS);
+    z.revives = CG_SP_ScoreColumn(cgameGlob, score, SB_TYPE_DEFENDS);
+    z.downs = CG_SP_ScoreColumn(cgameGlob, score, SB_TYPE_PLANTS);
+    z.scoreMultiplier = CG_SP_ScoreColumn(cgameGlob, score, SB_TYPE_RETURNS);
+    return z;
+}
+
+// SP .rdata 0x00a60680: the zombietron columns
+static const scoreBarColumn_s s_scoreBarColumnsZombietron[6] = {
+    { 10, 0.1f, "", 0 },  // lives
+    { 8, 0.1f, "", 0 },   // bombs
+    { 9, 0.3f, "", 0 },   // speed boosts
+    { 2, 0.4f, "", 2 },   // score
+    { 12, 0.1f, "", 0 },  // multiplier and its bar
+    { 11, 0.0f, "", 0 } };// weapon meter / respawn countdown, name, voice icon
+
+// SP cg_s +0xce514..+0xce52b: the counts last drawn (lives, bombs, boosts, multiplier), when each last went up (+1000:
+// its number pops for a second) and the names' fade. One per cg, shared by every player's bar, as SP has it (the pop
+// only shows while the players' counts are the same; the fade runs once per bar drawn). SP's lives in cg_s, so a new
+// level or a map restart (SP CG_MapRestart 0x00490840: +0xce518 = 0) starts it again: here, the time going back.
+struct zombietronHud_s
+{
+    unsigned char lastCount[4];
+    int flashEnd[4];
+    float nameFade;
+    int lastTime;
+};
+static zombietronHud_s s_zombietronHud[MAX_LOCAL_CLIENTS];
+
+// the pop of a count that went up (inlined four times in SP: slots 0..2 compare bytes, 3 the int)
+static float CG_ZombietronPulseScale(const cg_s *cgameGlob, zombietronHud_s *hud, int slot, int value, float scaleDelta)
+{
+    if ( value != (int)hud->lastCount[slot] )
     {
-        if ( icon.count <= 0 )
-            continue;
-        Material *material = Material_RegisterHandle(icon.material, 7);
-        const int shown = icon.count > 4 ? 1 : icon.count;
-        for ( int i = 0; i < shown; ++i, ix += step )
-            UI_DrawHandlePic(scrPlace, ix, iconY, size, size, horzAlign, vertAlign, white, material);
-        if ( icon.count > 4 )
+        const bool up = slot < 3 ? (unsigned char)value > hud->lastCount[slot] : value > (int)hud->lastCount[slot];
+        if ( up )
+            hud->flashEnd[slot] = cgameGlob->time + 1000;
+        hud->lastCount[slot] = (unsigned char)value;
+    }
+    if ( hud->flashEnd[slot] > cgameGlob->time ) // a 1 s triangle: +0 -> +0.25 (500 ms) -> +0
+        return (1.0f - fabsf(500.0f - (float)(hud->flashEnd[slot] - cgameGlob->time)) * 0.002f) * 0.25f + scaleDelta;
+    return scaleDelta;
+}
+
+// SP CG_DrawPlayerScoreBar (0x00892860) with zombietron set: the bar, then the six columns. The caller (ownerdraw 354)
+// passes isLocal 0 for every player, so the row is cg_scoreboardItemHeight - 3 + 9 = 24 high.
+static void CG_DrawZombietronScoreBar(int localClientNum, int clientNum, const float *baseColor, const score_s *mpScore,
+    float x, float y, float w, float h, int horzAlign, int vertAlign, bool isLocal)
+{
+    cg_s *cgameGlob = CG_GetLocalClientGlobals(localClientNum);
+    zombietronHud_s *hud = &s_zombietronHud[localClientNum];
+    const ScreenPlacement *scrPlace = &scrPlaceView[localClientNum];
+    const zombietronScore_s score = CG_ZombietronScore(cgameGlob, mpScore);
+    const float rowHeight = (float)cg_scoreboardItemHeight->current.integer - (float)(isLocal ? 0 : 3)
+        + (float)(zombiemode->current.enabled ? 9 : 0);
+    const float x0 = x;
+    const float color[4] = { baseColor[0], baseColor[1], baseColor[2], 1.0f }; // (alpha 1: no transparency dvar)
+
+    if ( hud->lastTime > cgameGlob->time )
+        memset(hud, 0, sizeof(*hud));
+    hud->lastTime = cgameGlob->time;
+    if ( !hud->flashEnd[0] )
+    {
+        // DOA's starting counts (_zombietron_main.gsc: 3 lives, 1 bomb, 2 boosts, x1), no pop
+        hud->lastCount[0] = 3;
+        hud->lastCount[1] = 1;
+        hud->lastCount[2] = 2;
+        hud->lastCount[3] = 1;
+        hud->flashEnd[0] = hud->flashEnd[1] = hud->flashEnd[2] = hud->flashEnd[3] = cgameGlob->time;
+    }
+
+    const float widthCut = (float)(isLocal ? 0 : 20);
+    if ( zombiemode->current.enabled )
+    {
+        const char *name = clientNum == 0 ? "scorebar_zom_1" : clientNum == 1 ? "scorebar_zom_2"
+                         : clientNum == 2 ? "scorebar_zom_3" : "scorebar_zom_4";
+        UI_DrawHandlePic(scrPlace, x, y, w - widthCut, rowHeight, horzAlign, vertAlign, color,
+            Material_RegisterHandle(name, 7));
+    }
+    else
+    {
+        UI_DrawHandlePic(scrPlace, widthCut + x, y, w - widthCut, rowHeight, horzAlign, vertAlign, color,
+            Material_RegisterHandle("white", 7));
+    }
+    Font_s *font = UI_GetFontHandle(scrPlace, cg_scoreboardFont->current.integer, 0.35f);
+    const float textColor[4] = { 1.0f, 1.0f, 1.0f, baseColor[3] };
+    const float scaleDelta = isLocal ? 0.04f : -0.05f;
+    const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    for ( int i = 0; i < 6; ++i )
+    {
+        const scoreBarColumn_s &column = s_scoreBarColumnsZombietron[i];
+        const float colWidth = column.widthFrac * w;
+        switch ( column.type )
         {
-            char *count = va("x%i", icon.count);
-            const float countW = (float)UI_TextWidth(count, 0x7FFFFFFF, small, 0.25f);
-            UI_DrawText(scrPlace, count, 0x7FFFFFFF, small, alignRight ? ix + size - countW : ix, iconY + size * 0.85f,
-                horzAlign, vertAlign, 0.25f, white, 3);
-            ix += alignRight ? -(countW + 3.0f) : countW + 3.0f;
+        case 10: // lives: the count, then stance_stand over it
+        case 8:  // bombs: hud_zombie_bomb
+        case 9:  // speed boosts: hud_lightning_bolt
+        {
+            if ( !zombiemode->current.enabled )
+                break;
+            const int slot = column.type == 10 ? 0 : column.type == 8 ? 1 : 2;
+            const int value = column.type == 10 ? score.revives : column.type == 8 ? score.assists : score.downs;
+            const float textX = column.type == 10 ? 10.0f : column.type == 8 ? 14.0f : 20.0f;
+            const float iconX = column.type == 10 ? 11.0f : column.type == 8 ? 16.0f : 20.0f;
+            const char *icon = column.type == 10 ? "stance_stand" : column.type == 8 ? "hud_zombie_bomb" : "hud_lightning_bolt";
+            const float scale = CG_ZombietronPulseScale(cgameGlob, hud, slot, value, scaleDelta);
+            CG_DrawScoreBarColumnText(localClientNum, va("%i", value), font, x + textX, y, colWidth, horzAlign,
+                vertAlign, column.alignment, scale + 0.35f, 3, textColor, rowHeight);
+            UI_DrawHandlePic(scrPlace, x + iconX, y, rowHeight, rowHeight, horzAlign, vertAlign, textColor,
+                Material_RegisterHandle(icon, 7));
+            break;
         }
-        ix += step * 0.4f;
+        case 2: // the score, counted up, right aligned
+            CG_DrawScoreBarColumnText(localClientNum, va("%i", CG_ScoreBarColumnValue(clientNum, score.score)), font,
+                zombiemode->current.enabled ? x - 10.0f : x, y, colWidth, horzAlign, vertAlign, column.alignment,
+                scaleDelta + (zombiemode->current.enabled ? 0.45f : 0.35f), 3, textColor, rowHeight);
+            break;
+        case 12: // the multiplier: its bar under the row (over it for the bottom row), "x<N>"
+        {
+            const int packed = score.scoreMultiplier;
+            const float progress = (float)(packed >> 4) * 0.001953125f; // (not clamped, as SP)
+            const int multiplier = (packed & 15) + 1;
+            const float barW = w - 58.0f;
+            y = vertAlign == 10 ? y - 4.0f : y + h; // (SP writes y: column 11 starts from it)
+            if ( Material_RegisterHandle("progress_bar_bg_small", 7) )
+            {
+                CL_DrawStretchPic(scrPlace, x0 + 5.0f, y - 2.0f, barW, 4.0f, horzAlign, vertAlign, 0.0f, 0.0f, 1.0f,
+                    1.0f, white, Material_RegisterHandle("progress_bar_fg_small", 7));
+                CL_DrawStretchPic(scrPlace, x0 + 5.0f, y - 2.0f, barW * progress, 4.0f, horzAlign, vertAlign, 0.0f,
+                    0.0f, progress, 1.0f, white, Material_RegisterHandle("progress_bar_bg_small", 7));
+            }
+            const float scale = CG_ZombietronPulseScale(cgameGlob, hud, 3, multiplier, scaleDelta);
+            CG_DrawScoreBarColumnText(localClientNum, va("x%i", multiplier), font, x - 30.0f, y - 15.0f, 25.0f,
+                horzAlign, vertAlign, column.alignment, scale + 0.35f, 3, textColor, rowHeight);
+            break;
+        }
+        case 11: // the power-up weapon's time left (a strip of bullets going red) or, dead, the respawn countdown;
+                 // then the player's name ("Reviving" while dead) and, online, the voice icon
+        {
+            if ( !zombietron || !zombietron->current.enabled )
+                break;
+            const centity_s *cent = CG_GetEntity(localClientNum, clientNum);
+            const bool dead = (cent->nextState.lerp.eFlags & 0x40000) != 0; // EF_DEAD (SP 0x400000)
+            const float meter = (float)score.headshots * 0.001f;
+            const float barW = w - 58.0f;
+            if ( score.headshots )
+            {
+                y = vertAlign == 10 ? y - 14.0f : y + 3.0f;
+                if ( dead )
+                {
+                    y = y + 3.0f;
+                    if ( Material_RegisterHandle("progress_bar_bg_small", 7) )
+                    {
+                        CL_DrawStretchPic(scrPlace, x0 + 5.0f, y, barW, 4.0f, horzAlign, vertAlign, 0.0f, 0.0f, 1.0f,
+                            1.0f, white, Material_RegisterHandle("progress_bar_fg_small", 7));
+                        CL_DrawStretchPic(scrPlace, x0 + 5.0f, y, barW * meter, 4.0f, horzAlign, vertAlign, 0.0f, 0.0f,
+                            meter, 1.0f, white, Material_RegisterHandle("progress_bar_bg_small", 7));
+                    }
+                }
+                else if ( Material *bullets = Material_RegisterHandle("hud_bullets_rifle_full", 7) )
+                {
+                    float c = meter + 0.3f;
+                    c = c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c;
+                    const float tint[4] = { 1.0f, c, c, 1.0f };
+                    CL_DrawStretchPic(scrPlace, x0 + 5.0f, y, barW * meter, 11.0f, horzAlign, vertAlign, 0.0f, 0.0f,
+                        meter * 0.5f, 1.0f, tint, bullets);
+                }
+                y = y + 2.0f;
+            }
+            if ( vertAlign == 10 )
+                y = y - 25.0f;
+            // the names fade in and out with cg_drawFriendlyNames
+            float nameColor[4] = { textColor[0], textColor[1], textColor[2], 0.0f };
+            const float step = (float)cgameGlob->frametime * 0.0002f;
+            hud->nameFade = cg_drawFriendlyNames->current.enabled ? hud->nameFade + step : hud->nameFade - step;
+            hud->nameFade = hud->nameFade - 1.0f >= 0.0f ? 1.0f : (-hud->nameFade >= 0.0f ? 0.0f : hud->nameFade);
+            nameColor[3] = hud->nameFade;
+            Material *voiceIcon = nullptr;
+            if ( CL_IsPlayerMuted(localClientNum, clientNum) )
+            {
+                voiceIcon = Material_RegisterHandle("voice_off", 7);
+            }
+            else if ( CL_IsPlayerTalking(localClientNum, clientNum) )
+            {
+                voiceIcon = Material_RegisterHandle("voice_on", 7);
+                nameColor[3] = 1.0f;
+            }
+            if ( !Dvar_GetBool("onlinegame") && !Dvar_GetBool("systemlink") )
+                voiceIcon = nullptr;
+            char name[64];
+            name[0] = 0;
+            if ( CL_GetClientName(localClientNum, clientNum, name, sizeof(name), false) )
+            {
+                if ( dead && score.headshots )
+                {
+                    I_strncat(name, sizeof(name), " ");
+                    const char *reviving = SEH_StringEd_GetString((char *)"GAME_REVIVING");
+                    I_strncat(name, sizeof(name), reviving ? reviving : "GAME_REVIVING");
+                    nameColor[3] = 1.0f;
+                }
+                CG_DrawScoreBarColumnText(localClientNum, name, font, x0 + 5.0f, y, w, horzAlign, vertAlign,
+                    column.alignment, scaleDelta + 0.35f, 3, nameColor, rowHeight);
+            }
+            if ( voiceIcon )
+            {
+                const float iconColor[4] = { 1.0f, 1.0f, 1.0f, baseColor[3] };
+                const float size = (float)cg_scoreboardItemHeight->current.integer;
+                UI_DrawHandlePic(scrPlace, (float)UI_TextWidth(name, 0, font, scaleDelta + 0.35f) + x0 + 9.0f,
+                    y + 4.0f, size, size, horzAlign, vertAlign, iconColor, voiceIcon);
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        x = colWidth + x;
     }
 }
 
-// ownerdraw 354 (zombietronscores, SP CG_DrawZombietronScores): each player's panel in a corner of the screen, the
-// rect's size: player 1 top left, 2 top right, 3 bottom left, 4 bottom right
+// ownerdraw 354, zombietronscores (SP 0x0041fb80): each player's bar in a corner of the screen, the item rect's size.
+// Player slot 0 top left, 1 top right, 2 bottom left, 3 bottom right (horzAlign / vertAlign 8 and 10: the screen's
+// edges), 5 units in; the bar's colour by player; hud_firstplace beside the leader's (the top score, alone, above 0)
+// when there are two players or more. Only while cl_scoreDraw is on and the game isn't paused.
 bool CG_SP_OwnerDraw_ZombietronScores(int localClientNum, const rectDef_s *rect)
 {
+    static const float kColors[4][3] = { { 0.35f, 1.0f, 0.35f }, { 0.37f, 0.37f, 1.0f }, { 1.0f, 0.1f, 0.1f },
+                                         { 0.7f, 0.7f, 0.2f } };
+    static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     cg_s *cgameGlob = CG_GetLocalClientGlobals(localClientNum);
-    if ( cl_paused->current.integer || !cgameGlob->snap )
+    const float w = rect->w;
+    const float h = rect->h;
+    if ( !cgameGlob->snap )
         return false;
-    const float w = rect->w > 0.0f ? rect->w : 200.0f;
-    const float h = rect->h > 0.0f ? rect->h : 30.0f;
-    int corner = 0;
-    for ( int i = 0; i < com_maxclients->current.integer && corner < 4; ++i )
+    const int numClients = cgameGlob->snap->numClients;
+    if ( numClients < 1 )
+        return false;
+    const dvar_s *scoreDraw = Dvar_FindVar("cl_scoreDraw");
+    if ( (scoreDraw && !scoreDraw->current.integer) || cl_paused->current.integer )
+        return false;
+    int leader = -1;
+    int best = 0;
+    for ( int i = 0; i < 4; ++i )
     {
-        if ( !cgameGlob->bgs.clientinfo[i].infoValid )
+        const clientInfo_t *ci = &cgameGlob->bgs.clientinfo[i];
+        if ( !ci->infoValid || ci->score.score < best )
             continue;
-        const bool right = (corner & 1) != 0;
-        const bool bottom = (corner & 2) != 0;
-        // (screen placement: left / right, top / bottom of the safe area)
-        CG_DrawZombietronPanel(localClientNum, i, &cgameGlob->bgs.clientinfo[i].score, right ? -w - 8.0f : 8.0f,
-            bottom ? -h - 8.0f : 8.0f, w, h, right ? 3 : 1, bottom ? 3 : 1, right, 1.0f);
-        ++corner;
+        leader = ci->score.score == best ? -1 : ci->clientNum;
+        best = ci->score.score;
+    }
+    for ( int i = 0; i < 4; ++i )
+    {
+        const clientInfo_t *ci = &cgameGlob->bgs.clientinfo[i];
+        if ( !ci->infoValid )
+            continue;
+        const int clientNum = ci->clientNum;
+        const float *rgb = kColors[clientNum >= 0 && clientNum < 3 ? clientNum : 3];
+        const float color[4] = { rgb[0], rgb[1], rgb[2], 1.0f };
+        float x = 5.0f;
+        float y = 5.0f;
+        int horzAlign = 8;
+        int vertAlign = 8;
+        if ( i == 1 || i == 3 )
+        {
+            x = -w;
+            horzAlign = 10;
+        }
+        if ( i == 2 || i == 3 )
+        {
+            y = -h;
+            vertAlign = 10;
+        }
+        CG_DrawZombietronScoreBar(localClientNum, clientNum, color, &ci->score, x, y, w, h, horzAlign, vertAlign, false);
+        Material *firstPlace = Material_RegisterHandle("hud_firstplace", 7);
+        if ( firstPlace && clientNum == leader && numClients > 1 )
+        {
+            x = horzAlign == 8 ? rect->w - 20.0f + x : x - 45.0f;
+            if ( vertAlign == 10 )
+                y = y - 12.0f;
+            UI_DrawHandlePic(&scrPlaceView[localClientNum], x, y, 45.0f, 45.0f, horzAlign, vertAlign, white, firstPlace);
+        }
     }
     return true;
 }
 
 // CG_DrawPlayerScoreBar (SP 0x00892860). Five's zombiemode table and the no-mode table are ported. The
-// zombietron table (SP 0x00a60680, 6 rows: column types 8, 9, 10, 11, 12 and its bomb / lives icons) is drawn by
-// CG_DrawZombietronPanel from what Dead Ops Arcade's scripts send.
+// zombietron table (SP 0x00a60680, 6 rows: column types 8, 9, 10, 11, 12 and its bomb / lives icons) is
+// CG_DrawZombietronScoreBar.
 static void CG_DrawPlayerScoreBar(
     int localClientNum,
     int clientNum,
@@ -307,8 +515,7 @@ static void CG_DrawPlayerScoreBar(
         return;
     if ( Dvar_GetBool("zombietron") )
     {
-        CG_DrawZombietronPanel(localClientNum, clientNum, score, x, y, w, rowHeight * 1.6f, horzAlign, vertAlign, false,
-            baseColor[3]);
+        CG_DrawZombietronScoreBar(localClientNum, clientNum, baseColor, score, x, y, w, h, horzAlign, vertAlign, isLocal);
         return;
     }
     if ( zombiemode->current.enabled )

@@ -503,9 +503,10 @@ void __cdecl CG_OwnerDraw(
     }
     if ( ownerDraw == 382 && zombietron && zombietron->current.enabled )
     {
-        static const float dim[4] = { 0.0f, 0.0f, 0.0f, 0.6f };
-        CL_DrawStretchPic(&scrPlaceView[localClientNum], x, y, w, h, horzAlign, vertAlign, 0.0f, 0.0f, 1.0f, 1.0f, dim,
-            Material_RegisterHandle("white", 7));
+        // SP 0x0077ef70: the arcade bezel over the item's rect
+        static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        if ( Material *bezel = Material_RegisterHandle("menu_zom_bezel_overlay", 7) )
+            UI_DrawHandlePic(&scrPlaceView[localClientNum], x, y, w, h, horzAlign, vertAlign, white, bezel);
         return;
     }
     if ( ownerDraw == 288 && zombiemode && zombiemode->current.enabled )

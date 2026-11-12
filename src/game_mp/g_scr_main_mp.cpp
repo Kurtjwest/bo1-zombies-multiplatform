@@ -13245,12 +13245,11 @@ void __cdecl GScr_Launch(scr_entref_t entref)
     }
 }
 
-// zombies: SP G_f_magicbullet's firing (SP 0x0056f4a0), for magicbullet in zombiemode and Dead Ops Arcade's fire()
-// (g_scr_sp_zombietron.cpp): SPREAD takes fHipSpreadStandMin and builds right/up (SP 0x004c64e0); bullets pass the
+// zombies: SP G_f_magicbullet's firing (SP 0x0056f4a0), magicbullet in zombiemode: SPREAD takes fHipSpreadStandMin and builds right/up (SP 0x004c64e0); bullets pass the
 // attacker as weaponEnt; GAS fires the flamethrower; PISTOL/ROCKETLAUNCHER/TURRET projectiles fire as rockets
 // (quantum_bomb.gsc:410 MagicBullets ray_gun_zm, projectile/pistol); SP sets no eventParm = attacker. The projectile
 // fired, if any.
-gentity_s *G_SP_MagicBulletFire(int weapon, const float *source, const float *dest, gentity_s *attacker,
+static gentity_s *G_SP_MagicBulletFire(int weapon, const float *source, const float *dest, gentity_s *attacker,
     gentity_s *targetEnt, const float *targetOffset)
 {
     weaponParms wp;

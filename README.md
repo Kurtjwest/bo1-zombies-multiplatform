@@ -243,14 +243,19 @@ Settings for the Linux build, besides `BO1_DUMP_FAILED_SHADERS`, `BO1_SYNC_SHADE
 Dead Ops Arcade, the top-down twin-stick game, is the last row of the zombies menu's Mission Select (Solo, Host
 Game), as in the original game on PC: no terminal code needed. It needs the original game's `zombietron.ff` (with
 `zombietron_patch.ff` and `en_zombietron.ff`), which every full install has. Move with the movement keys (the camera
-stays over the arena: up on the keys is up on the screen), aim with the mouse (it turns the player toward where you
-move it), shoot with the fire button; the jump key uses a speed boost and the grenade key a bomb. Each player's score,
-multiplier, lives, bombs and boosts are in a corner of the screen.
+stays over the arena: up on the keys is up on the screen), aim with the mouse (moving it turns the player toward
+where it moves: right faces him right on the screen, down faces him down) or a gamepad's right stick (he faces where
+it points, and pushing it all the way fires), shoot with the fire button (which also fires the helicopter's and the
+tank's guns); the jump key uses a speed boost and the grenade key a bomb. Each player's corner of the screen has his
+splash in his colour, lives, bombs, boosts, score, multiplier and its bar, power-up weapon time and name, and the
+leader's first-place mark, as in the original.
 
-What of the original's engine side this game had to rebuild (not being in the decompile): the top-down camera, the
-mouse aiming, the corner scores and the builtins its scripts call (GetDvarVector, ClearAllCorpses, Fire, ...). The
-arenas' 3D objective markers (the tutorial's text over the arena, the exits' markers) aren't drawn, and a gamepad's
-right stick turns the player as a mouse does rather than aiming where it points.
+What of the original's engine side this game uses isn't in the decompile; it is ported from the original game's
+BlackOps.exe: the top-down camera (it frames the players and the arena's centre and glides after them), the aiming
+(the mouse moves a cursor around the player, the pitch aims at the nearest enemy in that direction), the corner
+scores and the builtins its scripts call (GetDvarVector, ClearAllCorpses, Fire, SetScoreMultiplier, ...). Not
+ported: the arenas' objective markers (Objective_String, Objective_Set3D): their text is "*", which the original
+doesn't draw, and the exits are on the screen, so it shows nothing for them either.
 
 ## Co-op
 

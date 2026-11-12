@@ -910,6 +910,8 @@ void __cdecl CL_DoubleTapButtonUpdate(int localClientNum, usercmd_s *cmd)
     }
 }
 
+static bool CL_TopDownAim(const clientActive_t *cl);
+
 void __cdecl CL_GamepadMove(int localClientNum, usercmd_s *cmd)
 {
     float v2; // xmm0_4
@@ -940,7 +942,11 @@ void __cdecl CL_GamepadMove(int localClientNum, usercmd_s *cmd)
             if ( (LocalClientGlobals->snap.ps.pm_flags & 0x800) == 0 && LocalClientGlobals->snap.ps.weaponstate != 35 )
             {
                 pitch = CL_GamepadAxisValue(localClientNum, 4u);
-                pitch = (float)(Dvar_GetBool("input_invertPitch") ? 1 : -1) * pitch;
+                // zombies: SP never inverts the pitch stick in Dead Ops Arcade (it aims, SP 0x00881f10)
+                if ( zombietron && zombietron->current.enabled )
+                    pitch = -pitch;
+                else
+                    pitch = (float)(Dvar_GetBool("input_invertPitch") ? 1 : -1) * pitch;
                 yaw = -CL_GamepadAxisValue(localClientNum, 3u);
                 forward = CL_GamepadAxisValue(localClientNum, 1u);
                 side = CL_GamepadAxisValue(localClientNum, 0);
@@ -1008,7 +1014,24 @@ void __cdecl CL_GamepadMove(int localClientNum, usercmd_s *cmd)
                     for ( j = 0; j < 2; ++j )
                         aimInput.button_bits.array[j] = cmd->button_bits.array[j];
                     aimInput.localClientNum = localClientNum;
-                    AimAssist_UpdateGamePadInput(&aimInput, &aimOutput);
+                    if ( CL_TopDownAim(LocalClientGlobals) )
+                    {
+                        // zombies: Dead Ops Arcade's twin-stick fire: the right stick pushed (past 0.9) fires, and a
+                        // vehicle's guns (SP sets the bits after copying them to aimInput)
+                        if ( player_topDownCamMode->current.integer >= 2 && sqrtf(yaw * yaw + pitch * pitch) > 0.9f
+                            && LocalClientGlobals->snap.ps.pm_type < 9 )
+                        {
+                            cmd->button_bits.setBit(0);
+                            cmd->button_bits.setBit(0x22u);
+                            cmd->button_bits.setBit(0x23u);
+                        }
+                        memset(&aimOutput, 0, sizeof(aimOutput));
+                        AimAssist_UpdateTopDownGamePadInput(&aimInput, &aimOutput);
+                    }
+                    else
+                    {
+                        AimAssist_UpdateGamePadInput(&aimInput, &aimOutput);
+                    }
                     LocalClientGlobals->viewangles[0] = aimOutput.pitch;
                     LocalClientGlobals->viewangles[1] = aimOutput.yaw;
                     cmd->meleeChargeYaw = aimOutput.meleeChargeYaw;
@@ -1122,52 +1145,12 @@ void __cdecl CL_RandomMove(usercmd_s *cmd)
     }
 }
 
-// zombies: Dead Ops Arcade's mouse (player_topDownCamMode, the top-down camera; SP's is not in the decompile, the
-// dvars say what it does): the mouse moves a virtual cursor around the player, player_topDownCursorDist away
-// (player_topDownCursorPos: where, relative to the player), and the player faces it, level. The view doesn't turn:
-// the camera is fixed. Moving the mouse right turns the aim toward the right of the screen, up toward its top.
-static float s_topDownCursor[4][2];   // x: toward the right of the screen, y: toward its top (camera yaw)
-static float s_topDownDeltaYaw[4];    // delta_angles' yaw when the cursor was last set: the server turned the
-static bool s_topDownCursorSet[4];    // player (SetPlayerAngles), the cursor starts again from where it faces
-
-static bool CL_TopDownMouseActive()
+// zombies: SP (CL_MouseMove 0x00881930, CL_GamepadMove 0x00881f10): with Dead Ops Arcade's top-down camera
+// (player_topDownCamMode, not while noclipping) the mouse and the right stick don't turn the view, they aim
+// (AimAssist_UpdateTopDownMouseInput / AimAssist_UpdateTopDownGamePadInput)
+static bool CL_TopDownAim(const clientActive_t *cl)
 {
-    return player_topDownCamMode && player_topDownCamMode->current.integer > 0 && zombietron
-        && zombietron->current.enabled;
-}
-
-static void CL_TopDownMouseMove(int localClientNum, clientActive_t *cl, float mx, float my)
-{
-    const int lc = localClientNum & 3;
-    const float camYaw = player_topDownCamAngles->current.vector[1];
-    const float dist = player_topDownCursorDist->current.value > 1.0f ? player_topDownCursorDist->current.value : 250.0f;
-    float *c = s_topDownCursor[lc];
-    if ( !s_topDownCursorSet[lc] || s_topDownDeltaYaw[lc] != cl->snap.ps.delta_angles[1] )
-    {
-        // (from the way the player faces: relative to the camera's yaw)
-        const float rel = (cl->snap.ps.viewangles[1] - camYaw) * (3.14159265f / 180.0f);
-        c[0] = -sinf(rel) * dist;
-        c[1] = cosf(rel) * dist;
-        s_topDownCursorSet[lc] = true;
-        s_topDownDeltaYaw[lc] = cl->snap.ps.delta_angles[1];
-    }
-    c[0] += mx * 1.5f;
-    c[1] -= my * 1.5f;
-    const float len = sqrtf(c[0] * c[0] + c[1] * c[1]);
-    if ( len < 0.001f )
-    {
-        c[1] = dist;
-    }
-    else
-    {
-        c[0] *= dist / len;
-        c[1] *= dist / len;
-    }
-    Dvar_SetVec2((dvar_s *)player_topDownCursorPos, c[0], c[1]);
-    // the world yaw toward the cursor (screen right is the camera's right: yaw - 90)
-    const float yaw = camYaw + atan2f(-c[0], c[1]) * (180.0f / 3.14159265f);
-    cl->viewangles[1] = AngleNormalize360(yaw - cl->snap.ps.delta_angles[1]);
-    cl->viewangles[0] = AngleNormalize360(-cl->snap.ps.delta_angles[0]);
+    return player_topDownCamMode && player_topDownCamMode->current.integer != 0 && cl->snap.ps.pm_type != 2;
 }
 
 void __cdecl CL_MouseMove(int localClientNum, usercmd_s *cmd)
@@ -1208,13 +1191,8 @@ void __cdecl CL_MouseMove(int localClientNum, usercmd_s *cmd)
         {
             mx = mx * accelSensitivity;
             my = my * accelSensitivity;
-            if ( CL_TopDownMouseActive() )
-            {
-                if ( mx != 0.0f || my != 0.0f || !s_topDownCursorSet[localClientNum & 3] )
-                    CL_TopDownMouseMove(localClientNum, LocalClientGlobals, mx, my);
-                return;
-            }
-            if ( mx != 0.0 || my != 0.0 )
+            const bool topDown = CL_TopDownAim(LocalClientGlobals);
+            if ( !topDown && (mx != 0.0 || my != 0.0) )
             {
                 yawMove = 0;
                 pitchMove = 0;
@@ -1314,7 +1292,18 @@ void __cdecl CL_MouseMove(int localClientNum, usercmd_s *cmd)
                 for ( j = 0; j < 2; ++j )
                     aimInput.button_bits.array[j] = cmd->button_bits.array[j];
                 aimInput.localClientNum = 0;
-                AimAssist_UpdateMouseInput(&aimInput, &aimOutput);
+                if ( topDown )
+                {
+                    // (SP leaves the melee charge fields unset here)
+                    memset(&aimOutput, 0, sizeof(aimOutput));
+                    aimInput.pitchAxis = my;
+                    aimInput.yawAxis = mx;
+                    AimAssist_UpdateTopDownMouseInput(&aimInput, &aimOutput);
+                }
+                else
+                {
+                    AimAssist_UpdateMouseInput(&aimInput, &aimOutput);
+                }
                 LocalClientGlobals->viewangles[0] = aimOutput.pitch;
                 LocalClientGlobals->viewangles[1] = aimOutput.yaw;
                 cmd->meleeChargeYaw = aimOutput.meleeChargeYaw;
@@ -2161,6 +2150,14 @@ void __cdecl IN_Attack_Down()
         }
     }
     IN_KeyDown(&playersKb[0][17]);
+    // zombies: SP IN_Attack_Down (0x00880130): with Dead Ops Arcade's top-down camera fire also fires a vehicle's guns
+    // (+vehicleattack, +vehicleattacksecond: the heli and the tank)
+    if ( player_topDownCamMode && player_topDownCamMode->current.integer && client->snap.valid
+        && client->snap.ps.pm_type != 2 && player_topDownCamMode->current.integer >= 2 && client->snap.ps.pm_type < 9 )
+    {
+        IN_KeyDown(&playersKb[0][36]);
+        IN_KeyDown(&playersKb[0][37]);
+    }
 }
 
 void __cdecl IN_Attack_Up()
@@ -2168,6 +2165,12 @@ void __cdecl IN_Attack_Up()
     gAttackEdgeDetected[0] = 0;
     IN_KeyUp(&playersKb[0][17]);
     IN_KeyUp(&playersKb[0][45]);
+    // zombies: SP IN_Attack_Up (0x00880240)
+    if ( player_topDownCamMode && player_topDownCamMode->current.integer >= 2 )
+    {
+        IN_KeyUp(&playersKb[0][36]);
+        IN_KeyUp(&playersKb[0][37]);
+    }
 }
 
 void __cdecl IN_Breath_Down()

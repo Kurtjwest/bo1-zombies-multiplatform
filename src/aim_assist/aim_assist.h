@@ -262,3 +262,7 @@ void __cdecl AimAssist_DrawCenterBox(
                 float clipHalfHeight,
                 const float *color);
 void __cdecl AimAssist_DrawTargets(int localClientNum, const playerState_s *ps, const float *color);
+
+// zombies: aiming with Dead Ops Arcade's top-down camera (player_topDownCamMode; SP 0x005c2180, 0x00486c70)
+void AimAssist_UpdateTopDownMouseInput(const AimInput *input, AimOutput *output);
+void AimAssist_UpdateTopDownGamePadInput(const AimInput *input, AimOutput *output);

@@ -1177,13 +1177,18 @@ static void __cdecl CScr_GiveGamerPicture()
 // zombies: ShowScores( <localClientNum> ) / HideScores( <localClientNum> ): Dead Ops Arcade's clientscripts show
 // the scoreboard while a client flag is set (console only: on PC _zombietron.csc returns first), as holding the
 // scoreboard key does
+// (SP 0x00894720 / 0x00894790)
 static void __cdecl CScr_ShowScores()
 {
+    if ( Scr_GetNumParam(SCRIPTINSTANCE_CLIENT) != 1 )
+        Scr_Error(SCRIPTINSTANCE_CLIENT, "ShowScores() called with wrong params.\n", false);
     CG_GetLocalClientGlobals(CScr_GetLocalClientNum(0))->showScores = 1;
 }
 
 static void __cdecl CScr_HideScores()
 {
+    if ( Scr_GetNumParam(SCRIPTINSTANCE_CLIENT) != 1 )
+        Scr_Error(SCRIPTINSTANCE_CLIENT, "HideScores() called with wrong params.\n", false);
     CG_GetLocalClientGlobals(CScr_GetLocalClientNum(0))->showScores = 0;
 }
 

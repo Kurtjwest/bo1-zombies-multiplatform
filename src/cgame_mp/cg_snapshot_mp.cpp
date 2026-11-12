@@ -1531,6 +1531,10 @@ void __cdecl CG_CopyScoreFromClientState(int localClientNum, clientInfo_t *ci, c
         ci->score.deaths = cs->score.deaths;
         for ( column = 0; column < 4; ++column )
             ci->score.scoreboardColumns[column] = cs->score.scoreboardColumns[column];
+        // zombies: SP CG_CopyScoreFromClientState (0x008977d0) copies the assists too: Dead Ops Arcade's bombs
+        // (maps/_zombietron_score.gsc update_hud, the corner HUD, cg_sp_hud.cpp)
+        if ( zombiemode && zombiemode->current.enabled )
+            ci->score.assists = cs->score.assists;
         if ( ci->score.status_icon != cs->score.status_icon )
         {
             ci->score.status_icon = cs->score.status_icon;

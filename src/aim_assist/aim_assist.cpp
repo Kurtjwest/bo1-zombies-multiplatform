@@ -26,6 +26,8 @@
 #include <cmath>
 #include <xanim/xanim.h>
 #include <client_mp/cl_cgame_mp.h>
+#include <bgame/bg_misc.h>
+#include <cfloat>
 
 AimAssistGlobals aaGlobArray[1];
 GraphFloat aaInputGraph[4];
@@ -2336,3 +2338,150 @@ void __cdecl AimAssist_DrawTargets(int localClientNum, const playerState_s *ps, 
     }
 }
 
+
+// zombies: aiming with Dead Ops Arcade's top-down camera (player_topDownCamMode), ported from SP. The player never
+// aims with the view (the camera is fixed): the mouse moves a cursor around him (player_topDownCursorPos, relative to
+// him, (screen right, screen down), always player_topDownCursorDist long), a stick points; he turns toward it, his
+// pitch toward the nearest target in that direction (3 degrees down without one), both chasing their target at
+// aim_autoaim_lerp. When the mouse and a stick both move in a frame, the stick wins (CL_MouseMove runs first; SP keeps
+// the aim-assist state from before the mouse's step).
+struct TopDownState
+{
+    bool mouseUpdated;
+    AimAssistGlobals aaGlob;
+    float pitch;
+    float yaw;
+};
+static TopDownState s_topDownState;
+
+// SP 0x0041d550: the screen target in the aim direction: the nearest one within 10 units of the aim line and 30
+// degrees of it, else (none on the line) the one closest in angle within 30 degrees. (SP reads client 0's list.)
+static const AimScreenTarget *AimAssist_GetTopDownTarget(const AimInput *input, float yaw)
+{
+    const AimAssistGlobals *aaGlob = &aaGlobArray[input->localClientNum];
+    float forward[3], right[3], d[3], d2[2];
+    YawVectors(yaw, forward, right);
+    float bestDistSq = FLT_MAX;
+    float bestYawDiff = FLT_MAX;
+    const AimScreenTarget *best = nullptr;
+    for ( int i = 0; i < aaGlobArray[0].screenTargetCount; ++i )
+    {
+        const AimScreenTarget *t = &aaGlobArray[0].screenTargets[i];
+        d2[0] = t->aimPos[0] - aaGlob->ps.origin[0];
+        d2[1] = t->aimPos[1] - aaGlob->ps.origin[1];
+        const float yawDiff = fabsf((float)AngleDelta(yaw, vectoyaw(d2)));
+        if ( yawDiff < 30.0f )
+        {
+            Vec3Sub(t->aimPos, aaGlob->ps.origin, d);
+            if ( fabsf(Vec3Dot(d, right)) < 10.0f )
+            {
+                const float distSq = Vec3Dot(d, d);
+                if ( distSq < bestDistSq && distSq > 0.0f )
+                {
+                    best = t;
+                    bestDistSq = distSq;
+                }
+            }
+        }
+        if ( bestDistSq == FLT_MAX && yawDiff < 30.0f && yawDiff < bestYawDiff )
+        {
+            best = t;
+            bestYawDiff = yawDiff;
+        }
+    }
+    return best;
+}
+
+// SP 0x004edc60: dir (screen down, screen right); 0.3 long or less: the move stick (face the way he walks)
+static void AimAssist_TopDownAim(const float *dirIn, const AimInput *input, AimOutput *output)
+{
+    AimAssistGlobals *aaGlob = &aaGlobArray[input->localClientNum];
+    const float camYaw = player_topDownCamAngles->current.vector[1];
+    float dir[2] = { dirIn[0], dirIn[1] };
+    float len = sqrtf(dir[1] * dir[1] + dir[0] * dir[0]);
+    if ( len > 1.0f )
+        len = 1.0f;
+    bool have = (double)len > 0.3;
+    if ( !have )
+    {
+        dir[0] = -input->forwardAxis;
+        dir[1] = input->rightAxis;
+        len = sqrtf(dir[1] * dir[1] + dir[0] * dir[0]);
+        if ( len > 1.0f )
+            len = 1.0f;
+        have = (double)len > 0.3;
+    }
+    if ( have )
+        aaGlob->autoAimYawTarget = AngleNormalize180(vectoyaw(dir) + camYaw + 180.0f);
+    else
+        aaGlob->autoAimYawTarget = aaGlob->ps.viewangles[1];
+
+    aaGlob->autoAimPitchTarget = 3.0f;
+    if ( const AimScreenTarget *t = AimAssist_GetTopDownTarget(input, aaGlob->autoAimYawTarget) )
+    {
+        float d[3];
+        d[0] = t->aimPos[0] - aaGlob->ps.origin[0];
+        d[1] = t->aimPos[1] - aaGlob->ps.origin[1];
+        d[2] = t->aimPos[2] - (aaGlob->ps.origin[2] + aaGlob->ps.viewHeightCurrent);
+        float l = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if ( -l >= 0.0f )
+            l = 1.0f;
+        const float inv = 1.0f / l;
+        d[0] *= inv;
+        d[1] *= inv;
+        d[2] *= inv;
+        aaGlob->autoAimPitchTarget = vectopitch(d);
+    }
+    const float newPitch = (float)DiffTrackAngle(aaGlob->autoAimPitchTarget, aaGlob->autoAimPitch,
+        aim_autoaim_lerp->current.value, input->deltaTime);
+    const float newYaw = (float)DiffTrackAngle(aaGlob->autoAimYawTarget, aaGlob->autoAimYaw,
+        aaGlob->overrideSnapWidthAndLerp ? aaGlob->overrideAutoaimLerpValue : aim_autoaim_lerp->current.value,
+        input->deltaTime);
+    aaGlob->autoAimPitch = newPitch;
+    aaGlob->autoAimYaw = newYaw;
+    output->pitch = output->pitch + AngleNormalize180(newPitch - aaGlob->ps.viewangles[0]);
+    output->yaw = output->yaw + AngleNormalize180(newYaw - aaGlob->ps.viewangles[1]);
+}
+
+// SP 0x005c2180: pitchAxis / yawAxis: the mouse's (sensitivity-scaled) motion down / right
+void AimAssist_UpdateTopDownMouseInput(const AimInput *input, AimOutput *output)
+{
+    memcpy(&s_topDownState.aaGlob, &aaGlobArray[input->localClientNum], sizeof(AimAssistGlobals));
+    s_topDownState.pitch = input->pitch;
+    s_topDownState.yaw = input->yaw;
+    s_topDownState.mouseUpdated = true;
+    output->pitch = input->pitch;
+    output->yaw = input->yaw;
+    if ( input->pitchAxis == 0.0f && input->yawAxis == 0.0f )
+        return;
+
+    const float x = player_topDownCursorPos->current.vector[0] + input->yawAxis;
+    const float y = player_topDownCursorPos->current.vector[1] + input->pitchAxis;
+    float len = sqrtf(y * y + x * x);
+    if ( -len >= 0.0f )
+        len = 1.0f;
+    const float inv = 1.0f / len;
+    const float dir[2] = { inv * y, inv * x };
+    const float dist = player_topDownCursorDist->current.value;
+    Dvar_SetVec2((dvar_s *)player_topDownCursorPos, inv * x * dist, inv * y * dist);
+    AimAssist_TopDownAim(dir, input, output);
+}
+
+// SP 0x00486c70: the right stick (pitchAxis: up, yawAxis: left), else the left one
+void AimAssist_UpdateTopDownGamePadInput(const AimInput *input, AimOutput *output)
+{
+    AimAssistGlobals *aaGlob = &aaGlobArray[input->localClientNum];
+    output->pitch = input->pitch;
+    output->yaw = input->yaw;
+    if ( input->pitchAxis == 0.0f && input->yawAxis == 0.0f && input->forwardAxis == 0.0f && input->rightAxis == 0.0f )
+        return;
+    if ( s_topDownState.mouseUpdated )
+    {
+        memcpy(aaGlob, &s_topDownState.aaGlob, sizeof(AimAssistGlobals));
+        output->pitch = s_topDownState.pitch;
+        output->yaw = s_topDownState.yaw;
+        s_topDownState.mouseUpdated = false;
+    }
+    const float dir[2] = { input->pitchAxis, -input->yawAxis };
+    AimAssist_TopDownAim(dir, input, output);
+}

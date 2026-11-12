@@ -253,7 +253,9 @@ const NetFieldList *__cdecl MSG_GetNetFieldList(netFieldTypes_t fieldType, bool 
         // zombies: SP clientState score widths (SP netfield table .rdata 0x00A5C130): score.score is an int
         // delta (type -79, any int; MP: signed 16 bits, hence MP's +-30000 score clamp), score.kills 32 bits
         // (MP 10) and score.headshots 16 bits (MP sends headshots as scoreboardColumns[0] in zombiemode,
-        // G_PopulateMatchState; 10 bits). Both local endpoints use this table; MP keeps its own.
+        // G_PopulateMatchState; 10 bits). Dead Ops Arcade sends the rest of SP's score in the other columns (revives,
+        // downs and scoreMultiplier, 14 bits in SP): all four are 16 bits. Both local endpoints use this table; MP
+        // keeps its own.
         static NetField clientFields[50];
         static const NetFieldList clientList = { clientFields, 50u, "spClientStateFields" };
         static bool initialized;
@@ -267,7 +269,7 @@ const NetFieldList *__cdecl MSG_GetNetFieldList(netFieldTypes_t fieldType, bool 
                     clientFields[i].bits = 32;
                     clientFields[i].bitsStr = "32";
                 }
-                else if ( !strcmp(clientFields[i].name, "score.scoreboardColumns[0]") )
+                else if ( !strncmp(clientFields[i].name, "score.scoreboardColumns[", 24) )
                 {
                     clientFields[i].bits = 16;
                     clientFields[i].bitsStr = "16";
