@@ -1,3 +1,4 @@
+#include <cgame/cg_sp_objective.h>
 #include <universal/bo1_ptrcast.h>
 #include "cg_visionsets.h"
 #include <universal/com_memory.h>
@@ -231,6 +232,7 @@ void __cdecl CG_InitVisionSets(int localClientNum)
         cgameGlob->visionNameFlare,
         0);
     CG_SP_InitVisionSets(localClientNum); // zombies: SP channels 6..9 (SP 0x0047c180)
+    CG_SP_InitObjectives(localClientNum); // zombies: SP's 3D objectives start empty (SP's cg_s memset)
 }
 
 double __cdecl CalculateFlareRatio(float flareRatio, float flareRatioLastFrame)

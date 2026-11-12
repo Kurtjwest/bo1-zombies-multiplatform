@@ -253,9 +253,13 @@ leader's first-place mark, as in the original.
 What of the original's engine side this game uses isn't in the decompile; it is ported from the original game's
 BlackOps.exe: the top-down camera (it frames the players and the arena's centre and glides after them), the aiming
 (the mouse moves a cursor around the player, the pitch aims at the nearest enemy in that direction), the corner
-scores and the builtins its scripts call (GetDvarVector, ClearAllCorpses, Fire, SetScoreMultiplier, ...). Not
-ported: the arenas' objective markers (Objective_String, Objective_Set3D): their text is "*", which the original
-doesn't draw, and the exits are on the screen, so it shows nothing for them either.
+scores, the exit markers (the original's objectives: while an open exit is off the screen, an arrow at the edge of
+the screen points to it), the tank and the helicopter (their script fields: turret tags, tread dust, the
+helicopter's height lock over the arena's 19 height patches; the player sits at the tank's origin, which has no seat
+tag, and zombies keep chasing him), the rocket launcher's rockets flying on through the zombies they hit, the sound
+heard from above the player rather than from the camera, crouch and prone doing nothing, the end-of-game podium
+scene, and the builtins its scripts call (GetDvarVector, ClearAllCorpses, Fire, SetScoreMultiplier, HasPath,
+PhysicsTrace returning a position, ...).
 
 ## Co-op
 

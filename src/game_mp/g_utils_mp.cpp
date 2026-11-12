@@ -9,6 +9,7 @@
 #include <qcommon/dobj_management.h>
 #include <clientscript/cscr_stringlist.h>
 #include <server_mp/sv_init_mp.h>
+#include <server_mp/sv_main_mp.h>
 #include <clientscript/scr_const.h>
 #include <clientscript/cscr_vm.h>
 #include "g_main_mp.h"
@@ -34,6 +35,9 @@
 #include <bgame/bg_misc.h>
 #include <sound/snd_utils.h>
 #include <stringed/stringed_hooks.h>
+
+// zombies: registered in sv_init_mp.cpp (SP sv_restrictedTempEnts); declared here to keep sv_init_mp.h untouched
+extern const dvar_t *sv_restrictedTempEnts;
 
 const char *origErrorMsg = "localized string";
 
@@ -2225,6 +2229,8 @@ void __cdecl G_FreeEntityAfterEvent(gentity_s *ent)
 }
 
 int g_physExplosionSphereCount; // zombies: SP 0x01C08B38
+int g_bulletHitTempCount; // zombies: SP 0x01C08B30, live EV_BULLET_HIT temp ents counted while a remote client is on
+int g_createDynEntTempCount; // zombies: SP 0x01C08B34, live EV_CREATE_DYNENT ones
 
 gentity_s *__cdecl G_TempEntity(const float *origin, entity_event_t event)
 {
@@ -2234,8 +2240,33 @@ gentity_s *__cdecl G_TempEntity(const float *origin, entity_event_t event)
 
     // zombies: SP G_TempEntity (SP 0x00456E70) caps live EV_PHYS_EXPLOSION_SPHERE temp ents (SP event 0x49) at
     // sv_maxPhysExplosionSpheres when it is >= 0 and hands back a dummy entity past the cap (SP 0x01CFFFE8; SP clears
-    // one field of it, KB clears the whole dummy). G_RunFrameForEntity gives the count back on free. SP's other two
-    // throttles (events 0x34 / 0x4d while a client is connected) are not ported.
+    // one field of it, KB clears the whole dummy). G_RunFrameForEntity gives the count back on free. While a remote
+    // client is connected (state above zombie, not loopback) it also caps live EV_BULLET_HIT temp ents at 5 and
+    // EV_CREATE_DYNENT ones at 4, and with sv_restrictedTempEnts drops EV_BULLET_HIT_CLIENT_SMALL / _LARGE.
+    if ( event == EV_BULLET_HIT || event == EV_BULLET_HIT_CLIENT_SMALL || event == EV_BULLET_HIT_CLIENT_LARGE
+        || event == EV_CREATE_DYNENT )
+    {
+        bool remoteClient = false;
+        for ( int i = 0; i < com_maxclients->current.integer && !remoteClient; ++i )
+            remoteClient = svs.clients[i].header.state >= CS_CONNECTED
+                        && svs.clients[i].header.netchan.remoteAddress.type != NA_LOOPBACK;
+        if ( remoteClient )
+        {
+            bool drop = false;
+            if ( event == EV_BULLET_HIT )
+                drop = g_bulletHitTempCount >= 5 || (++g_bulletHitTempCount, false);
+            else if ( event == EV_CREATE_DYNENT )
+                drop = g_createDynEntTempCount >= 4 || (++g_createDynEntTempCount, false);
+            else
+                drop = sv_restrictedTempEnts && sv_restrictedTempEnts->current.enabled;
+            if ( drop )
+            {
+                static gentity_s throttled;
+                memset(&throttled, 0, sizeof(throttled));
+                return &throttled;
+            }
+        }
+    }
     if ( event == EV_PHYS_EXPLOSION_SPHERE && sv_maxPhysExplosionSpheres && sv_maxPhysExplosionSpheres->current.integer >= 0 )
     {
         if ( sv_maxPhysExplosionSpheres->current.integer <= g_physExplosionSphereCount )

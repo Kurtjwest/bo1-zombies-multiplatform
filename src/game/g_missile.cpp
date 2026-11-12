@@ -1711,6 +1711,11 @@ void    MissileImpact(gentity_s *ent, trace_t *trace, float *dir, float *endpos)
                 trace->partName,
                 0);
             impactDamageDealt = 1;
+            // zombies: SP MissileImpact (SP 0x007e8239): in Dead Ops Arcade a rocket launcher's projectile that hits an
+            // AI or a player only damages it and flies on (SP eType 0x10 / 1 = ET_ACTOR / ET_PLAYER here)
+            if (zombietron && zombietron->current.enabled && weapDef->weapClass == WEAPCLASS_ROCKETLAUNCHER
+                && (other->s.eType == ET_ACTOR || other->s.eType == ET_PLAYER))
+                return;
         }
         if (weapDef->guidedMissileType == MISSILE_GUIDANCE_TVGUIDED)
             G_UnlinkPlayerToRocket(ent);

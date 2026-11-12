@@ -407,7 +407,12 @@ void __cdecl CL_UpdateUIVisibilityBits(int localClientNum)
                     HIDWORD(sharedUiInfo.visibilityBits[localClientNum]) = v32;
                 }
                 UIContextIndex = Com_LocalClient_GetUIContextIndex(localClientNum);
-                if (Menu_IsMenuOpenAndVisible(UIContextIndex, "scoreboard"))
+                // zombies: SP's visibility update (SP 0x0058c2b0) sets this bit (44) from its own scoreboard menus:
+                // "ztscores" in Dead Ops Arcade, "playerscores" otherwise (MP's "scoreboard" is only the menu +scores opens)
+                const char *scoresMenu = "scoreboard";
+                if (zombiemode && zombiemode->current.enabled)
+                    scoresMenu = zombietron && zombietron->current.enabled ? "ztscores" : "playerscores";
+                if (Menu_IsMenuOpenAndVisible(UIContextIndex, scoresMenu))
                 {
                     v34 = HIDWORD(sharedUiInfo.visibilityBits[localClientNum]) | 0x1000;
                     LODWORD(sharedUiInfo.visibilityBits[localClientNum]) = sharedUiInfo.visibilityBits[localClientNum];

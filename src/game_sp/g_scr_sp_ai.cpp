@@ -12,6 +12,7 @@
 #include <game/actor_script_cmd.h>
 #include <game/actor_spawner.h>
 #include <game/actor_threat.h>
+#include <game/actor_navigation.h>
 #include <game_mp/actor_mp.h>
 #include <game_mp/g_main_mp.h>
 #include <server/sv_game.h>
@@ -573,8 +574,27 @@ static void G_m_setzombiename(scr_entref_t entref)
     I_strncpyz(Actor_SP_Ext(ent->actor)->zombieName, name, sizeof(Actor_SP_Ext(ent->actor)->zombieName));
 }
 
+// zombies: <ai> HasPath() (SP 0x00802ad0): whether the AI has a path (Dead Ops Arcade kills zombies that keep failing
+// to find one, maps/_zombietron_spawner.gsc)
+static void G_m_haspath(scr_entref_t entref)
+{
+    gentity_s *ent = 0;
+    if (entref.classnum)
+        Scr_ObjectError("not an entity", SCRIPTINSTANCE_SERVER);
+    else
+        ent = &g_entities[entref.entnum];
+    if (!ent->actor)
+    {
+        Scr_Error(va("haspath must be called on an AI, not on a '%s'",
+            SL_ConvertToString(ent->classname, SCRIPTINSTANCE_SERVER)), SCRIPTINSTANCE_SERVER);
+        return;
+    }
+    Scr_AddBool(Path_Exists(&ent->actor->Path), SCRIPTINSTANCE_SERVER);
+}
+
 const BuiltinMethodDef g_sp_ai_methods[] =
 {
+    { "haspath", G_m_haspath, 0 },
     { "codespawnerforcespawn", G_m_codespawnerforcespawn, 0 },
     { "sethudwarningtype", G_m_sethudwarningtype, 0 },
     { "setzombiename", G_m_setzombiename, 0 },

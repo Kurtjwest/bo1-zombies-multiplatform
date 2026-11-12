@@ -23,6 +23,7 @@
     X(g_sp_entity)     /* lane E: entity / misc          src/game_sp/g_scr_sp_entity.cpp */ \
     X(g_sp_ai)         /* lane G: AI builtins            src/game_sp/g_scr_sp_ai.cpp */ \
     X(g_sp_zombietron) /* lane Z: Dead Ops Arcade        src/game_sp/g_scr_sp_zombietron.cpp */ \
+    X(g_sp_objective)  /* lane O: objectives (SP levels)  src/game_sp/g_sp_objective.cpp */ \
     X(g_sp_notported)  /* GENERATED, keep last           src/game_sp/g_scr_sp_notported.cpp */
 
 #define SCR_SP_CLIENT_TABLES(X) \

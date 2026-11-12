@@ -543,6 +543,10 @@ void __cdecl FX_SpawnTrailLoopingElems(
     normalizedDistanceBeforeSpawn = 1.0 - (v12 - v11);
     normalizedDistanceTraversed = 0.0f;
     normalizedDistanceRemaining = normalizedTotalDistance;
+    // zombies: a trail whose frame jumped absurdly far (a garbage tag position) would spawn elements forever: past
+    // 2^24 the "remaining - 1" below no longer changes the float. Spawn nothing for such a jump.
+    if ( !(normalizedTotalDistance < 65536.0f) )
+        return;
     while ( normalizedDistanceRemaining > normalizedDistanceBeforeSpawn )
     {
         normalizedDistanceTraversed = normalizedDistanceTraversed + normalizedDistanceBeforeSpawn;

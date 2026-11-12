@@ -1855,8 +1855,46 @@ void Path_SP_ResetLinkOverrides(int restart)
 static void G_f_zerogravityvolumeon();
 static void G_f_zerogravityvolumeoff();
 
+// zombies: WeaponDoGibbing( <weapon> ) / WeaponMaxGibDistance( <weapon> ) (SP 0x007fc320 / 0x007fc360): the weapon file's
+// doGibbing / maxGibDistance (animscripts/death.gsc picks gib deaths with them; Dead Ops Arcade's guns gib)
+static void G_f_weapondogibbing()
+{
+    const char *name = Scr_GetString(0, SCRIPTINSTANCE_SERVER);
+    const int weapon = G_GetWeaponIndexForName((char *)name);
+    Scr_VerifyWeaponIndex(weapon, name);
+    Scr_AddBool(BG_GetWeaponDef(weapon)->doGibbing, SCRIPTINSTANCE_SERVER);
+}
+
+static void G_f_weaponmaxgibdistance()
+{
+    const char *name = Scr_GetString(0, SCRIPTINSTANCE_SERVER);
+    const int weapon = G_GetWeaponIndexForName((char *)name);
+    Scr_VerifyWeaponIndex(weapon, name);
+    Scr_AddFloat(BG_GetWeaponDef(weapon)->maxGibDistance, SCRIPTINSTANCE_SERVER);
+}
+
+// zombies: SP builtins that are an empty function in the retail exe (SP 0x00651a30: ret): calls do nothing
+static void G_f_sp_nullsub()
+{
+}
+
+static void G_m_sp_nullsub(scr_entref_t)
+{
+}
+
 const BuiltinFunctionDef g_sp_entity_functions[] =
 {
+    { "weapondogibbing", G_f_weapondogibbing, 0 },
+    { "weaponmaxgibdistance", G_f_weaponmaxgibdistance, 0 },
+    { "prefetchlevel", G_f_sp_nullsub, 0 },
+    { "preventmipsfromloading", G_f_sp_nullsub, 0 },
+    { "record3dtext", G_f_sp_nullsub, 0 },
+    { "recordent", G_f_sp_nullsub, 0 },
+    { "recordenttext", G_f_sp_nullsub, 0 },
+    { "recordline", G_f_sp_nullsub, 0 },
+    { "setuinextlevel", G_f_sp_nullsub, 0 },
+    { "splitviewallowed", G_f_sp_nullsub, 0 },
+    { "updategamerprofile", G_f_sp_nullsub, 0 },
     { "zerogravityvolumeon", G_f_zerogravityvolumeon, 0 },
     { "zerogravityvolumeoff", G_f_zerogravityvolumeoff, 0 },
     { "deleterope", G_f_deleterope, 0 },
@@ -2091,6 +2129,9 @@ static void G_f_zerogravityvolumeoff()
 
 const BuiltinMethodDef g_sp_entity_methods[] =
 {
+    { "forcetexturestoload", G_m_sp_nullsub, 0 },
+    { "givegamerpicture", G_m_sp_nullsub, 0 },
+    { "setsoundblend", G_m_sp_nullsub, 0 },
     { "iswaitingonsound", G_m_iswaitingonsound, 0 },
     { "setplayercollision", G_m_setplayercollision, 0 },
     { "setclientflagasval", G_m_setclientflagasval, 0 },

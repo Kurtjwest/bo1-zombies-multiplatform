@@ -1,3 +1,4 @@
+#include <cgame/cg_sp_objective.h>
 #include <cgame/cg_sp_hud.h>
 #include "cg_scoreboard_mp.h"
 #include <universal/assertive.h>
@@ -1957,6 +1958,7 @@ void __cdecl CG_RegisterScoreboardDvars()
     cg_scoreboardPingText = _Dvar_RegisterBool("cg_scoreboardPingText", 1, 0, "Whether to show numeric ping value");
     cg_scoreboardPingGraph = _Dvar_RegisterBool("cg_scoreboardPingGraph", 0, 0, "Whether to show graphical ping");
     CG_SP_RegisterScoreBarDvars(); // zombies: the SP score bar's dvars (cg_sp_hud.cpp)
+    CG_SP_RegisterObjectiveDvars(); // zombies: SP's 3D objective dvars (cg_sp_objective.cpp)
 }
 
 void __cdecl CG_RegisterScoreboardGraphics()

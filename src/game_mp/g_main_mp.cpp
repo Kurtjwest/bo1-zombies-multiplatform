@@ -17,6 +17,7 @@
 #include <game_sp/g_sp_headless_move.h>
 #include <game_sp/g_sp_client.h>
 #include "g_main_mp.h"
+#include <game_sp/g_sp_objective.h>
 #include <game_sp/g_sp_savegame.h>
 #include <game_sp/g_sp_loadgame.h>
 #include <game_sp/g_sp_levelstart.h>
@@ -3526,6 +3527,7 @@ void    G_RunFrame(int levelTime)
     {
         PROF_SCOPED("G_UpdateObjectiveToClients");
         G_UpdateObjectiveToClients();
+        G_SP_SendObjectiveChanges(); // zombies: SP's objective info strings that changed this frame
     }
     {
         PROF_SCOPED("G_UpdateHudElemsToClients");
@@ -3737,6 +3739,9 @@ void __cdecl G_UpdateIKCulling(gentity_s *ent)
     }
 }
 
+extern int g_bulletHitTempCount;    // g_utils_mp.cpp (G_TempEntity's SP caps)
+extern int g_createDynEntTempCount;
+
 void __cdecl G_RunFrameForEntity(gentity_s *ent)
 {
     char *v1; // eax
@@ -3803,9 +3808,14 @@ void __cdecl G_RunFrameForEntity(gentity_s *ent)
         {
             if ( ent->freeAfterEvent )
             {
-                // zombies: SP 0x007E34D0 gives an EV_PHYS_EXPLOSION_SPHERE temp ent's slot back to G_TempEntity's cap
+                // zombies: SP 0x007E34D0 gives an EV_PHYS_EXPLOSION_SPHERE / EV_BULLET_HIT / EV_CREATE_DYNENT temp ent's
+                // slot back to G_TempEntity's caps
                 if ( ent->s.eType == ET_EVENTS + EV_PHYS_EXPLOSION_SPHERE && g_physExplosionSphereCount )
                     --g_physExplosionSphereCount;
+                else if ( ent->s.eType == ET_EVENTS + EV_BULLET_HIT && g_bulletHitTempCount )
+                    --g_bulletHitTempCount;
+                else if ( ent->s.eType == ET_EVENTS + EV_CREATE_DYNENT && g_createDynEntTempCount )
+                    --g_createDynEntTempCount;
                 G_FreeEntity(ent);
                 return;
             }

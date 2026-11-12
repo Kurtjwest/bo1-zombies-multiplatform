@@ -1,3 +1,4 @@
+#include <cgame/cg_sp_objective.h>
 #include <universal/bo1_ptrcast.h>
 #include "cg_servercmds_mp.h"
 #include "cg_actors_mp.h"
@@ -943,6 +944,9 @@ void __cdecl CG_DeployServerCommand(int localClientNum)
         case ']': // settransported (SP 0x0078e235 -> 0x0078d520; ']' is free in BO1Zombies's switch)
         case '!': // setwatersheeting (SP 0x0078e390 -> 0x00505cc0; '!' is free in BO1Zombies's switch)
         case '#': // rope sub-commands (SP 0x0078e4d9 -> 0x00668700; only 0x53 ropesetflag is ported)
+        case 'O': // SP's objective config strings 0x142 + n (game_sp/g_sp_objective.cpp; 'O' is free in both exes' switches)
+        case '5': // save started (SP 0x0078e28b: cg+0xccd38 = 1 -> 0x00447730 writes the client's save state)
+        case ':': // save committed (SP 0x0078e2a0: cg+0xccd3c = 1 -> 0x00464530); game_sp/g_sp_savegame.cpp sends both
             // SP runs these on every SP level; the front end (zombiemode 0) sends '<' (the TVs' 3D cinematics,
             // frontend_amb) and '}' too, so the gate is the SP-level predicate like 'b' / 'Z'. MP: unknown.
             if (!Com_IsSPLevel())
@@ -964,6 +968,10 @@ void __cdecl CG_DeployServerCommand(int localClientNum)
             case ']': CG_SP_TransportedCommand(localClientNum); break;
             case '#': CG_SP_RopeCommand(localClientNum); break;
             case '!': CG_SP_WaterSheetingCommand(localClientNum); break;
+            case 'O': CG_SP_ObjectiveCommand(localClientNum); break;
+            case '5':
+            case ':':
+                break; // the client's part of the save (segment 5) is not ported; the server writes its own part
             }
             break;
         case 0x42:

@@ -5,6 +5,7 @@
 #include "cg_local_mp.h"
 #include <cgame/cg_main.h>
 #include <bgame/bg_vehicles_mp.h>
+#include <clientscript/scr_const.h>
 
 DObj *__cdecl GetVehicleEntDObj(int localClientNum, centity_s *centVeh)
 {
@@ -219,7 +220,18 @@ void __cdecl GetTagMatrix(
             objVeh = GetVehicleEntDObj(localClientNum, centVeh);
             if ( objVeh )
             {
-                CG_DObjGetWorldTagMatrix(&centVeh->pose, objVeh, tagName, resultTagMat, resultOrigin);
+                if ( !CG_DObjGetWorldTagMatrix(&centVeh->pose, objVeh, tagName, resultTagMat, resultOrigin)
+                    && !CG_DObjGetWorldTagMatrix(&centVeh->pose, objVeh, scr_const.tag_origin, resultTagMat, resultOrigin) )
+                {
+                    // zombies: a seat the model has no tag for: the server links the player to tag_origin instead
+                    // (VEH_LinkPlayer: "vehicle missing bone"; Dead Ops Arcade's tank has no tag_driver), so place him
+                    // there too; the output was left unset (garbage) before, which threw the player's view and the
+                    // effects on him billions of units away
+                    MatrixIdentity33(resultTagMat);
+                    resultOrigin[0] = centVeh->pose.origin[0];
+                    resultOrigin[1] = centVeh->pose.origin[1];
+                    resultOrigin[2] = centVeh->pose.origin[2];
+                }
             }
             else
             {

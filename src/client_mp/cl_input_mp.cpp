@@ -2440,6 +2440,8 @@ void __cdecl IN_Prone_Up()
 
 void __cdecl IN_Stance_Down()
 {
+    if ( zombietron && zombietron->current.enabled )
+        return; // zombies: SP's +stance (SP 0x008807c0) does nothing in Dead Ops Arcade
     clientActive_t *LocalClientGlobals; // [esp+4h] [ebp-8h]
 
     if ( CL_GetLocalClientConnectionState(0) >= 6 )
@@ -2551,6 +2553,8 @@ void __cdecl IN_Speed_Throw_Up()
 
 void __cdecl IN_LowerStance()
 {
+    if ( zombietron && zombietron->current.enabled )
+        return; // zombies: SP's lowerstance (SP 0x00880a70) does nothing in Dead Ops Arcade
     StanceState stance; // [esp+0h] [ebp-10h]
     clientActive_t *LocalClientGlobals; // [esp+8h] [ebp-8h]
 
@@ -2614,6 +2618,8 @@ void __cdecl IN_RaiseStance()
 
 void __cdecl IN_ToggleCrouch()
 {
+    if ( zombietron && zombietron->current.enabled )
+        return; // zombies: SP's togglecrouch (SP 0x00880b00) does nothing in Dead Ops Arcade
     CL_ToggleStance(0, CL_STANCE_CROUCH);
 }
 
@@ -2632,16 +2638,22 @@ void __cdecl CL_ToggleStance(int localClientNum, StanceState preferredStance)
 
 void __cdecl IN_ToggleProne()
 {
+    if ( zombietron && zombietron->current.enabled )
+        return; // zombies: SP's toggleprone (SP 0x00880b40) does nothing in Dead Ops Arcade
     CL_ToggleStance(0, CL_STANCE_PRONE);
 }
 
 void __cdecl IN_GoProne()
 {
+    if ( zombietron && zombietron->current.enabled )
+        return; // zombies: SP's goprone (SP 0x00880bb0) does nothing in Dead Ops Arcade
     CL_SetStance(0, CL_STANCE_PRONE);
 }
 
 void __cdecl IN_GoCrouch()
 {
+    if ( zombietron && zombietron->current.enabled )
+        return; // zombies: SP's gocrouch (SP 0x00880be0) does nothing in Dead Ops Arcade
     CL_SetStance(0, CL_STANCE_CROUCH);
 }
 

@@ -137,19 +137,6 @@ static void G_f_fire()
     G_AddEvent(ent, EV_FIRE_WEAPON, 0);
 }
 
-// Objective_String( <id>, <text> ) (SP 0x007f70b0) / Objective_Set3D( <id>, <on>, [color], [text], ... ) (SP
-// 0x007f7530): SP's objective config strings (key "str"; "use3d", colour, "txt3d", offsets), which its client draws as
-// an on-screen marker with the text, or an arrow toward an objective off the screen (SP 0x00643260). Not ported:
-// BO1Zombies's config strings and objective fields have no room for them. In Dead Ops Arcade the text is "*", which SP
-// doesn't draw, and the arenas' exits are on the screen, so SP shows nothing for them there either.
-static void G_f_objective_string()
-{
-}
-
-static void G_f_objective_set3d()
-{
-}
-
 // <player> ClearDamageIndicator() (SP 0x007d9a90): this frame's damage gives no indicator or flinch (P_DamageFeedback
 // reads damage_blood at the end of the frame; DOA ignores some hits)
 static void G_m_cleardamageindicator(scr_entref_t entref)
@@ -180,8 +167,6 @@ const BuiltinFunctionDef g_sp_zombietron_functions[] =
     { "clearallcorpses", G_f_clearallcorpses, 0 },
     { "setweapon", G_f_setweapon, 0 },
     { "fire", G_f_fire, 0 },
-    { "objective_string", G_f_objective_string, 0 },
-    { "objective_set3d", G_f_objective_set3d, 0 },
     { nullptr, nullptr, 0 } // end marker, keep last
 };
 const unsigned int g_sp_zombietron_function_count = ARRAY_COUNT(g_sp_zombietron_functions) - 1;

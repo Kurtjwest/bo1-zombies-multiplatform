@@ -242,6 +242,28 @@ void __cdecl player_die(
         if ( attacker->s.eType == 11 && attacker->r.ownerNum.isDefined() )
             attacker = attacker->r.ownerNum.ent();
         ScrNotify_FaceEvent(self, scr_const.death);
+        if ( zombiemode && zombiemode->current.enabled )
+        {
+            // zombies: SP player_die (SP 0x004830d4) notifies death( attacker, means of death, weapon name or
+            // undefined, inflictor ), what _load_common.gsc's player_special_death_hint reads; no
+            // flared_or_tabuned_death. MP's ( attacker, suicide, weapon ) threw script errors on Dead Ops Arcade deaths.
+            if ( inflictor )
+                Scr_AddEntity(inflictor, SCRIPTINSTANCE_SERVER);
+            else
+                Scr_AddUndefined(SCRIPTINSTANCE_SERVER);
+            if ( iWeapon )
+                Scr_AddString((char *)BG_WeaponName(iWeapon), SCRIPTINSTANCE_SERVER);
+            else
+                Scr_AddUndefined(SCRIPTINSTANCE_SERVER);
+            Scr_AddConstString(*modNames[meansOfDeath], SCRIPTINSTANCE_SERVER);
+            if ( attacker )
+                Scr_AddEntity(attacker, SCRIPTINSTANCE_SERVER);
+            else
+                Scr_AddUndefined(SCRIPTINSTANCE_SERVER);
+            Scr_Notify(self, scr_const.death, 4u);
+        }
+        else
+        {
         isFlared = self->client->ps.visionSetLerpRatio > 0.001;
         Scr_AddBool(self->client->ps.poisoned, SCRIPTINSTANCE_SERVER);
         Scr_AddBool(isFlared, SCRIPTINSTANCE_SERVER);
@@ -251,6 +273,7 @@ void __cdecl player_die(
         Scr_AddBool(meansOfDeath == 9, SCRIPTINSTANCE_SERVER);
         Scr_AddEntity(attacker, SCRIPTINSTANCE_SERVER);
         Scr_Notify(self, scr_const.death, 3u);
+        }
         switch ( meansOfDeath )
         {
             case 0x11u:

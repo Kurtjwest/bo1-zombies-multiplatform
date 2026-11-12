@@ -21,11 +21,13 @@
 #include <bgame/bg_weapons_def.h>
 #include <game_sp/g_sp_ext.h>
 #include <game/g_scr_vehicle.h>
+#include <vehicle/nitrous_vehicle.h>
 #include <bgame/bg_misctables.h>
 #include <qcommon/common.h>
 #include <game/actor_zombie_exposed.h>
 #include <server/sv_game.h>
 #include <server/sv_world.h>
+#include <universal/surfaceflags.h>
 
 struct ent_field_t // sizeof=0x14
 {                                       // XREF: .rdata:fields_1/r
@@ -69,6 +71,20 @@ enum
 };
 
 static void __cdecl Scr_SetSpVehicleTeam(gentity_s *ent, int offset);
+static void __cdecl Scr_SpVehicleFieldReadOnly(gentity_s *ent, int offset);
+static void __cdecl Scr_SetSpVehicleMantleEnabled(gentity_s *ent, int offset);
+
+// the SP vehicle rows (fields_1 from ENTITY_FIELD_SP_VEH_BEGIN) the getter treats specially
+enum
+{
+    SPVEH_ROW_VEHICLECLASS = 0,
+    SPVEH_ROW_TREADFXNAME = 12,
+    SPVEH_ROW_TREADFXNAMEARRAY = 13,
+    SPVEH_ROW_VTEAM = 49,
+    SPVEH_ROW_TURRETTAGARRAY = 51,
+    SPVEH_ROW_COUNT = 56,
+    SPVEH_SIZE_DEF = -1 // the size column marks the rows that read the def (the flag rows keep their bit there)
+};
 
 const ent_field_t fields_1[] =
 {
@@ -100,17 +116,74 @@ const ent_field_t fields_1[] =
   { "anglelerprate", offsetof(gentitySpExt, anglelerprate), { 4 }, F_FLOAT, Scr_SetSpEntityField },
   // zombies: SP +0x210 -> gentitySpExt::activator; read-only (SP 0x00a55794).
   { "activator", offsetof(gentitySpExt, activator), { 4 }, F_ENTITY, Scr_ReadOnlyField },
-  // zombies: SP vehicle field class (table SP 0x00a55ed8, 56 rows, registered by SP 0x0062b440; get SP 0x00448690,
-  // set SP 0x0058c4d0 on ent->scr_vehicle). Only the rows the zombie scripts read (_vehicle.gsc / _utility.gsc on
-  // Call of the Dead's zipline vehicles). ofs = the vehicle_info_t offset; not map keys, not copied (G_IsEntityFieldStored).
-  { "vehicleclass", 64, { 2 }, F_INT, Scr_ReadOnlyField },
-  { "vehicletype", 0, { 64 }, F_INT, Scr_ReadOnlyField },
-  { "healthdefault", 7176, { 4 }, F_INT, Scr_ReadOnlyField },
-  { "healthmin", 7180, { 4 }, F_INT, Scr_ReadOnlyField },
-  { "healthmax", 7184, { 4 }, F_INT, Scr_ReadOnlyField },
-  { "vteam", 0, { 4 }, F_INT, Scr_SetSpVehicleTeam },
-  // zombies: SP row 53 isphysicsvehicle = the def's isNitrous (SP def +0x1c90, KB +7328: MP has 4 more button keys).
-  { "isphysicsvehicle", 7328, { 4 }, F_INT, Scr_ReadOnlyField },
+  // zombies: SP vehicle field class (table SP 0x00a55ed8, all 56 rows in SP order, registered by SP 0x0062b440; get
+  // SP 0x00448690, set SP 0x0058c4d0 on ent->scr_vehicle). Rows marked DEF read the vehicle def (getter SP 0x005f8330;
+  // MP's vehicle_info_t has SP's layout up to the button keys), INST rows the scr_vehicle (no SP getter: the generic
+  // read at the row's offset). A row without a setter is written generically on the scr_vehicle; the others are
+  // read-only (SP 0x0056ff20) or have their own setter. Not map keys, not copied (G_IsEntityFieldStored).
+#define SPVEH_DEF(name, member, type) { name, offsetof(vehicle_info_t, member), { SPVEH_SIZE_DEF }, type, Scr_SpVehicleFieldReadOnly }
+#define SPVEH_INST(name, member, type, setter) { name, offsetof(scr_vehicle_s, member), { 0 }, type, setter }
+#define SPVEH_FLAG(name, bit, setter) { name, offsetof(scr_vehicle_s, flags), { bit }, F_BITFLAG, setter }
+  { "vehicleclass", offsetof(vehicle_info_t, type), { SPVEH_SIZE_DEF }, F_STRING, Scr_SpVehicleFieldReadOnly },
+  SPVEH_DEF("vehicletype", name, F_LSTRING),
+  SPVEH_INST("vehspeed", speed, F_FLOAT, Scr_SpVehicleFieldReadOnly),
+  SPVEH_INST("velocity", phys.vel, F_VECTOR, Scr_SpVehicleFieldReadOnly),
+  SPVEH_FLAG("mantleenabled", 8, Scr_SetSpVehicleMantleEnabled),
+  SPVEH_FLAG("turretlocked", 16, NULL),
+  SPVEH_FLAG("noplayerdamage", 32, NULL),
+  SPVEH_FLAG("lockheliheight", 512, NULL),
+  SPVEH_FLAG("vehicleavoidance", 1024, NULL),
+  SPVEH_INST("turretrotscale", turretRotScale, F_FLOAT, NULL),
+  SPVEH_DEF("deathmodel", deathModel, F_LSTRING),
+  SPVEH_INST("modelswapdelay", modelSwapDelay, F_FLOAT, Scr_SpVehicleFieldReadOnly),
+  SPVEH_DEF("treadfxname", treadFx, F_LSTRING),
+  SPVEH_DEF("treadfxnamearray", treadFx, F_LSTRING),
+  SPVEH_DEF("exhaustfxname", exhaustFx, F_LSTRING),
+  SPVEH_INST("oneexhaust", oneExhaust, F_INT, Scr_SpVehicleFieldReadOnly),
+  SPVEH_DEF("rotormainidlefxname", rotorMainIdleFx, F_LSTRING),
+  SPVEH_DEF("rotormainstartfxname", rotorMainStartFx, F_LSTRING),
+  SPVEH_DEF("rotormainrunningfxname", rotorMainRunningFx, F_LSTRING),
+  SPVEH_DEF("rotormainstopfxname", rotorMainStopFx, F_LSTRING),
+  SPVEH_DEF("rotortailidlefxname", rotorTailIdleFx, F_LSTRING),
+  SPVEH_DEF("rotortailstartfxname", rotorTailStartFx, F_LSTRING),
+  SPVEH_DEF("rotortailrunningfxname", rotorTailRunningFx, F_LSTRING),
+  SPVEH_DEF("rotortailstopfxname", rotorTailStopFx, F_LSTRING),
+  SPVEH_DEF("deathfxname", deathFxName, F_LSTRING),
+  SPVEH_DEF("deathfxtag", deathFxTag, F_LSTRING),
+  SPVEH_DEF("deathfxsound", deathFxSound, F_LSTRING),
+  SPVEH_DEF("radiusdamagemin", radiusDamageMin, F_FLOAT),
+  SPVEH_DEF("radiusdamagemax", radiusDamageMax, F_FLOAT),
+  SPVEH_DEF("radiusdamageradius", radiusDamageRadius, F_FLOAT),
+  SPVEH_DEF("shootshock", shootShock, F_LSTRING),
+  SPVEH_DEF("shootrumble", shootRumble, F_LSTRING),
+  SPVEH_INST("deathquakescale", deathQuakeScale, F_FLOAT, Scr_SpVehicleFieldReadOnly),
+  SPVEH_INST("deathquakeduration", deathQuakeDuration, F_FLOAT, Scr_SpVehicleFieldReadOnly),
+  SPVEH_INST("deathquakeradius", deathQuakeRadius, F_FLOAT, Scr_SpVehicleFieldReadOnly),
+  SPVEH_DEF("secturrettype", secTurretType, F_LSTRING),
+  SPVEH_DEF("secturrettag", secTurretTag, F_LSTRING),
+  SPVEH_DEF("secturretmodel", secTurretModel, F_LSTRING),
+  SPVEH_INST("secturretaicontrolled", secTurretAiControlled, F_INT, Scr_SpVehicleFieldReadOnly),
+  SPVEH_INST("frontarmorregen", frontArmorRegen, F_FLOAT, Scr_SpVehicleFieldReadOnly),
+  SPVEH_DEF("rumbletype", rumbleType, F_LSTRING),
+  SPVEH_DEF("rumblescale", rumbleScale, F_FLOAT),
+  SPVEH_DEF("rumbleduration", rumbleDuration, F_FLOAT),
+  SPVEH_DEF("rumbleradius", rumbleRadius, F_FLOAT),
+  SPVEH_DEF("rumblebasetime", rumbleBaseTime, F_FLOAT),
+  SPVEH_DEF("rumbleadditionaltime", rumbleAdditionalTime, F_FLOAT),
+  SPVEH_DEF("healthdefault", healthDefault, F_INT),
+  SPVEH_DEF("healthmin", healthMin, F_INT),
+  SPVEH_DEF("healthmax", healthMax, F_INT),
+  SPVEH_INST("vteam", team, F_INT, Scr_SetSpVehicleTeam),
+  SPVEH_DEF("turretweapon", turretWeapon, F_LSTRING),
+  SPVEH_DEF("turrettagarray", turretTag1, F_LSTRING),
+  SPVEH_INST("addtocompass", addToCompass, F_INT, Scr_SpVehicleFieldReadOnly),
+  // SP row 53 isphysicsvehicle = the def's isNitrous (SP def +0x1c90; MP +0x1ca0, it has 4 more button keys)
+  SPVEH_DEF("isphysicsvehicle", isNitrous, F_INT),
+  SPVEH_INST("pathlookpos", pathPos.lookPos, F_VECTOR, Scr_SpVehicleFieldReadOnly),
+  SPVEH_INST("heliheightlockoffset", heliHeightLockOffset, F_FLOAT, Scr_SpVehicleFieldReadOnly),
+#undef SPVEH_DEF
+#undef SPVEH_INST
+#undef SPVEH_FLAG
   { NULL, 0, { 0 }, F_INT, NULL }
 };
 
@@ -168,24 +241,94 @@ static void __cdecl Scr_SetSpVehicleTeam(gentity_s *ent, int offset)
         Scr_Error("vehicle.team=: invalid team used must be 'axis', 'allies', or 'none'\n", 0);
 }
 
+// zombies: "vehicle field %s is read-only" (SP 0x0056ff20)
+static void __cdecl Scr_SpVehicleFieldReadOnly(gentity_s *ent, int offset)
+{
+    Scr_Error(va("vehicle field %s is read-only", (const char *)fields_1[offset].name), 0);
+}
+
+// zombies: mantleenabled setter (SP 0x00562a60): the flag and the entity's vehicle-use contents bit together
+static void __cdecl Scr_SetSpVehicleMantleEnabled(gentity_s *ent, int offset)
+{
+    const int enable = Scr_GetInt(0, SCRIPTINSTANCE_SERVER);
+    scr_vehicle_s *veh = ent->scr_vehicle;
+    if ( !veh )
+        return;
+    if ( enable )
+    {
+        veh->flags |= 8u;
+        ent->r.contents |= 0x200000u;
+    }
+    else
+    {
+        veh->flags &= ~8u;
+        ent->r.contents &= ~0x200000u;
+    }
+}
+
+// zombies: vehicle field setters (SP 0x0058c4d0 dispatch): the row's setter, else the generic write on the scr_vehicle
+static void Scr_SetSpVehicleField(gentity_s *ent, int offset)
+{
+    const ent_field_t *field = &fields_1[offset];
+    if ( field->callback )
+        field->callback(ent, offset);
+    else if ( ent->scr_vehicle )
+        GScr_SetGenericField((unsigned __int8 *)(scr_vehicle_s *)ent->scr_vehicle, field->type, field->ofs,
+            (unsigned int)field->size[0]);
+}
+
+// zombies: treadfxnamearray (SP 0x00540120): the def's tread effect per surface, keyed by the surface names in the
+// order the exe adds them (the indexes are the surface types)
+static void Scr_AddSpVehicleTreadFxArray(const vehicle_info_t *info)
+{
+    const struct { int surf; unsigned __int16 name; } order[] = {
+        { 22, scr_const.asphalt }, { 1, scr_const.bark }, { 2, scr_const.brick }, { 3, scr_const.carpet },
+        { 23, scr_const.ceramic }, { 4, scr_const.cloth }, { 5, scr_const.concrete }, { 26, scr_const.cushion },
+        { 0, scr_const.none }, { 6, scr_const.dirt }, { 7, scr_const.flesh }, { 8, scr_const.foliage },
+        { 27, scr_const.fruit }, { 9, scr_const.glass }, { 10, scr_const.grass }, { 11, scr_const.gravel },
+        { 12, scr_const.ice }, { 13, scr_const.metal }, { 14, scr_const.mud }, { 28, scr_const.paintedmetal },
+        { 15, scr_const.paper }, { 16, scr_const.plaster }, { 24, scr_const.plastic }, { 17, scr_const.rock },
+        { 25, scr_const.rubber }, { 18, scr_const.sand }, { 19, scr_const.snow }, { 20, scr_const.water },
+        { 21, scr_const.wood },
+    };
+    Scr_MakeArray(SCRIPTINSTANCE_SERVER);
+    for ( const auto &e : order )
+    {
+        Scr_AddString((char *)info->treadFx[e.surf], SCRIPTINSTANCE_SERVER);
+        Scr_AddArrayStringIndexed(e.name, SCRIPTINSTANCE_SERVER);
+    }
+}
+
 // zombies: vehicle field getters (SP 0x00448690 dispatch): not a vehicle -> undefined. vehicleclass SP 0x006505d0
-// (class name of the def's type short at +0x40), vteam SP 0x00487c10, the def rows SP 0x005f8330 (generic read).
+// (class name of the def's type short at +0x40), treadfxname SP 0x0048ad20, treadfxnamearray SP 0x00540120, vteam
+// SP 0x00487c10, turrettagarray SP 0x004abee0, the def rows SP 0x005f8330 (generic read of the def), the rest the
+// generic read of the scr_vehicle.
 static void __cdecl Scr_GetSpVehicleField(gentity_s *ent, int offset)
 {
     scr_vehicle_s *veh = ent->scr_vehicle;
     if ( !veh )
         return;
     const ent_field_t *field = &fields_1[offset];
-    const unsigned __int8 *info = (const unsigned __int8 *)BG_GetVehicleInfo(veh->infoIdx);
+    const vehicle_info_t *def = BG_GetVehicleInfo(veh->infoIdx);
     switch ( offset - ENTITY_FIELD_SP_VEH_BEGIN )
     {
-        case 0:
-            Scr_AddString((char *)s_vehicleClassNames[*(const __int16 *)(info + field->ofs)], SCRIPTINSTANCE_SERVER);
+        case SPVEH_ROW_VEHICLECLASS:
+            Scr_AddString((char *)s_vehicleClassNames[def->type], SCRIPTINSTANCE_SERVER);
             break;
-        case 1:
-            Scr_AddString((char *)info + field->ofs, SCRIPTINSTANCE_SERVER);
+        case SPVEH_ROW_TREADFXNAME:
+        {
+            // SP reads the surface name from the first script parameter
+            if ( !Scr_GetNumParam(SCRIPTINSTANCE_SERVER) )
+                break;
+            const int surf = Com_SurfaceTypeFromName(Scr_GetString(0, SCRIPTINSTANCE_SERVER));
+            if ( surf >= 0 )
+                Scr_AddString((char *)def->treadFx[surf], SCRIPTINSTANCE_SERVER);
             break;
-        case 5:
+        }
+        case SPVEH_ROW_TREADFXNAMEARRAY:
+            Scr_AddSpVehicleTreadFxArray(def);
+            break;
+        case SPVEH_ROW_VTEAM:
             if ( veh->team == 1 )
                 Scr_AddConstString(scr_const.axis, SCRIPTINSTANCE_SERVER);
             else if ( veh->team == 2 )
@@ -195,8 +338,25 @@ static void __cdecl Scr_GetSpVehicleField(gentity_s *ent, int offset)
             else
                 Scr_AddConstString(scr_const.none, SCRIPTINSTANCE_SERVER);
             break;
+        case SPVEH_ROW_TURRETTAGARRAY:
+        {
+            // SP adds turret tag i when byte i of the first tag is set (not the first byte of tag i), as the exe does
+            const char *tags[4] = { def->turretTag1, def->turretTag2, def->turretTag3, def->turretTag4 };
+            Scr_MakeArray(SCRIPTINSTANCE_SERVER);
+            for ( int i = 0; i < 4; ++i )
+            {
+                if ( !def->turretTag1[i] )
+                    continue;
+                Scr_AddString((char *)tags[i], SCRIPTINSTANCE_SERVER);
+                Scr_AddArray(SCRIPTINSTANCE_SERVER);
+            }
+            break;
+        }
         default:
-            Scr_AddInt(*(const int *)(info + field->ofs), SCRIPTINSTANCE_SERVER);
+            if ( field->size[0] == SPVEH_SIZE_DEF )
+                GScr_GetGenericField((unsigned __int8 *)def, field->type, field->ofs, 0);
+            else
+                GScr_GetGenericField((unsigned __int8 *)veh, field->type, field->ofs, (unsigned int)field->size[0]);
             break;
     }
 }
@@ -1009,9 +1169,14 @@ int __cdecl Scr_SetEntityField(unsigned int entnum, unsigned int offset)
                 __debugbreak();
             }
             // zombies: SP's vehicle class (0x8000) is dispatched like the actor class: not a vehicle -> 0, the VM keeps a
-            // script variable (_vehicle.gsc sets .vehicletype on script_models). Rows 0-1/46-48 are read-only in SP too.
-            if ( offset >= ENTITY_FIELD_SP_VEH_BEGIN && !ent->scr_vehicle )
-                return 0;
+            // script variable (_vehicle.gsc sets .vehicletype on script_models). The rows: Scr_SetSpVehicleField.
+            if ( offset >= ENTITY_FIELD_SP_VEH_BEGIN )
+            {
+                if ( !ent->scr_vehicle )
+                    return 0;
+                Scr_SetSpVehicleField(ent, offset);
+                return 1;
+            }
             f = &fields_1[offset];
             if ( f->callback )
                 f->callback(ent, offset);

@@ -1,3 +1,4 @@
+#include <cgame/cg_sp_objective.h>
 #include <universal/bo1_ptrcast.h>
 #include <cgame/cg_sp_hud.h>
 #include "cg_newDraw_mp.h"
@@ -507,6 +508,33 @@ void __cdecl CG_OwnerDraw(
         static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
         if ( Material *bezel = Material_RegisterHandle("menu_zom_bezel_overlay", 7) )
             UI_DrawHandlePic(&scrPlaceView[localClientNum], x, y, w, h, horzAlign, vertAlign, white, bezel);
+        return;
+    }
+    if ( ownerDraw == 322 && zombiemode && zombiemode->current.enabled )
+    {
+        CG_SP_Draw3DObjectives(localClientNum); // zombies: SP CG_OwnerDrawHud 0x005accb0 -> 0x00643260, the 3D objectives
+        return;
+    }
+    if ( ownerDraw == 11 && zombiemode && zombiemode->current.enabled )
+        return; // zombies: SP's handler for 11 draws nothing (MP draws the fuel tank meter; DOA's flamethrower has one)
+    if ( ownerDraw == 357 && zombiemode && zombiemode->current.enabled )
+    {
+        // zombies: SP 0x005b4020 (MP has no 357): the item's material while the compass or the ammo display is shown,
+        // faded with whichever of the two is showing alone (both showing: not faded)
+        float colorMod[4] = { color[0], color[1], color[2], color[3] };
+        const int compassTime = cgameGlob->compassFadeTime;
+        const int ammoTime = cgameGlob->ammoFadeTime;
+        if ( compassTime > 0 && ammoTime <= 0 )
+            colorMod[3] = (float)CG_FadeHudMenu(localClientNum, hud_fade_compass, compassTime,
+                (int)((float)(hud_fade_compass->current.value * 1000.0f) + 9.313225746154785e-10)) * colorMod[3];
+        else if ( ammoTime > 0 && compassTime <= 0 )
+            colorMod[3] = (float)CG_FadeHudMenu(localClientNum, hud_fade_ammodisplay, ammoTime,
+                (int)((float)(hud_fade_ammodisplay->current.value * 1000.0f) + 9.313225746154785e-10)) * colorMod[3];
+        else if ( compassTime <= 0 && ammoTime <= 0 )
+            return;
+        if ( colorMod[3] != 0.0f )
+            CL_DrawStretchPic(&scrPlaceView[localClientNum], rect.x, rect.y, rect.w, rect.h, rect.horzAlign,
+                rect.vertAlign, 0.0f, 0.0f, 1.0f, 1.0f, colorMod, material);
         return;
     }
     if ( ownerDraw == 288 && zombiemode && zombiemode->current.enabled )

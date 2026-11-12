@@ -4783,6 +4783,28 @@ int CG_DrawActiveFrame(
         }
         FX_SetNextUpdateCamera(localClientNum, &fxcam);
         R_UpdateSpotLightEffect(&fxUpdateCmd);
+        if (zombietron && zombietron->current.enabled && cgameGlob->snap)
+        {
+            // zombies: SP 0x004E9D20 in Dead Ops Arcade hears from the camera's x / y at the player's height
+            // (snap->ps.origin[2]), with the camera's axes reordered: forward = the view's up (the top of the screen),
+            // left as is, up = the view's forward (straight down)
+            float listenerOrigin[3] = { cgameGlob->refdef.vieworg[0], cgameGlob->refdef.vieworg[1],
+                cgameGlob->snap->ps.origin[2] };
+            float listenerAxis[3][3];
+            for (int i = 0; i < 3; ++i)
+            {
+                listenerAxis[0][i] = cgameGlob->refdef.viewaxis[2][i];
+                listenerAxis[1][i] = cgameGlob->refdef.viewaxis[1][i];
+                listenerAxis[2][i] = cgameGlob->refdef.viewaxis[0][i];
+            }
+            SND_SetListener(
+                localClientNum,
+                cgameGlob->nextSnap->ps.clientNum,
+                cgameGlob->bgs.clientinfo[cgameGlob->clientNum].team,
+                listenerOrigin,
+                listenerAxis);
+        }
+        else
         SND_SetListener(
             localClientNum,
             cgameGlob->nextSnap->ps.clientNum,

@@ -59,6 +59,7 @@ const dvar_t *sv_punkbuster;
 const dvar_t *sv_security;
 const dvar_t *sv_ranked;
 const dvar_t *sv_maxPhysExplosionSpheres;
+const dvar_t *sv_restrictedTempEnts;
 const dvar_t *ui_ranked;
 const dvar_t *sv_dedicatedmaxclients;
 const dvar_t *sv_maxclients;
@@ -1087,6 +1088,9 @@ void __cdecl SV_Init()
     // zombies: SP registers sv_maxPhysExplosionSpheres (SP 0x006983F7: Dvar_RegisterInt -1, -1..100, flags 0x1000, empty
     // description) in its server dvar block; the WaW maps (zombie_cod5_sumpf) SetSavedDvar it. -1 = no cap, so MP is unchanged.
     sv_maxPhysExplosionSpheres = _Dvar_RegisterInt("sv_maxPhysExplosionSpheres", -1, -1, 100, 0x1000u, "");
+    // zombies: SP sv_restrictedTempEnts (SP 0x00698563: Dvar_RegisterBool 0, flags 0x1000, empty description): with a
+    // remote client connected, G_TempEntity drops bullet hits on clients (Dead Ops Arcade SetSavedDvar's it to 1)
+    sv_restrictedTempEnts = _Dvar_RegisterBool("sv_restrictedTempEnts", 0, 0x1000u, "");
     ui_ranked = _Dvar_RegisterBool("ui_ranked", 0, 0x80u, "True if playing in a ranked server");
     sv_dedicatedmaxclients = _Dvar_RegisterInt(
                                                          "sv_dedicatedmaxclients",

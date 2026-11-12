@@ -2268,7 +2268,8 @@ char __cdecl CG_GetPlayerViewOrigin(int localClientNum, const playerState_s *ps,
         }
         attachedEnt = CG_GetEntity(localClientNum, ps->viewlocked_entNum);
         ClientDObj = Com_GetClientDObj(attachedEnt->nextState.number, localClientNum);
-        if ( CG_DObjGetWorldTagMatrix(&attachedEnt->pose, ClientDObj, scr_const.tag_player, playerMtx, playerMtx[3]) )
+        // zombies: also no DObj (Dead Ops Arcade's tank viewlocks its player to the TV-guided shell it fires)
+        if ( ClientDObj && CG_DObjGetWorldTagMatrix(&attachedEnt->pose, ClientDObj, scr_const.tag_player, playerMtx, playerMtx[3]) )
         {
             weapDef = BG_GetWeaponDef(attachedEnt->nextState.weapon);
             *origin = playerMtx[3][0];
@@ -2308,7 +2309,10 @@ char __cdecl CG_GetPlayerViewOrigin(int localClientNum, const playerState_s *ps,
         }
         else
         {
-            Com_Error(ERR_DROP, "CG_GetPlayerViewOrigin: Couldn't find [tag_player] on vehicle");
+            // zombies: SP CG_GetPlayerViewOrigin (SP 0x005dde97) falls back without an error (Dead Ops Arcade's
+            // tank and helicopter have no tag_player)
+            if (!zombiemode || !zombiemode->current.enabled)
+                Com_Error(ERR_DROP, "CG_GetPlayerViewOrigin: Couldn't find [tag_player] on vehicle");
             *origin = ps->origin[0];
             origin[1] = ps->origin[1];
             origin[2] = ps->origin[2];

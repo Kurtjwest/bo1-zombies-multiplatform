@@ -286,7 +286,12 @@ void __fastcall Actor_UpdateThreat(actor_s *self)
                 DebugThreatStringSimple(self, enemy->ent, (char *)"same owner so friendly", colorRed);
                 continue;
             }
-            if ( enemy->ent->client && (enemy->ent->client->ps.eFlags & 0x4000) != 0 )
+            // zombies: SP's threat update has no "client in vehicle" skip (MP's, for its remote-control vehicles): Dead
+            // Ops Arcade's zombies keep going for a player in the tank or the helicopter. While the tank fires its
+            // TV-guided shell the player's viewlocked entity is that shell, not the vehicle, which MP's check
+            // dereferenced (a crash).
+            if ( (!zombiemode || !zombiemode->current.enabled) && enemy->ent->client
+                && (enemy->ent->client->ps.eFlags & 0x4000) != 0 )
             {
                 veh = &g_entities[enemy->ent->client->ps.viewlocked_entNum];
                 if ( !veh
@@ -294,7 +299,7 @@ void __fastcall Actor_UpdateThreat(actor_s *self)
                 {
                     __debugbreak();
                 }
-                if ( !BG_GetVehicleInfo(veh->scr_vehicle->infoIdx)->remoteControl )
+                if ( veh->scr_vehicle && !BG_GetVehicleInfo(veh->scr_vehicle->infoIdx)->remoteControl )
                 {
                     DebugThreatStringSimple(self, enemy->ent, (char*)"client in vehicle", colorRed);
                     continue;

@@ -1,4 +1,5 @@
 #include "g_client_mp.h"
+#include <game_sp/g_sp_objective.h>
 #include <game_sp/g_sp_client.h>
 #include <game_sp/g_sp_levelstart.h>
 #include <game_sp/g_sp_ext.h>
@@ -130,7 +131,9 @@ void __cdecl G_GetPlayerViewOrigin_Internal(const playerState_s *ps, float *orig
         turretEnt = &g_entities[ps->viewlocked_entNum];
         if (!G_DObjGetWorldTagPos(turretEnt, scr_const.tag_player, origin))
         {
-            Com_Error(ERR_DROP, "G_GetPlayerViewOrigin: Couldn't find [tag_player] on turret");
+            // zombies: SP G_GetPlayerViewOrigin (SP 0x00646ad0) doesn't check the turret's tag
+            if (!zombiemode || !zombiemode->current.enabled)
+                Com_Error(ERR_DROP, "G_GetPlayerViewOrigin: Couldn't find [tag_player] on turret");
             *origin = ps->origin[0];
             origin[1] = ps->origin[1];
             origin[2] = ps->origin[2];
@@ -217,6 +220,15 @@ void __cdecl G_GetPlayerViewOrigin_Internal(const playerState_s *ps, float *orig
         }
         else
         {
+            if (zombiemode && zombiemode->current.enabled)
+            {
+                // zombies: SP G_GetPlayerViewOrigin (SP 0x00646c48): a vehicle without tag_player (Dead Ops Arcade's
+                // tank and helicopter) puts the view at the player's own eye height; no error
+                *origin = ps->origin[0];
+                origin[1] = ps->origin[1];
+                origin[2] = ps->origin[2] + ps->viewHeightCurrent;
+                return;
+            }
             Com_Error(ERR_DROP, "G_GetPlayerViewOrigin: Couldn',27h,'t find [tag_player] on vehicle");
             *origin = ps->origin[0];
             origin[1] = ps->origin[1];
@@ -516,6 +528,7 @@ void __cdecl ClientBegin(unsigned int clientNum)
     client->ps.pm_type = 4;
     CalculateRanks();
     G_SP_HeadlessClientBegin(clientNum);
+    G_SP_SendObjectivesToClient(clientNum); // zombies: SP's objective info strings (game_sp/g_sp_objective.cpp)
     Scr_Notify(&g_entities[clientNum], scr_const.begin, 0);
 }
 

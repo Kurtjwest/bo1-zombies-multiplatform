@@ -4,6 +4,7 @@
 #include <game_sp/g_sp_testplan.h>
 #include <game_sp/g_sp_headless_dice.h>
 #include "g_scr_main_mp.h"
+#include <game_sp/g_sp_objective.h>
 #include <clientscript/cscr_vm.h>
 #include "g_main_mp.h"
 #include <cgame/cg_scr_main.h>
@@ -5204,6 +5205,7 @@ void __cdecl G_InitObjectives()
 
     for ( i = 0; i < 32; ++i )
         ClearObjective(&level.objectives[i]);
+    G_SP_InitObjectives(); // zombies: SP's objective info strings (game_sp/g_sp_objective.cpp)
 }
 
 int __cdecl ObjectiveStateIndexFromString(objectiveState_t *piStateIndex, unsigned int stateString)
@@ -5263,6 +5265,13 @@ void Scr_Objective_Add()
     int numParam; // [esp+8h] [ebp-Ch]
     unsigned __int16 stateName; // [esp+Ch] [ebp-8h]
     int objNum; // [esp+10h] [ebp-4h]
+
+    // zombies: SP's objective builtins on SP levels (config-string objectives, game_sp/g_sp_objective.cpp)
+    if ( G_SP_IsSPLevel() )
+    {
+        G_SP_Objective_Add();
+        return;
+    }
 
     numParam = Scr_GetNumParam(SCRIPTINSTANCE_SERVER);
     if ( numParam < 2 )
@@ -5346,6 +5355,13 @@ void Scr_Objective_Delete()
     const char *v0; // eax
     int objNum; // [esp+0h] [ebp-4h]
 
+    // zombies: SP's objective builtins on SP levels (config-string objectives, game_sp/g_sp_objective.cpp)
+    if ( G_SP_IsSPLevel() )
+    {
+        G_SP_Objective_Delete();
+        return;
+    }
+
     objNum = Scr_GetInt(0, SCRIPTINSTANCE_SERVER);
     if ( (unsigned int)objNum >= 0x20 )
     {
@@ -5367,6 +5383,13 @@ void Scr_Objective_State()
     objective_t *obj; // [esp+4h] [ebp-Ch]
     unsigned __int16 stateName; // [esp+8h] [ebp-8h]
     int objNum; // [esp+Ch] [ebp-4h]
+
+    // zombies: SP's objective builtins on SP levels (config-string objectives, game_sp/g_sp_objective.cpp)
+    if ( G_SP_IsSPLevel() )
+    {
+        G_SP_Objective_State();
+        return;
+    }
 
     objNum = Scr_GetInt(0, SCRIPTINSTANCE_SERVER);
     if ( (unsigned int)objNum >= 0x20 )
@@ -5394,6 +5417,13 @@ void Scr_Objective_Icon()
     const char *v0; // eax
     int objNum; // [esp+0h] [ebp-4h]
 
+    // zombies: SP's objective builtins on SP levels (config-string objectives, game_sp/g_sp_objective.cpp)
+    if ( G_SP_IsSPLevel() )
+    {
+        G_SP_Objective_Icon();
+        return;
+    }
+
     objNum = Scr_GetInt(0, SCRIPTINSTANCE_SERVER);
     if ( (unsigned int)objNum >= 0x20 )
     {
@@ -5408,6 +5438,13 @@ void Scr_Objective_Position()
     const char *v0; // eax
     objective_t *obj; // [esp+0h] [ebp-8h]
     int objNum; // [esp+4h] [ebp-4h]
+
+    // zombies: SP's objective builtins on SP levels (config-string objectives, game_sp/g_sp_objective.cpp)
+    if ( G_SP_IsSPLevel() )
+    {
+        G_SP_Objective_Position();
+        return;
+    }
 
     objNum = Scr_GetInt(0, SCRIPTINSTANCE_SERVER);
     if ( (unsigned int)objNum >= 0x20 )
@@ -5429,6 +5466,13 @@ void Scr_Objective_OnEntity()
     gentity_s *Entity; // eax
     int objNum; // [esp+8h] [ebp-4h]
 
+    // zombies: SP's objective builtins on SP levels (config-string objectives, game_sp/g_sp_objective.cpp)
+    if ( G_SP_IsSPLevel() )
+    {
+        G_SP_Objective_OnEntity();
+        return;
+    }
+
     objNum = Scr_GetInt(0, SCRIPTINSTANCE_SERVER);
     if ( (unsigned int)objNum >= 0x20 )
     {
@@ -5449,6 +5493,13 @@ void Scr_Objective_Current()
     int makeCurrent[32]; // [esp+8h] [ebp-88h] BYREF
     int i; // [esp+88h] [ebp-8h]
     int objNum; // [esp+8Ch] [ebp-4h]
+
+    // zombies: SP's objective builtins on SP levels (config-string objectives, game_sp/g_sp_objective.cpp)
+    if ( G_SP_IsSPLevel() )
+    {
+        G_SP_Objective_Current();
+        return;
+    }
 
     numParam = Scr_GetNumParam(SCRIPTINSTANCE_SERVER);
     memset((unsigned __int8 *)makeCurrent, 0, sizeof(makeCurrent));
@@ -6808,8 +6859,51 @@ void __cdecl Scr_SightTracePassed()
 
 const int scriptMaskToPhysicsMask[3] = { 42003603, 529, 32 };
 
+// zombies: SP physicstrace (SP 0x007f8560): ( start, end, [mins], [maxs] ) traced against mask 0x820011, returning
+// the end position as a vector (every SP script uses it so; MP returns its trace array). Five arguments read
+// argument 6 for the entity to ignore, so they fail with "parameter 6 does not exist", as in the original.
+static void Scr_SP_PhysicsTrace()
+{
+    float start[3] = { 0.0f, 0.0f, 0.0f };
+    float end[3] = { 0.0f, 0.0f, 0.0f };
+    float mins[3] = { 0.0f, 0.0f, 0.0f };
+    float maxs[3] = { 0.0f, 0.0f, 0.0f };
+    int ignoreEntNum = 1023;
+    switch ( Scr_GetNumParam(SCRIPTINSTANCE_SERVER) )
+    {
+        case 5:
+            if ( Scr_GetType(5u, SCRIPTINSTANCE_SERVER) == 1 && Scr_GetPointerType(5u, SCRIPTINSTANCE_SERVER) == 19 )
+                ignoreEntNum = Scr_GetEntity(5u)->s.number;
+            [[fallthrough]];
+        case 4:
+            Scr_GetVector(3u, maxs, SCRIPTINSTANCE_SERVER);
+            [[fallthrough]];
+        case 3:
+            Scr_GetVector(2u, mins, SCRIPTINSTANCE_SERVER);
+            [[fallthrough]];
+        case 2:
+            Scr_GetVector(0, start, SCRIPTINSTANCE_SERVER);
+            Scr_GetVector(1u, end, SCRIPTINSTANCE_SERVER);
+            break;
+        default:
+            Scr_Error("illegal call to PhysicsTrace()", 0);
+            break;
+    }
+    col_context_t context;
+    trace_t trace;
+    G_TraceCapsule(&trace, start, mins, maxs, end, ignoreEntNum, 0x820011, &context);
+    float endpos[3];
+    Vec3Lerp(start, end, trace.fraction, endpos);
+    Scr_AddVector(endpos, SCRIPTINSTANCE_SERVER);
+}
+
 void Scr_PhysicsTrace()
 {
+    if ( G_SP_IsSPLevel() )
+    {
+        Scr_SP_PhysicsTrace();
+        return;
+    }
     char *v0; // eax
     float vNorm[3]; // [esp+18h] [ebp-C8h] BYREF
     int i; // [esp+24h] [ebp-BCh]

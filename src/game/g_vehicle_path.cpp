@@ -2024,7 +2024,9 @@ void __cdecl G_SpawnHeliHeightLock(SpawnVar *spawnVar)
     const char *targetnameString; // [esp+1Ch] [ebp-8h] BYREF
     int modelIndex; // [esp+20h] [ebp-4h]
 
-    if (num_heli_height_lock_patches <= 0)
+    // zombies: the decompile read "<= 0" here, which kept only a map's first patch; SP G_SpawnHeliHeightLock
+    // (SP 0x00548d60) takes up to 32 (Dead Ops Arcade's map has 19, for the helicopter's lockheliheight)
+    if (num_heli_height_lock_patches < 32)
     {
         if (num_heli_height_lock_patches >= 32
             && !Assert_MyHandler(
