@@ -22,6 +22,10 @@ macOS: Keychain Access, set it to Always Trust; Windows: certmgr.msc, Trusted Ro
 past the warning once per browser. --cert/--key use a certificate of your own (mkcert's, say); --http serves plain
 HTTP, for localhost or behind a reverse proxy that adds HTTPS.
 
+Behind a reverse proxy (nginx, say; see the browser section of README.md): run it with --http --bind 127.0.0.1 and
+let the proxy pass a path (/bo1/, say) to it, its headers left as they are. --make-cert makes this server's certificate
+for the proxy to use, if it has none of its own (--name adds the names devices reach the machine by).
+
 This is for a home network: there are no accounts, and anyone who can reach the port can play and read the game
 files. Don't forward it to the internet.
 
@@ -373,9 +377,9 @@ def lan_addresses():
     return sorted(a for a in addrs if not a.startswith("127."))
 
 
-def make_certificates(state):
-    """this server's own certificate authority and a certificate signed by it for this machine's names and addresses
-    (made again when the addresses change)"""
+def make_certificates(state, extra_names=()):
+    """this server's own certificate authority and a certificate signed by it for this machine's names and addresses,
+    and any other names given (made again when they change)"""
     ca_key = os.path.join(state, "ca-key.pem")
     ca_crt = os.path.join(state, "ca.crt")
     key = os.path.join(state, "server-key.pem")
@@ -385,6 +389,7 @@ def make_certificates(state):
     names = ["localhost", host]
     if not host.endswith(".local"):
         names.append(host.split(".")[0] + ".local")
+    names += list(extra_names)
     ips = ["127.0.0.1"] + lan_addresses()
     san = ",".join(["DNS:" + n for n in dict.fromkeys(names)] + ["IP:" + i for i in dict.fromkeys(ips)])
     have = open(names_file).read() if os.path.exists(names_file) else ""
@@ -450,8 +455,23 @@ def main():
     ap.add_argument("--http", action="store_true", help="plain HTTP (works from http://localhost only)")
     ap.add_argument("--cert", help="certificate (PEM) instead of the server's own")
     ap.add_argument("--key", help="its private key (PEM)")
+    ap.add_argument("--name", action="append", default=[],
+                    help="another name of this machine for its certificate (as often as needed): the name devices "
+                         "reach it by, if not its own host name")
+    ap.add_argument("--make-cert", action="store_true",
+                    help="make the certificate authority and this machine's certificate in --state, print where they "
+                         "are and quit (for a reverse proxy, such as nginx, that serves the game over HTTPS)")
     ap.add_argument("--verbose", action="store_true", help="log every request")
     args = ap.parse_args()
+
+    if args.make_cert:
+        state = os.path.abspath(os.path.expanduser(args.state))
+        os.makedirs(state, exist_ok=True)
+        ca_crt, crt, key = make_certificates(state, args.name)
+        print("certificate:     %s\nits key:         %s\nauthority:       %s (for the devices: <address>/ca.crt)"
+              % (crt, key, ca_crt))
+        print("names:           %s" % open(os.path.join(state, "server-names.txt")).read())
+        return
 
     game = args.game
     if game:
@@ -496,7 +516,7 @@ def main():
         if args.cert and args.key:
             crt, key = args.cert, args.key
         else:
-            Handler.ca_cert, crt, key = make_certificates(state)
+            Handler.ca_cert, crt, key = make_certificates(state, args.name)
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(crt, key)
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
@@ -515,7 +535,11 @@ def main():
         print("Certificate authority to install on the devices (removes the browser's warning): /ca.crt (%s)"
               % Handler.ca_cert)
     if args.http:
-        print("(plain HTTP: browsers allow the game's threads on http://localhost only)")
+        # (behind a reverse proxy with the certificate --make-cert made, the devices still find its authority here)
+        if os.path.isfile(os.path.join(state, "ca.crt")):
+            Handler.ca_cert = os.path.join(state, "ca.crt")
+        print("(plain HTTP: browsers allow the game's threads on http://localhost only, or behind a reverse proxy that "
+              "adds HTTPS)")
     sys.stdout.flush()
     try:
         httpd.serve_forever()

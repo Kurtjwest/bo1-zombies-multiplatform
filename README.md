@@ -275,6 +275,29 @@ to Always Trust; Windows: install it into Trusted Root Certification Authorities
 each browser. `--cert`/`--key` use a certificate of your own instead (mkcert's, say), and `--http` serves plain HTTP,
 which browsers accept only on the computer itself (`http://localhost:8443`) or behind a reverse proxy that adds HTTPS.
 
+**Behind a reverse proxy** (an nginx that already serves a site on the network, on a Raspberry Pi, say): the server
+listens on the machine itself with `--http`, and the proxy passes a path to it with HTTPS. The game files (the game
+folder, `build-web/web` and `build-web/gamedata`, built anywhere) are copied to that machine, which only needs Python:
+
+```sh
+python3 web-server.py --http --bind 127.0.0.1 --port 8090 --site build-web/web --game /path/to/game
+```
+
+```nginx
+location = /bo1 { return 301 /bo1/; }
+location /bo1/ {
+    proxy_pass http://127.0.0.1:8090/;   # (the trailing / strips /bo1 from the path)
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_buffering off;                 # the game file pieces straight through, not via the proxy's temporary files
+    client_max_body_size 64m;            # the saves and screenshots the game sends back
+}
+```
+
+in the proxy's HTTPS `server` block, which must leave the server's `Cross-Origin-*` headers as they are. Without a
+certificate the devices already trust, `python3 web-server.py --make-cert [--name <the name devices use>]` makes one
+for nginx's `ssl_certificate` / `ssl_certificate_key`, and its authority is at `https://<machine>/bo1/ca.crt`.
+
 **Browsers.** Current versions of Chrome and Edge (95 or later), Firefox (105) and Safari (17, on macOS, iOS and iPadOS):
 the game needs WebGL 2 in a worker (OffscreenCanvas), WebAssembly threads, SIMD and exceptions, and the page says what
 a browser lacks. It needs a lot of memory (it starts with 512 MB and grows as maps load, up to 4 GB), which some phones
