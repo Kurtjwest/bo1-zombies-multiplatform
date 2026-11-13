@@ -67,6 +67,8 @@ target_compile_options(${BIN_NAME} PRIVATE -msse4.2)
 # garbage where the engine passes one to printf. (The driver accepts the option for x86 only; the compiler itself
 # takes it for any target. The engine calls none of the C library's long double functions.)
 target_compile_options(${BIN_NAME} PRIVATE "SHELL:-Xclang -mlong-double-64")
+# (and every file is checked for it: web_prefix.h)
+target_compile_options(${BIN_NAME} PRIVATE "SHELL:-include ${SRC_DIR}/platform/web/web_prefix.h")
 # WasmFS's own headers (the game folder's HTTP backend, web_fs.cpp)
 target_include_directories(${BIN_NAME} PRIVATE "${EMSCRIPTEN_ROOT_PATH}/system/lib/wasmfs")
 

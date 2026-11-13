@@ -103,6 +103,13 @@ function(bo1_release_tuning target)
         message(STATUS "ThinLTO: off (BO1_LTO)")
         return()
     endif()
+    if(EMSCRIPTEN)
+        # (the browser build's long double is the Windows game's double, cmake/web.cmake, and Emscripten's prebuilt
+        # LTO libraries have the 128-bit one, which newer LLVM refuses to link with it; wasm-opt still optimizes the
+        # whole program at the link)
+        message(STATUS "ThinLTO: off (the browser build)")
+        return()
+    endif()
     if(NOT BO1_WRAPV_POINTER)
         message(STATUS "ThinLTO: off (it needs clang 20 or later, for -fwrapv-pointer: see BO1_CLANG_LANGUAGE_FLAGS)")
         return()
