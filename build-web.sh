@@ -48,8 +48,12 @@ if [ "$install_emsdk" = 1 ]; then
     fi
     (cd .emsdk && ./emsdk install "$EMSDK_VERSION" && ./emsdk activate "$EMSDK_VERSION")
 fi
-# the emsdk's environment: the one of this repository, or the one $EMSDK names
-if ! command -v emcc > /dev/null; then
+# the emsdk's environment: the one of this repository (always, with --install-emsdk, even if another Emscripten is on
+# the PATH), or the one $EMSDK names
+if [ "$install_emsdk" = 1 ]; then
+    # shellcheck disable=SC1091
+    source .emsdk/emsdk_env.sh > /dev/null 2>&1
+elif ! command -v emcc > /dev/null; then
     for env in .emsdk/emsdk_env.sh "${EMSDK:-/nonexistent}/emsdk_env.sh"; do
         if [ -f "$env" ]; then
             # shellcheck disable=SC1090
@@ -78,6 +82,20 @@ fi
 suffix=""
 [ "$config" = "Release" ] || suffix="-$(echo "$config" | tr '[:upper:]' '[:lower:]')"
 dir="build-web$suffix"
+# a build folder made with another Emscripten is made again (CMake keeps the compiler it was first configured with)
+same_emscripten() {
+    python3 -c '
+import os, re, sys
+cache, emcc = sys.argv[1], sys.argv[2]
+m = re.search(r"^CMAKE_TOOLCHAIN_FILE:FILEPATH=(.*)$", open(cache).read(), re.M)
+mine = os.path.join(os.path.dirname(os.path.realpath(emcc)), "cmake", "Modules", "Platform", "Emscripten.cmake")
+sys.exit(0 if m and os.path.realpath(m.group(1)) == os.path.realpath(mine) else 1)
+' "$1" "$(command -v emcc)"
+}
+if [ -f "$dir/CMakeCache.txt" ] && ! same_emscripten "$dir/CMakeCache.txt"; then
+    echo "($dir was configured with another Emscripten: configuring it again, and building everything once)"
+    rm -rf "$dir/CMakeCache.txt" "$dir/CMakeFiles"
+fi
 # (kept out of git status: this clone's own exclude list, so the repository's .gitignore stays as it is)
 if [ -d .git ] && ! grep -qs '^/build-web\*/$' .git/info/exclude; then
     mkdir -p .git/info
