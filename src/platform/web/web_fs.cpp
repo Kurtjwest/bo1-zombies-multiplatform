@@ -20,6 +20,7 @@
 #include "file.h"
 #include "memory_backend.h"
 #include "paths.h"
+#include "special_files.h"
 #include "wasmfs.h"
 
 #include "web_shared.h"
@@ -372,6 +373,23 @@ public:
     std::shared_ptr<Symlink> createSymlink(std::string target) override
     {
         return std::make_shared<MemorySymlink>(target, this);
+    }
+    // /dev and /tmp in the root, as the memory backend makes them. Later Emscriptens leave that to the root's backend
+    // (a virtual function of Backend, which this then overrides); Emscripten 3.1 makes them itself and never calls
+    // this. (Not marked override, for the versions without it.)
+    void populateRoot(Directory::Handle &lockedRoot)
+    {
+        if (auto dev = lockedRoot.insertDirectory("dev", S_IRUGO | S_IXUGO))
+        {
+            auto lockedDev = dev->locked();
+            lockedDev.mountChild("null", SpecialFiles::getNull());
+            lockedDev.mountChild("stdin", SpecialFiles::getStdin());
+            lockedDev.mountChild("stdout", SpecialFiles::getStdout());
+            lockedDev.mountChild("stderr", SpecialFiles::getStderr());
+            lockedDev.mountChild("random", SpecialFiles::getRandom());
+            lockedDev.mountChild("urandom", SpecialFiles::getURandom());
+        }
+        lockedRoot.insertDirectory("tmp", S_IRWXUGO);
     }
 };
 

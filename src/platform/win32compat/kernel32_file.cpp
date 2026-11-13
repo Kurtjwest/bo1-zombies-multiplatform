@@ -20,6 +20,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <cstdio>
+#include <atomic>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -195,6 +196,39 @@ bool ResolveCaseInsensitive(const std::string &path, std::string &out)
     return true;
 }
 
+#if defined(__EMSCRIPTEN__)
+// The browser build: why one of the game's fast files could not be opened, and what the folders on its way hold, for
+// the browser's console (the game folder is the server's: src/platform/web/web_fs.cpp)
+static void ReportOpenFailure(const char *name, const std::string &path, int err)
+{
+    const size_t n = path.size();
+    if (n < 3 || strcasecmp(path.c_str() + n - 3, ".ff") != 0)
+        return;
+    static std::atomic<int> reports{0};
+    if (reports.fetch_add(1) >= 4)
+        return;
+    fprintf(stderr, "[web] cannot open %s (as %s): %s\n", name, path.c_str(), strerror(err));
+    for (size_t slash = path.find('/', 1); slash != std::string::npos; slash = path.find('/', slash + 1))
+    {
+        const std::string dir = path.substr(0, slash);
+        std::string list;
+        int count = 0;
+        if (DIR *d = opendir(dir.c_str()))
+        {
+            while (dirent *e = readdir(d))
+            {
+                if (++count <= 12)
+                    list += std::string(" ") + e->d_name;
+            }
+            closedir(d);
+            fprintf(stderr, "[web]   %s: %d entries:%s%s\n", dir.c_str(), count, list.c_str(), count > 12 ? " ..." : "");
+        }
+        else
+            fprintf(stderr, "[web]   %s: cannot list it: %s\n", dir.c_str(), strerror(errno));
+    }
+}
+#endif
+
 std::string HostPath(const char *winPath)
 {
     std::string p = Normalize(winPath);
@@ -361,6 +395,10 @@ HANDLE CreateFileA(LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES
         return INVALID_HANDLE_VALUE;
     }
     int fd = open(path.c_str(), oflags | O_CLOEXEC, 0644);
+#if defined(__EMSCRIPTEN__)
+    if (fd < 0)
+        ReportOpenFailure(name, path, errno);
+#endif
     if (fd < 0)
     {
         SetError(ErrnoToWin32(errno));
