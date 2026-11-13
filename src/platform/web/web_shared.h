@@ -143,6 +143,9 @@ struct SharedState
 
 constexpr int32_t kSharedVersion = 3;
 
+// why the game folder could not be read from the server ("" if it could, or was not tried): web_bridge.cpp
+const char *GameFolderError();
+
 SharedState &Shared();
 } // namespace bo1web
 

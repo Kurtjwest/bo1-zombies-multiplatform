@@ -536,14 +536,14 @@ int main(int argc, char **argv)
         // the browser build: the game folder is the server's (web_fs.cpp, tools/web-server.py)
         if (gameDir.empty() || !LooksLikeGameDir(gameDir, true))
         {
-            Bridge_MessageBox("BO1 Zombies",
-                              gameDir.empty()
-                                  ? "The game's files could not be read from the server. Is tools/web-server.py still "
-                                    "running? Reload the page to try again."
-                                  : "The server's game folder has no Call of Duty: Black Ops files (zone/ and main/ "
-                                    "with its .iwd files). Start tools/web-server.py with --game and the folder of a "
-                                    "Black Ops PC install.",
-                              0, 2);
+            std::string msg;
+            if (gameDir.empty())
+                msg = std::string("The game's files could not be read from the server (") + bo1web::GameFolderError() +
+                      "). Is tools/web-server.py still running? Reload the page to try again.";
+            else
+                msg = "The server's game folder has no Call of Duty: Black Ops files (zone/ and main/ with its .iwd "
+                      "files). Start tools/web-server.py with --game and the folder of a Black Ops PC install.";
+            Bridge_MessageBox("BO1 Zombies", msg.c_str(), 0, 2);
             return 1;
         }
 #endif

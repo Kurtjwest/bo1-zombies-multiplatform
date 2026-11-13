@@ -699,8 +699,10 @@ bool MountGameFolder(const char *mountPoint, std::string *error)
 }
 } // namespace bo1web
 
+// WasmFS's hook for the root's backend, a weak definition in its wasmfs.cpp: a C++ function in namespace wasmfs in
+// Emscripten 3.1, a C function in later versions. Both are here; the version's WasmFS calls its own.
 namespace wasmfs
 {
-// (WasmFS's hook for the root's backend, a weak definition in its wasmfs.cpp)
 backend_t wasmfs_create_root_dir(void) { return bo1web::RootBackend(); }
 } // namespace wasmfs
+extern "C" wasmfs::backend_t wasmfs_create_root_dir(void) { return bo1web::RootBackend(); }

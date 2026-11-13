@@ -9,6 +9,7 @@ addToLibrary({
   // The game's memory (a shared WebAssembly.Memory) for the page and its fetch worker, as Module.bo1Memory():
   // Emscripten used to put it, and views of it such as HEAPU8, on Module itself; newer versions do only on request.
   bo1_web_http_read__postset: "Module['bo1Memory'] = function() { return typeof wasmMemory != 'undefined' ? wasmMemory : null; };",
+  bo1_web_http_read__deps: ['$UTF8ToString'],
   bo1_web_http_read: function(url, offset, length, dst) {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', UTF8ToString(url), false);
@@ -30,7 +31,7 @@ addToLibrary({
   },
 
   // A text file of the server's, malloc'd (the caller frees it), or 0; *status gets the HTTP status.
-  bo1_web_http_get_text__deps: ['malloc'],
+  bo1_web_http_get_text__deps: ['malloc', '$UTF8ToString', '$lengthBytesUTF8', '$stringToUTF8'],
   bo1_web_http_get_text: function(url, status) {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', UTF8ToString(url), false);
@@ -50,6 +51,7 @@ addToLibrary({
   },
 
   // Sends a file the game wrote back to the server. Returns the HTTP status (0: no answer).
+  bo1_web_http_put__deps: ['$UTF8ToString'],
   bo1_web_http_put: function(url, data, length) {
     var xhr = new XMLHttpRequest();
     xhr.open('PUT', UTF8ToString(url), false);
@@ -64,6 +66,7 @@ addToLibrary({
     return xhr.status;
   },
 
+  bo1_web_http_delete__deps: ['$UTF8ToString'],
   bo1_web_http_delete: function(url) {
     var xhr = new XMLHttpRequest();
     xhr.open('DELETE', UTF8ToString(url), false);
@@ -119,6 +122,7 @@ addToLibrary({
   },
 
   // Whether the context has an extension (one of those bo1_web_gl_create enables).
+  bo1_web_gl_has__deps: ['$UTF8ToString'],
   bo1_web_gl_has: function(name) {
     var list = Module['bo1GlExtensions'] || [];
     return list.indexOf(UTF8ToString(name)) >= 0 ? 1 : 0;

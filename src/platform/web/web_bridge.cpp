@@ -44,6 +44,13 @@ SharedState g_shared;
 
 SharedState &Shared() { return g_shared; }
 
+namespace
+{
+std::string g_mountError; // (Bridge_AppSupportPath)
+}
+
+const char *GameFolderError() { return g_mountError.c_str(); }
+
 static_assert(offsetof(SharedState, canvasW) == 16 && offsetof(SharedState, framesPresented) == 64 &&
                   offsetof(SharedState, title) == 88 && offsetof(SharedState, keyState) == 216 &&
                   offsetof(SharedState, exitCode) == 256 && offsetof(SharedState, framePixels) == 260 &&
@@ -527,10 +534,9 @@ const char *Bridge_AppSupportPath(void)
     if (!tried)
     {
         tried = true;
-        std::string err;
-        mounted = MountGameFolder("/game", &err);
+        mounted = MountGameFolder("/game", &g_mountError);
         if (!mounted)
-            fprintf(stderr, "[web] the game folder could not be read from the server: %s\n", err.c_str());
+            fprintf(stderr, "[web] the game folder could not be read from the server: %s\n", g_mountError.c_str());
     }
     return mounted ? "/game" : "";
 }
