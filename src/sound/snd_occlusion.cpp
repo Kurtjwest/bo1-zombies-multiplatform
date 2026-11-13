@@ -610,7 +610,7 @@ void __cdecl SND_LosOcclusionUpdate()
     }
 }
 
-void __cdecl SND_LosOcclusionThreadMain()
+void __cdecl SND_LosOcclusionThreadMain(unsigned int)
 {
     while ( Sys_QueryWin32QuitEvent() )
     {
@@ -642,7 +642,7 @@ void __cdecl SND_LosOcclusionInit()
     g_snd.occlusionRunning = 1;
     Target = 0;
     InterlockedExchange(&Target, 0);
-    Sys_SpawnOcclusion((void(__cdecl *)(unsigned int))SND_LosOcclusionThreadMain);
+    Sys_SpawnOcclusion(SND_LosOcclusionThreadMain);
 }
 
 void __cdecl SND_LosOcclusionFini()

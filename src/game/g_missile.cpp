@@ -405,7 +405,7 @@ void __cdecl G_RegisterMissileDebugDvars()
                                                          "Draw the attractors and repulsors.    Attractors are green, and repulsors are yellow.");
 }
 
-bool __cdecl collide_missle_entity_filter(int entnum)
+bool __cdecl collide_missle_entity_filter(int entnum, col_context_t *)
 {
     return *(__int16 *)((char *)&sv.gentities->s.eType + entnum * sv.gentitySize) != 4;
 }

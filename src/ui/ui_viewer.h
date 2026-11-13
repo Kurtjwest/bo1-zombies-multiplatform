@@ -289,14 +289,14 @@ struct __declspec(align(8)) UIViewer // sizeof=0xA16C0
     static void __cdecl SetCameraPosCmd();
     static void __cdecl ResetCameraCmd();
     static void __cdecl SetControllerIndexCmd();
-    static DObj *__cdecl GetDObj(int handle);
+    static DObj *__cdecl GetDObj(int handle, int localClientNum = 0);
     void __thiscall Draw(int localClientNum, bool _ingame, unsigned int eyeToRender);
     void __thiscall SetupStreamer();
 };
 
 void __cdecl UI_ViewerRotateLeftRepeatEnabled_f();
 void __cdecl UI_ViewerRotateRightRepeatEnabled_f();
-void __cdecl ForceLoadWeapon(XAssetHeader header);
+void __cdecl ForceLoadWeapon(XAssetHeader header, void *);
 void __cdecl UI_ViewerDraw(unsigned int eyeToRender);
 void __cdecl UI_ViewerShutdown();
 void __cdecl UI_ViewerCheckStreamer();

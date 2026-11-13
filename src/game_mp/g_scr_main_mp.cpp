@@ -17656,9 +17656,9 @@ void __cdecl GScr_AddEntity(gentity_s *pEnt)
 void __cdecl Scr_ParseGameTypeList()
 {
     if ( useFastFile->current.enabled )
-        ((void (__cdecl *)(void (*)()))Scr_ParseGameTypeList_FastFile)(Scr_ParseGameTypeList_FastFile);
+        Scr_ParseGameTypeList_FastFile();
     else
-        ((void (__cdecl *)(int (*)()))Scr_ParseGameTypeList_LoadObj)(Scr_ParseGameTypeList_LoadObj);
+        Scr_ParseGameTypeList_LoadObj();
 }
 
 int Scr_ParseGameTypeList_LoadObj()

@@ -35,14 +35,30 @@ endif()
 if(BO1_DEP_ARCH STREQUAL "x86")
     list(APPEND BO1_FFMPEG_ASM_ARGS --disable-inline-asm)
 endif()
+# WebAssembly (the browser build): FFmpeg has no such target; its generic C as a 32-bit processor, no assembly, and
+# no position-independent code (the program is one module)
+set(BO1_FFMPEG_ARCH ${BO1_DEP_ARCH})
+set(BO1_FFMPEG_PIC_ARGS --enable-pic)
+set(BO1_FFMPEG_CC "${CMAKE_C_COMPILER}")
+if(BO1_DEP_ARCH STREQUAL "wasm32")
+    set(BO1_FFMPEG_ARCH x86_32)
+    set(BO1_FFMPEG_ASM_ARGS --disable-asm --disable-inline-asm --disable-x86asm)
+    set(BO1_FFMPEG_PIC_ARGS --disable-pic --disable-stripping)
+    # (configure takes a compiler that accepts "-?" for clang-cl, MSVC's: emcc does, so it gets a wrapper that doesn't)
+    file(WRITE "${CMAKE_BINARY_DIR}/ffmpeg/wrapper-src/emcc-for-ffmpeg.sh"
+        "#!/bin/sh\n[ \"$1\" = \"-?\" ] && exit 1\nexec \"${CMAKE_C_COMPILER}\" \"$@\"\n")
+    file(COPY "${CMAKE_BINARY_DIR}/ffmpeg/wrapper-src/emcc-for-ffmpeg.sh" DESTINATION "${CMAKE_BINARY_DIR}/ffmpeg"
+        FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+    set(BO1_FFMPEG_CC "${CMAKE_BINARY_DIR}/ffmpeg/emcc-for-ffmpeg.sh")
+endif()
 
 set(BO1_FFMPEG_CONFIGURE_ARGS
     --prefix=${BO1_FFMPEG_INSTALL}
     --target-os=${BO1_DEP_OS}
-    --arch=${BO1_DEP_ARCH}
+    --arch=${BO1_FFMPEG_ARCH}
     ${BO1_FFMPEG_CROSS_ARGS}
     ${BO1_FFMPEG_ASM_ARGS}
-    --cc=${CMAKE_C_COMPILER}
+    --cc=${BO1_FFMPEG_CC}
     --ar=${CMAKE_AR}
     --ranlib=${CMAKE_RANLIB}
     --nm=${CMAKE_NM}
@@ -50,7 +66,7 @@ set(BO1_FFMPEG_CONFIGURE_ARGS
     "--extra-ldflags=${BO1_DEP_LDFLAGS}"
     --enable-static
     --disable-shared
-    --enable-pic
+    ${BO1_FFMPEG_PIC_ARGS}
     --disable-everything
     --disable-autodetect
     --disable-programs

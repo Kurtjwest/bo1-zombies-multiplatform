@@ -14,8 +14,8 @@ const TaskDefinition task_downloadAllCounters[1] =
     2uLL,
     "downloadAllCounters",
     0,
-    (void(*)(TaskRecord*))LiveCounter_DownloadAllCountersComplete,
-    (void(*)(TaskRecord*))LiveCounter_DownloadAllCountersFailure,
+    LiveCounter_DownloadAllCountersComplete,
+    LiveCounter_DownloadAllCountersFailure,
     NULL
   }
 };
@@ -184,12 +184,12 @@ TaskRecord *__cdecl LiveCounter_DownloadAllCounters(int controllerIndex)
                      s_serverCountersTotal);
 }
 
-void __cdecl LiveCounter_DownloadAllCountersComplete()
+void __cdecl LiveCounter_DownloadAllCountersComplete(TaskRecord *)
 {
     Com_Printf(16, "Downloaded all global counters.\n");
 }
 
-void __cdecl LiveCounter_DownloadAllCountersFailure()
+void __cdecl LiveCounter_DownloadAllCountersFailure(TaskRecord *)
 {
     Com_PrintError(16, "Failed to download all global counters.\n");
 }

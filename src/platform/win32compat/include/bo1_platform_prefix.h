@@ -3,11 +3,12 @@
 // shims.
 #pragma once
 #if !defined(_WIN32)
-// the engine runs on the Win32 compatibility layer (src/platform/win32compat): macOS, Linux
+// the engine runs on the Win32 compatibility layer (src/platform/win32compat): macOS, Linux, the browser (Emscripten:
+// musl and libc++, which here are like Linux's)
 #ifndef BO1_PORT
 #define BO1_PORT 1
 #endif
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
 #if defined(__cplusplus)
 // libstdc++'s <cstdio>, <cstdlib>, ... #undef the C library's names, which would drop msvc_crt.h's path-translating
 // macros (fopen, stat, ...) in every file that includes one of them later: they are included first
@@ -19,14 +20,15 @@
 #include <ctime>
 #include <cwchar>
 #endif
-// glibc's <sys/types.h> declares a 64-bit ulong; the engine's (q_shared.h) is 32-bit, as on Windows
+// glibc's <sys/types.h> declares a 64-bit ulong (musl's: a 32-bit unsigned long); the engine's (q_shared.h) is a
+// 32-bit unsigned int, as on Windows
 #include <sys/types.h>
 #define ulong bo1_ulong32
 #endif
-#if defined(__i386__)
-// 32-bit x86: the Win32 calling conventions mean nothing between functions that are all compiled from source (they
-// are ignored on the other processors): the default one everywhere, as there, so declarations that differ in them
-// (an engine override of an interface the compatibility layer declares) still match
+#if defined(__i386__) || defined(__EMSCRIPTEN__)
+// 32-bit x86 and WebAssembly: the Win32 calling conventions mean nothing between functions that are all compiled from
+// source (they are ignored on the other processors): the default one everywhere, as there, so declarations that differ
+// in them (an engine override of an interface the compatibility layer declares) still match
 #define __stdcall
 #define _stdcall
 #define __cdecl

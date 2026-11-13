@@ -690,7 +690,7 @@ void __cdecl R_MarkFragments_Begin(
         markInfo->smodelCollidedCount = R_BoxStaticModels(
                                                                             markInfo->mins,
                                                                             markInfo->maxs,
-                                                                            (int (__cdecl *)(int))CL_LocalClient_GetActiveCount,
+                                                                            CL_LocalClient_GetActiveCount,
                                                                             markInfo->smodelsCollided,
                                                                             32);
         markInfo->sceneDObjCollidedCount = 0;

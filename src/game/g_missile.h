@@ -24,7 +24,7 @@ extern AttractorGlob attrGlob;
 
 void __cdecl G_RegisterMissileDvars();
 void __cdecl G_RegisterMissileDebugDvars();
-bool __cdecl collide_missle_entity_filter(int entnum);
+bool __cdecl collide_missle_entity_filter(int entnum, col_context_t *);
 void __cdecl G_MissileTrace(
                 trace_t *results,
                 const float *start,

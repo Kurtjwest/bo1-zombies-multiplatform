@@ -9,13 +9,15 @@ Decompiled engine code for Black Ops 1 Zombies, so mods can change the engine it
 ## Building
 
 The engine builds for Windows (64-bit and 32-bit), macOS (Apple silicon and Intel) and Linux (x86_64, x86, arm64 and
-armhf), each a native program of its platform; the sections below say how.
+armhf), each a native program of its platform, and for web browsers (WebAssembly), served on your own network with the
+game files from one computer; the sections below say how.
 
 | Platform | Script | Output |
 | --- | --- | --- |
 | Windows x64 / x86 | `./build-windows.sh [--arch i686]` (clang and MinGW-w64), or the Visual Studio project (32-bit) | `build-windows-x64/BO1Zombies.exe`, `build-windows-x86/`, `build/Release/` |
 | macOS Apple silicon / Intel / both | `./build-mac.sh [--arch x86_64 \| --universal]` | `build-mac/BO1Zombies.app` (`build-mac-x86_64/`, `build-mac-universal/`) |
 | Linux x86_64 / x86 / arm64 / armhf | `./build-linux.sh [--arch i686 \| aarch64 \| armhf]` | `build-linux/BO1Zombies` (`build-linux-<arch>/` for another processor) |
+| Web browsers (WebAssembly) | `./build-web.sh [--install-emsdk]` (Emscripten), served by `tools/web-server.py` | `build-web/web/`, `build-web/gamedata/` |
 
 A Release build (the scripts' default) is built as the retail game's release build was: without the engine's
 assertion checks (the decompiled code has about 13,900 of them, which the retail build compiled away) and with
@@ -237,6 +239,68 @@ Settings for the Linux build, besides `BO1_DUMP_FAILED_SHADERS`, `BO1_SYNC_SHADE
 | `BO1_GL_LOG=1` | log what the renderer's start-up self-test measured (clip space and winding conventions) |
 | `SDL_VIDEODRIVER=wayland` / `x11` | the window system SDL uses (SDL's own setting) |
 | `SDL_AUDIODRIVER=pipewire` / `pulseaudio` / `alsa` | the sound system SDL uses (SDL's own setting) |
+
+## Web browsers (WebAssembly)
+
+The same engine also builds for web browsers, with Emscripten: the game runs in a browser tab on the computers,
+tablets and phones of your network, and its files stay on the one computer that serves it. `tools/web-server.py` serves
+the page together with the game files of a Black Ops PC install, and the game reads them from it while it plays, a part
+of a file at a time as it asks for it: nothing is downloaded up front, uploaded or installed in the browser. What the
+game saves (`players/`: settings and profiles, and `screenshots/`) goes back to the server, so every device that plays
+from it shares one set of settings. It is meant for a home network: the server has no accounts, and anyone who can
+reach its port can play and read the game files, so don't forward it to the internet.
+
+Building needs Emscripten 3.1.52 (`--install-emsdk` fetches it into `.emsdk/`), CMake 3.16+, Ninja, git, make and
+python3; serving needs Python 3.8 or later and the `openssl` command, on any system.
+
+```sh
+./build-web.sh --install-emsdk                                          # builds build-web/web and build-web/gamedata
+python3 tools/web-server.py --game "/path/to/Call of Duty Black Ops"    # serves them with the game files
+```
+
+Without `--game` the server uses the game folder of this computer's own build (`~/Library/Application
+Support/BO1Zombies` on a Mac, `~/.local/share/BO1Zombies` on Linux), so a computer that already plays the game serves
+its files as they are. The game folder needs what the desktop builds read (`zone/`, `main/` and the rest that
+`setup-mac.sh` / `setup-linux.sh` copy); the repository's `mods/` and `data/main/` come from `build-web/gamedata`.
+`--port` (default 8443), `--bind` and `--state` (the server's own folder, default `~/.bo1zombies-web`: the saves and
+its certificates) change the rest. Open the `https://` address it prints on a device and press Play.
+
+**HTTPS.** Browsers give a page the shared memory the game's threads need (SharedArrayBuffer, "cross-origin
+isolation") only on a secure origin, so the server speaks HTTPS: the first time it starts it makes its own certificate
+authority and a certificate for the computer's names and network addresses. A browser warns about that certificate
+until the authority is trusted: open `https://<address>:8443/ca.crt` on the device and install it (iOS and iPadOS:
+install the profile in Settings, then turn it on in Settings > General > About > Certificate Trust Settings; Android:
+Settings > Security > Encryption & credentials > Install a certificate > CA certificate; macOS: Keychain Access, set it
+to Always Trust; Windows: install it into Trusted Root Certification Authorities), or click past the warning once in
+each browser. `--cert`/`--key` use a certificate of your own instead (mkcert's, say), and `--http` serves plain HTTP,
+which browsers accept only on the computer itself (`http://localhost:8443`) or behind a reverse proxy that adds HTTPS.
+
+**Browsers.** Current versions of Chrome and Edge (95 or later), Firefox (105) and Safari (17, on macOS, iOS and iPadOS):
+the game needs WebGL 2 in a worker (OffscreenCanvas), WebAssembly threads, SIMD and exceptions, and the page says what
+a browser lacks. It needs a lot of memory (it starts with 512 MB and grows as maps load, up to 4 GB), which some phones
+and older tablets don't give a tab.
+
+**Playing.** Click the game to capture the mouse (the game's menus use it captured too, as on the desktop); Esc gives it
+back (and opens the game's menu, as Esc does). Keyboard, mouse and controllers (the browser's Gamepad API: Xbox and
+PlayStation controllers and most others) work as in the desktop builds. The Options of the start page set full screen
+and a command line, which replaces the default one as on the desktop (`+set bo1_zombies 1 +set fs_game mods/<name>`,
+say: without `bo1_zombies 1` the game opens Black Ops' multiplayer menu). The game draws at the resolution of its
+graphics options (`r_mode`) and the page scales the picture to the window, so a lower `r_mode` (`+set r_mode 1280x720`)
+is the way to a smoother game on a slow device. The first start, and each map's first load, read a few hundred megabytes
+from the server, so a wired or a good Wi-Fi connection makes them quicker; the game keeps what it read in memory while
+it runs.
+
+What differs from the desktop builds: Direct3D 9 runs on WebGL 2 (`src/platform/d3d9mtl` over
+`src/platform/web/webgl_rhi.cpp`, the game's shaders translated to GLSL ES by MojoShader), without multisample
+anti-aliasing, and its occlusion queries report everything visible (the sun's and lights' glare doesn't fade behind
+walls). The game's threads never return to the browser's event loop, and a browser frees some things only when a thread
+does, so the game hands its work to the page instead: the render thread reads each finished frame back and the page
+draws it on its canvas, and a worker of the page makes the requests for the game files (a game thread making them itself
+would keep every byte it read). On a GPU without DXT texture compression (most phones and tablets) the textures are
+decompressed as they load, which takes memory and time. There is no voice chat (microphone), no Steam and no online play
+(a browser has no sockets), and the log and the shader cache live in the tab's memory only. The browser build's own code
+is in `src/platform/web` (`web_fs.cpp` reads the game folder from the server, `web_bridge.cpp` is the window and input,
+`web_audio.cpp` the sound, `page/` the page) and `cmake/web.cmake`.
 
 ## Dead Ops Arcade
 

@@ -36,6 +36,9 @@ static inline __m64 _m_packuswb(__m64 a, __m64 b) { return vreinterpret_m64_u8(v
 #define _MM_HINT_T2 1
 #define _MM_HINT_NTA 0
 #endif
+#elif defined(__EMSCRIPTEN__)
+// WebAssembly: Emscripten's SSE headers on WebAssembly SIMD (through the stand-ins here, which add MMX: wasm_mmx.h)
+#include <immintrin.h>
 #else
 #include_next <immintrin.h>
 #endif

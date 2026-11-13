@@ -1912,7 +1912,7 @@ void __cdecl UI_Gametype_Custom_UploadToFileShareSuccess(int controllerIndex, un
     }
 }
 
-void __cdecl UI_Gametype_Custom_UploadToFileShareFailure()
+void __cdecl UI_Gametype_Custom_UploadToFileShareFailure(int)
 {
     Z_VirtualFree(s_fileShareBuffer, 0);
 }
@@ -1937,7 +1937,7 @@ void __cdecl UI_Gametype_Custom_UploadToFileShare(
     memset(&writeFileInfo.thumbData, 0, 12);
     writeFileInfo.dataCallback = 0;
     writeFileInfo.successCallback = UI_Gametype_Custom_UploadToFileShareSuccess;
-    writeFileInfo.failureCallback = (void (__cdecl *)(int))UI_Gametype_Custom_UploadToFileShareFailure;
+    writeFileInfo.failureCallback = UI_Gametype_Custom_UploadToFileShareFailure;
     LiveStorage_FileShare_WriteFile(controllerIndex, &writeFileInfo);
 }
 

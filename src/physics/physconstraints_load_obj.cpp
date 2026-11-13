@@ -211,7 +211,7 @@ void __cdecl PhysConstraints_Strcpy(unsigned __int8 *member, const char *keyValu
     }
 }
 
-int __cdecl CON_ParseSpecificField(unsigned __int8 *pStruct, const char *pValue, int fieldType)
+int __cdecl CON_ParseSpecificField(unsigned __int8 *pStruct, const char *pValue, int fieldType, int)
 {
     const char *v3; // eax
     PhysConstraint *constraint; // [esp+4h] [ebp-Ch]

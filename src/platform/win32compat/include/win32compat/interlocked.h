@@ -135,7 +135,11 @@ static inline LONG InterlockedCompareExchange(volatile LONG *p, LONG exchange, L
 #define InterlockedCompareExchangeAcquire InterlockedCompareExchange
 #define InterlockedCompareExchangeRelease InterlockedCompareExchange
 static inline void MemoryBarrier(void) { __atomic_thread_fence(__ATOMIC_SEQ_CST); }
+#if defined(__EMSCRIPTEN__)
+#define YieldProcessor() ((void)0) // (WebAssembly has no pause instruction)
+#else
 #define YieldProcessor() __asm__ __volatile__("yield")
+#endif
 #define _ReadWriteBarrier() __atomic_signal_fence(__ATOMIC_SEQ_CST)
 #define _ReadBarrier() __atomic_signal_fence(__ATOMIC_SEQ_CST)
 #define _WriteBarrier() __atomic_signal_fence(__ATOMIC_SEQ_CST)

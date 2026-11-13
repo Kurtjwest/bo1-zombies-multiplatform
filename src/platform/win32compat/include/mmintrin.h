@@ -3,6 +3,8 @@
 #pragma once
 #if defined(__x86_64__) || defined(__i386__)
 #include_next <mmintrin.h>
+#elif defined(__EMSCRIPTEN__)
+#include <xmmintrin.h> // (Emscripten has no MMX header: wasm_mmx.h through xmmintrin.h)
 #else
 #include "sse_compat.h"
 #endif

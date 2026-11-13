@@ -3360,18 +3360,18 @@ void __cdecl LiveStorage_DeleteGlobalStats(int controllerIndex)
     }
     fileInfo->fileTask.m_filename = (char*)"globalstatsCompressed";
     fileInfo->isUserFile = 1;
-    fileInfo->fileOperationSucessFunction = (void (__cdecl *)(const int, void *))LiveStorage_DeleteGlobalStatsSuccess;
-    fileInfo->fileOperationFailureFunction = (void (__cdecl *)(const int, void *))LiveStorage_DeleteGlobalStatsNotFound;
+    fileInfo->fileOperationSucessFunction = LiveStorage_DeleteGlobalStatsSuccess;
+    fileInfo->fileOperationFailureFunction = LiveStorage_DeleteGlobalStatsNotFound;
     LiveStorage_DeleteDWUserFile(controllerIndex, fileInfo);
 }
 
-void __cdecl LiveStorage_DeleteGlobalStatsSuccess()
+void __cdecl LiveStorage_DeleteGlobalStatsSuccess(const int, void *)
 {
     LiveStats_ResetStats(0, 1);
     LiveStats_ResetBasicTrainingStats(0);
 }
 
-void __cdecl LiveStorage_DeleteGlobalStatsNotFound()
+void __cdecl LiveStorage_DeleteGlobalStatsNotFound(const int, void *)
 {
     LiveStats_ResetStats(0, 0);
     LiveStats_ResetBasicTrainingStats(0);

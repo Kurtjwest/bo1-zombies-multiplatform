@@ -1,6 +1,6 @@
 #pragma once
 
-int __cdecl CL_LocalClient_GetActiveCount();
+int __cdecl CL_LocalClient_GetActiveCount(int = 0); // (the int: it is also a callback taking one)
 char __cdecl CL_LocalClient_IsActive(int localClientNum);
 char __cdecl CL_LocalClient_IsFirstActive(int localClientNum);
 char __cdecl CL_AllLocalClientsDisconnected();

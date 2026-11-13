@@ -49,7 +49,14 @@ function(bo1_add_zlibng target)
     set(WITH_RUNTIME_CPU_DETECTION ON CACHE BOOL "" FORCE)
     set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
     set(BUILD_SHARED_LIBS OFF)
-    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    if(EMSCRIPTEN)
+        # WebAssembly: its portable C (Emscripten names the processor x86, which would select the SSE/AVX code), and
+        # no position-independent code
+        set(WITH_OPTIM OFF CACHE BOOL "" FORCE)
+        set(WITH_RUNTIME_CPU_DETECTION OFF CACHE BOOL "" FORCE)
+    else()
+        set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    endif()
     unset(CMAKE_GENERATOR_PLATFORM) # (CMakeLists.txt sets a Visual Studio platform for WIN32, which Ninja refuses)
     add_subdirectory("${_src}" "${CMAKE_BINARY_DIR}/zlib-ng" EXCLUDE_FROM_ALL)
 

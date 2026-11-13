@@ -992,10 +992,10 @@ GfxImage *__cdecl Image_Register_FastFile(const char *imageName)
 
 void __cdecl R_ReleaseLostImages()
 {
-    DB_EnumXAssets(ASSET_TYPE_IMAGE, (void (__cdecl *)(XAssetHeader, void *))R_FreeLostImage, 0, 1);
+    DB_EnumXAssets(ASSET_TYPE_IMAGE, R_FreeLostImage, 0, 1);
 }
 
-void __cdecl R_FreeLostImage(XAssetHeader header)
+void __cdecl R_FreeLostImage(XAssetHeader header, void *)
 {
     if ( !header.xmodelPieces
         && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_image.cpp", 1293, 0, "%s", "image") )
@@ -1018,10 +1018,10 @@ void __cdecl R_FreeLostImage(XAssetHeader header)
 
 void __cdecl R_ReloadLostImages()
 {
-    DB_EnumXAssets(ASSET_TYPE_IMAGE, (void (__cdecl *)(XAssetHeader, void *))R_RebuildLostImage, 0, 1);
+    DB_EnumXAssets(ASSET_TYPE_IMAGE, R_RebuildLostImage, 0, 1);
 }
 
-void __cdecl R_RebuildLostImage(XAssetHeader header)
+void __cdecl R_RebuildLostImage(XAssetHeader header, void *)
 {
     if ( !header.xmodelPieces
         && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_image.cpp", 1309, 0, "%s", "image") )

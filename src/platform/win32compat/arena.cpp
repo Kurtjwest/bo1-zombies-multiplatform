@@ -182,6 +182,51 @@ uint32_t RegisterWindow(const void *addr, size_t) { return (uint32_t)(uintptr_t)
 void UnregisterWindow(const void *) {}
 } // namespace bo1ptr
 
+#if defined(__EMSCRIPTEN__)
+// WebAssembly (the browser build): one linear memory, no pages to reserve, protect or give back. A reservation is a
+// heap block (64 KB aligned, zeroed), committed from the start; a decommit zeroes the pages, as committing them again
+// on Windows hands out zeroed pages; a release frees the block.
+void *Arena_Reserve(size_t size, bool)
+{
+    bo1ptr::InitArena();
+    size = AlignUp(size ? size : 1, kGranule);
+    void *base = aligned_alloc(kGranule, size);
+    if (!base)
+        return nullptr;
+    memset(base, 0, size);
+    g_regionLock.lock();
+    (*g_reserved)[(uintptr_t)base] = size;
+    g_regionLock.unlock();
+    return base;
+}
+
+bool Arena_Commit(void *, size_t) { return true; }
+
+bool Arena_Decommit(void *addr, size_t size)
+{
+    const uintptr_t a = AlignUp((uintptr_t)addr, g_pageSize);
+    const uintptr_t e = AlignDown((uintptr_t)addr + size, g_pageSize);
+    if (e > a)
+        memset((void *)a, 0, e - a);
+    return true;
+}
+
+bool Arena_Release(void *addr)
+{
+    bo1ptr::InitArena();
+    g_regionLock.lock();
+    auto it = g_reserved->find((uintptr_t)addr);
+    if (it == g_reserved->end())
+    {
+        g_regionLock.unlock();
+        return false;
+    }
+    g_reserved->erase(it);
+    g_regionLock.unlock();
+    free(addr);
+    return true;
+}
+#else
 void *Arena_Reserve(size_t size, bool commit)
 {
     bo1ptr::InitArena();
@@ -240,6 +285,7 @@ bool Arena_Release(void *addr)
     munmap(addr, size);
     return true;
 }
+#endif // __EMSCRIPTEN__
 
 bool Arena_QueryReservation(const void *addr, void **base, size_t *size)
 {

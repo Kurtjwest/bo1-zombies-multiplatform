@@ -84,7 +84,8 @@ void __cdecl R_Cinematic_StartPlayback_Internal(const char *name, unsigned int p
 void __cdecl R_Cinematic_StartNextPlayback();
 bool __cdecl R_Cinematic_IsNextReady_Internal();
 void __cdecl R_Cinematic_StopPlayback();
-int __cdecl _UpdateFrameCallback();
+struct jqBatch;
+int __cdecl _UpdateFrameCallback(jqBatch *);
 void __cdecl R_Cinematic_UpdateFrame_Core(bool force_wait);
 char __cdecl R_Cinematic_AreHunksOpen();
 char __cdecl CinematicHunk_IsOpen(CinematicHunk *hunk);

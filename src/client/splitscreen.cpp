@@ -5,7 +5,7 @@
 #include "cl_main.h"
 
 // This is used as a generic "Return 1" function
-int __cdecl CL_LocalClient_GetActiveCount()
+int __cdecl CL_LocalClient_GetActiveCount(int)
 {
     return 1;
 }

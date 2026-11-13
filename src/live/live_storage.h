@@ -803,7 +803,7 @@ TaskRecord *__cdecl LiveStorage_ReadDWFileByUserID(
                 unsigned __int64 xuidLocal);
 void __cdecl LiveStorage_RestoreStatsFromBackup(int localControllerIndex);
 TaskRecord *__cdecl LiveStorage_ReadStatsBackup(int controllerIndex);
-void __cdecl LiveStorage_StatsBackupReadSuccessful(int controllerIndex);
+void __cdecl LiveStorage_StatsBackupReadSuccessful(int controllerIndex, void *);
 int __cdecl LiveStorage_StatsBackupFileNotFound(int controllerIndex, const char **data);
 TaskRecord *__cdecl LiveStorage_SyncTime(int controllerIndex);
 void __cdecl LiveStorage_GetServerTimeComplete(TaskRecord *rec);
@@ -817,21 +817,21 @@ TaskRecord *__cdecl LiveStorage_ReadMetPlayerList(
                 unsigned __int8 *buffer,
                 int sizeOfBuffer);
 bool __cdecl LiveStorage_NeedToDownloadMetPlayerList(int controllerIndex);
-int __cdecl LiveStorage_ReadMetPlayerListFileNotFound(int controllerIndex);
+int __cdecl LiveStorage_ReadMetPlayerListFileNotFound(int controllerIndex, void *);
 void __cdecl LiveStorage_SetLastMetPlayerListDownload(int controllerIndex);
-void __cdecl LiveStorage_ReadMetPlayerListSuccessful(int controllerIndex);
+void __cdecl LiveStorage_ReadMetPlayerListSuccessful(int controllerIndex, void *);
 TaskRecord *__cdecl LiveStorage_WriteMetPlayerList(
                 int controllerIndex,
                 char *fileName,
                 unsigned __int8 *buffer,
                 int sizeOfBuffer);
-void __cdecl LiveStorage_WriteMetPlayerListSuccessful(int controllerIndex);
+void __cdecl LiveStorage_WriteMetPlayerListSuccessful(int controllerIndex, void *);
 TaskRecord *__cdecl LiveStorage_ReadOtherPlayerStats(int controllerIndex, unsigned __int64 playerXuid);
-void __cdecl LiveStorage_ReadOtherPlayerStatsSuccessful(int controllerIndex);
+void __cdecl LiveStorage_ReadOtherPlayerStatsSuccessful(int controllerIndex, void *);
 int __cdecl LiveStorage_OtherPlayerStatsFileNotFound(int controllerIndex, const char **data);
 TaskRecord *__cdecl LiveStorage_ReadPlayerStats(int controllerIndex, bool validate, bool silent);
 int __cdecl LiveStorage_PlayerStatsFileNotFound(int controllerIndex, const char **data);
-void __cdecl LiveStorage_ReadPlayerStatsSuccessful(int controllerIndex);
+void __cdecl LiveStorage_ReadPlayerStatsSuccessful(int controllerIndex, void *);
 TaskRecord *__cdecl LiveStorage_ReadCommonStats(
                 int controllerIndex,
                 bool silent,
@@ -840,7 +840,7 @@ TaskRecord *__cdecl LiveStorage_ReadCommonStats(
                 dwFileOperationInfo *fileInfo);
 TaskRecord *__cdecl LiveStorage_ReadBasicTrainingStats(int controllerIndex, bool validate, bool silent);
 int __cdecl LiveStorage_BasicTrainingStatsFileNotFound(int controllerIndex, const char **data);
-void __cdecl LiveStorage_ReadBasicTrainingStatsSuccessful(int controllerIndex);
+void __cdecl LiveStorage_ReadBasicTrainingStatsSuccessful(int controllerIndex, void *);
 void __cdecl LiveStorage_WritePlayerStatsFailure(TaskRecord *task);
 void __cdecl LiveStorage_WriteBasicTrainingStatsFailure(TaskRecord *task);
 TaskRecord *__cdecl LiveStorage_WriteStats(

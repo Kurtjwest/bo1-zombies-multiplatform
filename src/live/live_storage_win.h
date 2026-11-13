@@ -174,8 +174,8 @@ TaskRecord *__cdecl LiveStorage_SaveRecentServers(unsigned __int8 *buffer, int b
 TaskRecord *__cdecl LiveStorage_ReadRecentServers(unsigned __int8 *buf, int bufsize);
 void __cdecl LiveStorage_ReadRecentServersSuccess(int controllerIndex, void *data);
 void __cdecl LiveStorage_DeleteGlobalStats(int controllerIndex);
-void __cdecl LiveStorage_DeleteGlobalStatsSuccess();
-void __cdecl LiveStorage_DeleteGlobalStatsNotFound();
+void __cdecl LiveStorage_DeleteGlobalStatsSuccess(const int, void *);
+void __cdecl LiveStorage_DeleteGlobalStatsNotFound(const int, void *);
 
 
 extern sv_cacvalidate_state_t g_cacvalidateState;

@@ -256,7 +256,7 @@ struct visField_t // sizeof=0xC
 
 void __cdecl CG_RegisterVisionSetsDvars();
 void __cdecl CG_InitVisionSetsMenu();
-void __cdecl CG_AddVisionSetMenuItem(XAssetHeader header);
+void __cdecl CG_AddVisionSetMenuItem(XAssetHeader header, void *);
 void __cdecl CG_InitVisionSets(int localClientNum);
 double __cdecl CalculateFlareRatio(float flareRatio, float flareRatioLastFrame);
 void __cdecl CG_VisionSetsUpdate(int localClientNum);

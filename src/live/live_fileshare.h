@@ -232,60 +232,51 @@ void __cdecl Live_FileShare_FeederColor(
                 DvarValue *color);
 void __cdecl Live_FileShare_ColorEmptySlot(int column, int slotNum, DvarValue *color, bool isHighlighted);
 void __cdecl Live_FileShare_ColorOccupiedSlot(unsigned int column, DvarValue *color, bool isHighlighted);
-char __cdecl Live_FileShare_GetDate(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetDate(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
-char __cdecl Live_FileShare_GetLength(
-                bdFileMetaData *descriptors,
+                const char **stringResult, float *);
+char __cdecl Live_FileShare_GetLength(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
-char __cdecl Live_FileShare_GetSize(
-                bdFileMetaData *descriptors,
+                const char **stringResult, float *);
+char __cdecl Live_FileShare_GetSize(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult);
-char __cdecl Live_FileShare_GetMap(
-                bdFileMetaData *descriptors,
+                char **stringResult, float *);
+char __cdecl Live_FileShare_GetMap(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
-char __cdecl Live_FileShare_GetMapName(
-                bdFileMetaData *descriptors,
+                const char **stringResult, float *);
+char __cdecl Live_FileShare_GetMapName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
-char __cdecl Live_FileShare_GetGameType(
-                bdFileMetaData *descriptors,
+                const char **stringResult, float *);
+char __cdecl Live_FileShare_GetGameType(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
-char __cdecl Live_FileShare_GetGameTypeName(
-                bdFileMetaData *descriptors,
+                const char **stringResult, float *);
+char __cdecl Live_FileShare_GetGameTypeName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult);
-char __cdecl Live_FileShare_GetGameTypeImage(
-                bdFileMetaData *descriptors,
+                char **stringResult, float *);
+char __cdecl Live_FileShare_GetGameTypeImage(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
-char __cdecl Live_FileShare_GetGameTypeAndMapName(
-                bdFileMetaData *descriptors,
+                const char **stringResult, float *);
+char __cdecl Live_FileShare_GetGameTypeAndMapName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult);
+                char **stringResult, float *);
 char __cdecl Live_FileShare_HasSummary(
                 bdFileMetaData *descriptors,
                 int descriptorCount,
@@ -307,18 +298,16 @@ char __cdecl Live_FileShare_IsSummaryLoaded(
                 fileShareInfoLocation location,
                 const char **stringResult,
                 float *floatResult);
-bool __cdecl Live_FileShare_GetFileType(
-                bdFileMetaData *descriptors,
+bool __cdecl Live_FileShare_GetFileType(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
-char __cdecl Live_FileShare_GetUserTag(
-                bdFileMetaData *descriptors,
+                const char **stringResult, float *);
+char __cdecl Live_FileShare_GetUserTag(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult);
+                char **stringResult, float *);
 char __cdecl Live_FileShare_GetUserTagIndex(
                 bdFileMetaData *descriptors,
                 int descriptorCount,
@@ -326,12 +315,11 @@ char __cdecl Live_FileShare_GetUserTagIndex(
                 fileShareInfoLocation location,
                 const char **stringResult,
                 float *floatResult);
-char __cdecl Live_FileShare_GetFileID(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetFileID(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
+                const char **stringResult, float *);
 char __cdecl Live_FileShare_LookupRating(
                 unsigned __int64 fileID,
                 bdVoteRankStatsInfo *ratings,
@@ -357,30 +345,26 @@ char __cdecl Live_FileShare_GetTotalVotes(
                 fileShareInfoLocation location,
                 const char **stringResult,
                 float *floatResult);
-char __cdecl Live_FileShare_GetOwnerName(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetOwnerName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult);
-char __cdecl Live_FileShare_GetFileSize(
-                bdFileMetaData *descriptors,
+                char **stringResult, float *);
+char __cdecl Live_FileShare_GetFileSize(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
-char __cdecl Live_FileShare_GetFileName(
-                bdFileMetaData *descriptors,
+                const char **stringResult, float *);
+char __cdecl Live_FileShare_GetFileName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult);
-bool __cdecl Live_FileShare_GetTypeIconName(
-                bdFileMetaData *descriptors,
+                char **stringResult, float *);
+bool __cdecl Live_FileShare_GetTypeIconName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
+                const char **stringResult, float *);
 char __cdecl Live_FileShare_GetSlot(
                 bdFileMetaData *descriptors,
                 int descriptorCount,
@@ -402,12 +386,11 @@ bool __cdecl Live_FileShare_IsSlotOccupied(
                 fileShareInfoLocation location,
                 const char **stringResult,
                 float *floatResult);
-bool __cdecl Live_FileShare_GetSelectedImageName(
-                bdFileMetaData *descriptors,
+bool __cdecl Live_FileShare_GetSelectedImageName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult);
+                const char **stringResult, float *);
 char __cdecl Live_FileShare_GetIsModifiedName(
                 bdFileMetaData *descriptors,
                 int descriptorCount,
@@ -559,8 +542,8 @@ void __cdecl Live_FileShare_SetRating_f();
 void __cdecl Live_FileShare_SetRatingPreview_f();
 void __cdecl Live_FileShare_ResetRatingPreview_f();
 void __cdecl Live_FileShare_ReadUserTag_f();
-void Live_FileShare_UserTagLeft_f(const StringTable *table);
-void Live_FileShare_UserTagRight_f(const StringTable *table);
+void Live_FileShare_UserTagLeft_f();
+void Live_FileShare_UserTagRight_f();
 void __cdecl Live_FileShare_FilterBackup_f();
 void __cdecl Live_FileShare_FilterRestore_f();
 void __cdecl Live_FileShare_GetTopRated_f();

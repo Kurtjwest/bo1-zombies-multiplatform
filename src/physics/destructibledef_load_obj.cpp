@@ -541,7 +541,7 @@ cspField_t destructibleDefFields[453] =
   { "pieceLabel31", 0, 462 }
 };
 
-bool __cdecl DestructiblePiece_ParseDefSpecificFieldType(unsigned __int8 *pStruct, const char *pValue, int iFieldType)
+bool __cdecl DestructiblePiece_ParseDefSpecificFieldType(unsigned __int8 *pStruct, const char *pValue, int iFieldType, int)
 {
     if ( DestructiblePiece_SetFlag((DestructiblePiece *)pStruct, pValue, iFieldType, 15, 19, 1) )
         return 1;
@@ -682,7 +682,7 @@ void __cdecl DestructibleDef_Strcpy(unsigned __int8 *member, const char *keyValu
     }
 }
 
-int __cdecl Destructible_ParseDefSpecificFieldType(unsigned __int8 *pStruct, char *pValue, int iFieldType)
+int __cdecl Destructible_ParseDefSpecificFieldType(unsigned __int8 *pStruct, char *pValue, int iFieldType, int)
 {
     float v4; // [esp+0h] [ebp-50h]
     float v5; // [esp+4h] [ebp-4Ch]

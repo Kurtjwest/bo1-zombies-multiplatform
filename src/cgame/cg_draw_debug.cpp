@@ -931,16 +931,16 @@ void __cdecl CG_DrawFxProfile(int localClientNum)
 
     profilePos[0] = 0.0f;
     profilePos[1] = 9.0f;
-    FX_DrawProfile(localClientNum, (void (__cdecl *)(char *))CG_DrawFxText, profilePos);
+    FX_DrawProfile(localClientNum, CG_DrawFxText, profilePos);
 }
 
-void __cdecl CG_DrawFxText(char *text, float *profilePos)
+void __cdecl CG_DrawFxText(const char *text, float *profilePos)
 {
     if ( !text && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\cgame\\cg_draw_debug.cpp", 1590, 0, "%s", "text") )
         __debugbreak();
     CL_DrawText(
         &scrPlaceFull,
-        text,
+        (char *)text,
         0x7FFFFFFF,
         cgMedia.smallDevFont,
         *profilePos,
@@ -960,7 +960,7 @@ void __cdecl CG_DrawFxMarkProfile(unsigned int localClientNum)
 
     profilePos[0] = 0.0f;
     profilePos[1] = 9.0f;
-    FX_DrawMarkProfile(localClientNum, (void (__cdecl *)(char *))CG_DrawFxText, profilePos);
+    FX_DrawMarkProfile(localClientNum, CG_DrawFxText, profilePos);
 }
 
 void __cdecl CG_DrawFxPriorityDebug(int localClientNum)
@@ -969,16 +969,16 @@ void __cdecl CG_DrawFxPriorityDebug(int localClientNum)
 
     profilePos[0] = 0.0f;
     profilePos[1] = 9.0f;
-    FX_DrawPriorityDebug(localClientNum, (void (__cdecl *)(char *))CG_DrawFxPriorityText, profilePos);
+    FX_DrawPriorityDebug(localClientNum, CG_DrawFxPriorityText, profilePos);
 }
 
-void __cdecl CG_DrawFxPriorityText(char *text, float *profilePos)
+void __cdecl CG_DrawFxPriorityText(const char *text, float *profilePos)
 {
     if ( !text && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\cgame\\cg_draw_debug.cpp", 1600, 0, "%s", "text") )
         __debugbreak();
     CL_DrawText(
         &scrPlaceFull,
-        text,
+        (char *)text,
         0x7FFFFFFF,
         cgMedia.smallDevFont,
         *profilePos,

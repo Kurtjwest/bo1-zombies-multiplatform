@@ -48,6 +48,7 @@ const char *fileShareKeyNames[30] =
 };
 
 
+// (each with the six parameters calls through the table pass: WebAssembly checks them)
 bool(__cdecl *fileShareKeyFunctions[30])(bdFileMetaData *, int, int, fileShareInfoLocation, const char **, float *) =
 {
   (bool(*)(bdFileMetaData *, int, int, fileShareInfoLocation, const char **, float *))Live_FileShare_GetSlot,
@@ -1383,12 +1384,11 @@ void __cdecl Live_FileShare_ColorOccupiedSlot(unsigned int column, DvarValue *co
     }
 }
 
-char __cdecl Live_FileShare_GetDate(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetDate(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     qtime_s qTime; // [esp+0h] [ebp-2Ch] BYREF
     int createTime; // [esp+24h] [ebp-8h] BYREF
@@ -1414,12 +1414,11 @@ char __cdecl Live_FileShare_GetDate(
     }
 }
 
-char __cdecl Live_FileShare_GetLength(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetLength(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     int intRes; // [esp+0h] [ebp-10h] BYREF
     int demoTimeMin; // [esp+4h] [ebp-Ch]
@@ -1440,12 +1439,11 @@ char __cdecl Live_FileShare_GetLength(
     }
 }
 
-char __cdecl Live_FileShare_GetSize(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetSize(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult)
+                char **stringResult, float *)
 {
     char *v5; // eax
     char *v6; // eax
@@ -1470,12 +1468,11 @@ char __cdecl Live_FileShare_GetSize(
     return 1;
 }
 
-char __cdecl Live_FileShare_GetMap(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetMap(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     unsigned __int64 tagValue; // [esp+8h] [ebp-8h] BYREF
 
@@ -1492,12 +1489,11 @@ char __cdecl Live_FileShare_GetMap(
     return 0;
 }
 
-char __cdecl Live_FileShare_GetMapName(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetMapName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     unsigned __int64 tagValue; // [esp+8h] [ebp-8h] BYREF
 
@@ -1514,12 +1510,11 @@ char __cdecl Live_FileShare_GetMapName(
     return 0;
 }
 
-char __cdecl Live_FileShare_GetGameType(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetGameType(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     unsigned __int64 tagValue; // [esp+0h] [ebp-8h] BYREF
 
@@ -1535,12 +1530,11 @@ char __cdecl Live_FileShare_GetGameType(
     }
 }
 
-char __cdecl Live_FileShare_GetGameTypeName(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetGameTypeName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult)
+                char **stringResult, float *)
 {
     unsigned __int64 tagValue; // [esp+8h] [ebp-8h] BYREF
 
@@ -1557,12 +1551,11 @@ char __cdecl Live_FileShare_GetGameTypeName(
     return 0;
 }
 
-char __cdecl Live_FileShare_GetGameTypeImage(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetGameTypeImage(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     unsigned __int64 tagValue; // [esp+8h] [ebp-8h] BYREF
 
@@ -1579,12 +1572,11 @@ char __cdecl Live_FileShare_GetGameTypeImage(
     return 0;
 }
 
-char __cdecl Live_FileShare_GetGameTypeAndMapName(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetGameTypeAndMapName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult)
+                char **stringResult, float *)
 {
     unsigned __int64 mapName; // [esp+0h] [ebp-10h] BYREF
     unsigned __int64 gameType; // [esp+8h] [ebp-8h] BYREF
@@ -1652,12 +1644,11 @@ char __cdecl Live_FileShare_IsSummaryLoaded(
     return 1;
 }
 
-bool __cdecl Live_FileShare_GetFileType(
-                bdFileMetaData *descriptors,
+bool __cdecl Live_FileShare_GetFileType(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     bool result; // al
 
@@ -1687,12 +1678,11 @@ bool __cdecl Live_FileShare_GetFileType(
     return result;
 }
 
-char __cdecl Live_FileShare_GetUserTag(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetUserTag(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult)
+                char **stringResult, float *)
 {
     const char *v5; // eax
     const char *result; // [esp+0h] [ebp-10h]
@@ -1748,12 +1738,11 @@ char __cdecl Live_FileShare_GetUserTagIndex(
     return 1;
 }
 
-char __cdecl Live_FileShare_GetFileID(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetFileID(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     unsigned __int64 fileID; // [esp+4h] [ebp-8h] BYREF
 
@@ -1872,12 +1861,11 @@ char __cdecl Live_FileShare_GetTotalVotes(
     }
 }
 
-char __cdecl Live_FileShare_GetOwnerName(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetOwnerName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult)
+                char **stringResult, float *)
 {
     int intRes; // [esp+0h] [ebp-4h] BYREF
 
@@ -1887,34 +1875,31 @@ char __cdecl Live_FileShare_GetOwnerName(
     return 0;
 }
 
-char __cdecl Live_FileShare_GetFileSize(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetFileSize(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     *stringResult = va("%d", descriptors[index].m_fileSize);
     return 1;
 }
 
-char __cdecl Live_FileShare_GetFileName(
-                bdFileMetaData *descriptors,
+char __cdecl Live_FileShare_GetFileName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                char **stringResult)
+                char **stringResult, float *)
 {
     *stringResult = descriptors[index].m_fileName;
     return 1;
 }
 
-bool __cdecl Live_FileShare_GetTypeIconName(
-                bdFileMetaData *descriptors,
+bool __cdecl Live_FileShare_GetTypeIconName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     bool result; // al
 
@@ -1996,12 +1981,11 @@ bool __cdecl Live_FileShare_IsSlotOccupied(
     }
 }
 
-bool __cdecl Live_FileShare_GetSelectedImageName(
-                bdFileMetaData *descriptors,
+bool __cdecl Live_FileShare_GetSelectedImageName(bdFileMetaData *descriptors,
                 int descriptorCount,
                 int index,
                 fileShareInfoLocation location,
-                const char **stringResult)
+                const char **stringResult, float *)
 {
     *stringResult = Live_FileShare_GetSelectedImage(descriptors, index);
     return **stringResult != 0;
@@ -2072,10 +2056,10 @@ char __cdecl Live_FileShare_GetName(
     }
     else if ( descriptors[index].m_category == 4 )
     {
-        if ( Live_FileShare_GetGameTypeName(descriptors, descriptorCount, index, location, stringResult) )
+        if ( Live_FileShare_GetGameTypeName(descriptors, descriptorCount, index, location, stringResult, nullptr) )
             return 1;
     }
-    else if ( Live_FileShare_GetMapName(descriptors, descriptorCount, index, location, (const char **)stringResult) )
+    else if ( Live_FileShare_GetMapName(descriptors, descriptorCount, index, location, (const char **)stringResult, nullptr) )
     {
         *stringResult = UI_SafeTranslateString(*stringResult + 1);
         return 1;
@@ -2110,7 +2094,7 @@ char __cdecl Live_FileShare_GetDescription(
             *stringResult = UI_SafeTranslateString("CUSTOM_CUSTOM_GAME_MODE_CAPS");
             return 1;
         }
-        if ( Live_FileShare_GetGameTypeName(descriptors, descriptorCount, index, location, stringResult) )
+        if ( Live_FileShare_GetGameTypeName(descriptors, descriptorCount, index, location, stringResult, nullptr) )
             return 1;
     }
     *stringResult = (char *)"";
@@ -2627,12 +2611,13 @@ char __cdecl Live_FileShare_GetMySlotInfo(
                  index,
                  FILESHARE_INFOLOCATION_MYFILESHARE) )
     {
-        return ((char (__cdecl *)(bdFileMetaData *, int, int, fileShareInfoLocation, const char **))fileShareKeyFunctions[keyIndex])(
+        return fileShareKeyFunctions[keyIndex](
                          data->descriptors,
                          data->descriptorCount,
                          index,
                          FILESHARE_INFOLOCATION_MYFILESHARE,
-                         stringResult);
+                         stringResult,
+                         nullptr);
     }
     return 0;
 }
@@ -3507,11 +3492,11 @@ void __cdecl Live_FileShare_Init()
     Cmd_AddCommandInternal("fileShareReadUserTag", Live_FileShare_ReadUserTag_f, &Live_FileShare_ReadUserTag_f_VAR);
     Cmd_AddCommandInternal(
         "fileShareUserTagLeft",
-        (void (__cdecl *)())Live_FileShare_UserTagLeft_f,
+        Live_FileShare_UserTagLeft_f,
         &Live_FileShare_UserTagLeft_f_VAR);
     Cmd_AddCommandInternal(
         "fileShareUserTagRight",
-        (void (__cdecl *)())Live_FileShare_UserTagRight_f,
+        Live_FileShare_UserTagRight_f,
         &Live_FileShare_UserTagRight_f_VAR);
     Cmd_AddCommandInternal("fileShareFilterBackup", Live_FileShare_FilterBackup_f, &Live_FileShare_FilterBackup_f_VAR);
     Cmd_AddCommandInternal("fileShareFilterRestore", Live_FileShare_FilterRestore_f, &Live_FileShare_FilterRestore_f_VAR);
@@ -4536,11 +4521,11 @@ void __cdecl Live_FileShare_ReadUserTag_f()
         value = StringTable_Lookup(fileShareTable, 0, "1", 1);
 }
 
-void Live_FileShare_UserTagLeft_f(const StringTable *table)
+// (console commands: no arguments; the decompiled parameter was the uninitialized local below)
+void Live_FileShare_UserTagLeft_f()
 {
-    const StringTable *fileShareTable; // [esp+0h] [ebp-4h] BYREF
+    const StringTable *fileShareTable = nullptr; // [esp+0h] [ebp-4h] BYREF
 
-    fileShareTable = table;
     StringTable_GetAsset("mp/fileShareTags.csv", &fileShareTable);
     if ( fsSelectedFileTagIndex->current.integer )
         Dvar_SetInt((dvar_s *)fsSelectedFileTagIndex, fsSelectedFileTagIndex->current.integer - 1);
@@ -4548,15 +4533,14 @@ void Live_FileShare_UserTagLeft_f(const StringTable *table)
         Dvar_SetInt((dvar_s *)fsSelectedFileTagIndex, fileShareTable->rowCount);
 }
 
-void Live_FileShare_UserTagRight_f(const StringTable *table)
+void Live_FileShare_UserTagRight_f()
 {
     const StringTable *v1; // ecx
-    const StringTable *fileShareTable; // [esp+0h] [ebp-4h] BYREF
+    const StringTable *fileShareTable = nullptr; // [esp+0h] [ebp-4h] BYREF
 
-    fileShareTable = table;
     if ( Key_IsDown(0, 201) )
     {
-        Live_FileShare_UserTagLeft_f(fileShareTable);
+        Live_FileShare_UserTagLeft_f();
     }
     else
     {

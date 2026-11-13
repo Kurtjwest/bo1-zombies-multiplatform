@@ -125,13 +125,13 @@ void __cdecl GraphFloat_CreateDevGui(GraphFloat *graph, const char *devguiPath)
     graph->devguiGraph.knotCountMax = 32;
     graph->devguiGraph.knots = graph->knots;
     graph->devguiGraph.knotCount = &graph->knotCount;
-    graph->devguiGraph.eventCallback = (void (__cdecl *)(const DevGraph *, DevEventType, int))GraphFloat_DevGuiCB_Event;
+    graph->devguiGraph.eventCallback = GraphFloat_DevGuiCB_Event;
     graph->devguiGraph.textCallback = (void (__cdecl *)(const DevGraph *, const float, const float, char *, const int))GraphFloat_DevGuiCB_Text;
     graph->devguiGraph.data = graph;
     DevGui_AddGraph(devguiPath, &graph->devguiGraph);
 }
 
-void __cdecl GraphFloat_DevGuiCB_Event(const DevGraph *graph, DevEventType event)
+void __cdecl GraphFloat_DevGuiCB_Event(const DevGraph *graph, DevEventType event, int)
 {
     if ( !graph && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\qcommon\\graph.cpp", 212, 0, "%s", "graph") )
         __debugbreak();
@@ -180,7 +180,7 @@ void __cdecl GraphFloat_SaveToFile(const GraphFloat *graph)
     }
 }
 
-void __cdecl GraphFloat_DevGuiCB_Text(const DevGraph *devGuiGraph, float inputX, float inputY, char *text)
+void __cdecl GraphFloat_DevGuiCB_Text(const DevGraph *devGuiGraph, float inputX, float inputY, char *text, int)
 {
     sprintf(text, "Fraction: %.3f, Value: %.3f", inputX, (float)(inputY * *((float *)devGuiGraph->data + 81)));
 }

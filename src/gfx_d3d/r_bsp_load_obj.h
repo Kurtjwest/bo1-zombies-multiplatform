@@ -384,7 +384,7 @@ unsigned int R_SetStaticModelReflectionProbes();
 unsigned __int8 *R_AllocShadowGeometryHeaderMemory();
 struct GfxShadowGeometry *R_InitShadowGeometryArrays();
 void __cdecl R_ForEachShadowCastingSurfaceOnEachLight(void (__cdecl *Callback)(GfxWorld *, unsigned int, unsigned int));
-void __cdecl R_IncrementShadowGeometryCount(GfxWorld *world, unsigned int primaryLightIndex);
+void __cdecl R_IncrementShadowGeometryCount(GfxWorld *world, unsigned int primaryLightIndex, unsigned int = 0);
 void R_AddAllProbesToAllCells();
 void __cdecl R_InterpretSunLightParseParamsIntoLights(SunLightParseParams *sunParse, GfxLight *sunLight);
 void __cdecl R_SetUpSunLight(const float *sunColor, const float *sunDirection, GfxLight *light);

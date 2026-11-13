@@ -604,7 +604,7 @@ void    nuge::calc_velocities(
     {
         if (w > -1.0)
         {
-            v19 = acos(w);
+            v19 = acos((double)w); // (the double acos: the Windows game's long double is its double)
             v10 = v19;
         }
         else

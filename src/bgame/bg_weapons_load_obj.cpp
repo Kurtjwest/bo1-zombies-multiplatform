@@ -1746,7 +1746,7 @@ char __cdecl BG_LoadWeaponVariantDefFile(WeaponFullDef *weapFullDef, const char 
     return 1;
 }
 
-int __cdecl BG_ParseWeaponDefSpecificFieldType(WeaponFullDef *pStruct, const char *pValue, int iFieldType)
+int __cdecl BG_ParseWeaponDefSpecificFieldType(WeaponFullDef *pStruct, const char *pValue, int iFieldType, int)
 {
     unsigned __int16 StringOfSize; // ax
     unsigned __int16 v4; // ax

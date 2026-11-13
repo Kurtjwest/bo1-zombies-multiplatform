@@ -29,8 +29,8 @@ int    R_SkinXModel(
 int __cdecl R_SkinAndBoundSceneEnt(GfxSceneEntity *sceneEnt);
 void __cdecl R_ShutdownModels();
 void __cdecl R_ReleaseAllModels();
-void __cdecl R_ReleaseModel(XAssetHeader header);
+void __cdecl R_ReleaseModel(XAssetHeader header, void *);
 void __cdecl R_OptimizeAllModels();
-void __cdecl R_OptimizeModel(XAssetHeader header);
+void __cdecl R_OptimizeModel(XAssetHeader header, void *);
 void __cdecl XSurfaceReleaseResources(XSurface *surf);
 void __cdecl XSurfaceRenderString(const float *pos, char *string);

@@ -69,8 +69,10 @@ static inline char *_strupr(char *s)
         *p = (char)toupper((unsigned char)*p);
     return s;
 }
+#if !defined(__EMSCRIPTEN__) // (Emscripten's C library has these two)
 static inline char *strlwr(char *s) { return _strlwr(s); }
 static inline char *strupr(char *s) { return _strupr(s); }
+#endif
 static inline char *_strrev(char *s)
 {
     size_t n = strlen(s);

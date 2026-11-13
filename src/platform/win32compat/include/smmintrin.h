@@ -3,6 +3,12 @@
 #pragma once
 #if defined(__x86_64__) || defined(__i386__)
 #include_next <smmintrin.h>
+#elif defined(__EMSCRIPTEN__)
+// (Emscripten's headers name a struct __unaligned, a keyword with -fms-extensions)
+#pragma push_macro("__unaligned")
+#define __unaligned bo1_wasm_unaligned
+#include_next <smmintrin.h>
+#pragma pop_macro("__unaligned")
 #else
 #include "sse_compat.h"
 #endif

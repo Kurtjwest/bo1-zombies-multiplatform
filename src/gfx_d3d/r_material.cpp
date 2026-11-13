@@ -443,7 +443,7 @@ MaterialConstantDef MaterialParameterConstantEntry_save;
 
 char desc[256];
 
-void __cdecl Material_FreeTechniqueSet(XAssetHeader header)
+void __cdecl Material_FreeTechniqueSet(XAssetHeader header, void *)
 {
     Material_ReleaseTechniqueSetResources(header.techniqueSet);
 }
@@ -942,7 +942,7 @@ void __cdecl Material_ReleasePassResources(MaterialPass *pass)
 
 void __cdecl Material_FreeAllTechniqueSets()
 {
-    DB_EnumXAssets(ASSET_TYPE_TECHNIQUE_SET, (void (__cdecl *)(XAssetHeader, void *))Material_FreeTechniqueSet, 0, 1);
+    DB_EnumXAssets(ASSET_TYPE_TECHNIQUE_SET, Material_FreeTechniqueSet, 0, 1);
     if ( !useFastFile->current.enabled )
         memset((unsigned __int8 *)materialGlobals.techniqueSetHashTable, 0, sizeof(materialGlobals.techniqueSetHashTable));
 }
@@ -1761,10 +1761,10 @@ void __cdecl Material_UpdatePicmipAll()
 {
     R_SyncRenderThread();
     R_SetPicmip();
-    DB_EnumXAssets(ASSET_TYPE_MATERIAL, (void (__cdecl *)(XAssetHeader, void *))Material_UpdatePicmipSingle, 0, 1);
+    DB_EnumXAssets(ASSET_TYPE_MATERIAL, Material_UpdatePicmipSingle, 0, 1);
 }
 
-void __cdecl Material_UpdatePicmipSingle(XAssetHeader header)
+void __cdecl Material_UpdatePicmipSingle(XAssetHeader header, void *)
 {
     int textureIndex; // [esp+4h] [ebp-4h]
 

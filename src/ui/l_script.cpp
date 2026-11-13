@@ -716,7 +716,9 @@ script_s *__cdecl LoadScriptFile(const char *filename)
     length = FS_FOpenFileRead(pathname, &fp);
     if ( !fp )
         return 0;
-    buffer = (script_s *)GetClearedMemory(length + 1201);
+    // (the script, then its text: sizeof(script_s) is 0x4B0 in the Windows game, more where long double is wider
+    // than its double, as on x86-64 Linux)
+    buffer = (script_s *)GetClearedMemory(sizeof(script_s) + length + 1);
     v4 = filename;
     v3 = buffer;
     do
@@ -754,7 +756,9 @@ script_s *__cdecl LoadScriptMemory(char *ptr, unsigned int length, const char *n
     script_s *v5; // [esp+8h] [ebp-10h]
     script_s *buffer; // [esp+10h] [ebp-8h]
 
-    buffer = (script_s *)GetClearedMemory(length + 1201);
+    // (the script, then its text: sizeof(script_s) is 0x4B0 in the Windows game, more where long double is wider
+    // than its double, as on x86-64 Linux)
+    buffer = (script_s *)GetClearedMemory(sizeof(script_s) + length + 1);
     v5 = buffer;
     do
     {

@@ -5,3 +5,10 @@
 #include "sse_compat.h"
 #include "win32compat/msvc_crt.h"
 #include "win32compat/interlocked.h"
+
+#if defined(__EMSCRIPTEN__)
+// _ReturnAddress (a clang builtin under -fms-extensions): WebAssembly code has no addresses in its memory, and
+// Emscripten's way of making one up walks a JavaScript stack trace (USE_OFFSET_CONVERTER), far too slow for the
+// engine's per-entity diagnostics that ask for it. They get 0.
+#define _ReturnAddress() ((void *)0)
+#endif

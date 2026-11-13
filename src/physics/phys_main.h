@@ -282,7 +282,7 @@ int __cdecl SortSModelsByDist(float *a, float *b);
 int __cdecl buoyancy_worker();
 void __cdecl Phys_BodyGrabSnapshotNitrous(PhysObjUserData *userData, float deltaT);
 void    UpdateRigidBody(float delta_t);
-void __cdecl Phys_DebugRender(PhysObjUserData *userData);
+void __cdecl Phys_DebugRender(PhysObjUserData *userData, float);
 void    Phys_CollisionCallback();
 bool __cdecl Phys_ShouldCollideCallback(const broad_phase_base *bpi1, const broad_phase_base *bpi2);
 void __cdecl PhysicsSystem_Update();

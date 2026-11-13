@@ -1245,14 +1245,14 @@ TaskRecord *__cdecl LiveStorage_ReadStatsBackup(int controllerIndex)
                                                                                                                                     STATS_LOCATION_BACKUP,
                                                                                                                                     1);
     fileInfo->statsBackupFileInfo.bufferSize = 40172;
-    fileInfo->statsBackupFileInfo.fileOperationSucessFunction = (void (__cdecl *)(const int, void *))LiveStorage_StatsBackupReadSuccessful;
+    fileInfo->statsBackupFileInfo.fileOperationSucessFunction = LiveStorage_StatsBackupReadSuccessful;
     fileInfo->statsBackupFileInfo.fileNotFoundFunction = (taskCompleteResults (__cdecl *)(const int, void *))LiveStorage_StatsBackupFileNotFound;
     fileInfo->statsBackupFileInfo.fileTask.m_optional = 1;
     nestedTask = LiveStorage_ReadDWFile(controllerIndex, &fileInfo->statsBackupFileInfo);
     return LiveStorage_SetupNestedTask(task_LiveReadStatsBackup, controllerIndex, nestedTask, fileInfo);
 }
 
-void __cdecl LiveStorage_StatsBackupReadSuccessful(int controllerIndex)
+void __cdecl LiveStorage_StatsBackupReadSuccessful(int controllerIndex, void *)
 {
     persistentStats *StatsBuffer; // eax
 
@@ -1400,7 +1400,7 @@ TaskRecord *__cdecl LiveStorage_ReadMetPlayerList(
     fileOps->fetchMetPlayerListFileInfo.fileTask.m_optional = 1;
     fileOps->fetchMetPlayerListFileInfo.fileBuffer = buffer;
     fileOps->fetchMetPlayerListFileInfo.bufferSize = sizeOfBuffer;
-    fileOps->fetchMetPlayerListFileInfo.fileOperationSucessFunction = (void (__cdecl *)(const int, void *))LiveStorage_ReadMetPlayerListSuccessful;
+    fileOps->fetchMetPlayerListFileInfo.fileOperationSucessFunction = LiveStorage_ReadMetPlayerListSuccessful;
     fileOps->fetchMetPlayerListFileInfo.fileNotFoundFunction = (taskCompleteResults (__cdecl *)(const int, void *))LiveStorage_ReadMetPlayerListFileNotFound;
     nestedTask = LiveStorage_ReadDWFile(controllerIndex, &fileOps->fetchMetPlayerListFileInfo);
     return LiveStorage_SetupNestedTask(task_LiveFetchMetPlayerList, controllerIndex, nestedTask, fileInfo);
@@ -1418,7 +1418,7 @@ bool __cdecl LiveStorage_NeedToDownloadMetPlayerList(int controllerIndex)
 #endif
 }
 
-int __cdecl LiveStorage_ReadMetPlayerListFileNotFound(int controllerIndex)
+int __cdecl LiveStorage_ReadMetPlayerListFileNotFound(int controllerIndex, void *)
 {
     LiveStorage_SetLastMetPlayerListDownload(controllerIndex);
     LiveMeetPlayer_ResetData(controllerIndex);
@@ -1435,7 +1435,7 @@ void __cdecl LiveStorage_SetLastMetPlayerListDownload(int controllerIndex)
 #endif
 }
 
-void __cdecl LiveStorage_ReadMetPlayerListSuccessful(int controllerIndex)
+void __cdecl LiveStorage_ReadMetPlayerListSuccessful(int controllerIndex, void *)
 {
     LiveStorage_SetLastMetPlayerListDownload(controllerIndex);
     LiveMeetPlayer_CheckDownloadedVersionAndResetData(controllerIndex);
@@ -1471,12 +1471,12 @@ TaskRecord *__cdecl LiveStorage_WriteMetPlayerList(
     fileInfo->fileTask.m_filename = fileName;
     fileInfo->fileBuffer = buffer;
     fileInfo->bufferSize = sizeOfBuffer;
-    fileInfo->fileOperationSucessFunction = (void (__cdecl *)(const int, void *))LiveStorage_WriteMetPlayerListSuccessful;
+    fileInfo->fileOperationSucessFunction = LiveStorage_WriteMetPlayerListSuccessful;
     nestedTask = LiveStorage_WriteDWUserFile(controllerIndex, fileInfo, 0);
     return LiveStorage_SetupNestedTask(task_LiveSaveMetPLayerList, controllerIndex, nestedTask, fileInfo);
 }
 
-void __cdecl LiveStorage_WriteMetPlayerListSuccessful(int controllerIndex)
+void __cdecl LiveStorage_WriteMetPlayerListSuccessful(int controllerIndex, void *)
 {
     LiveMeetPlayer_ClearUploadFlags(controllerIndex);
 }
@@ -1507,7 +1507,7 @@ TaskRecord *__cdecl LiveStorage_ReadOtherPlayerStats(int controllerIndex, unsign
         v3 = currTime - s_lastStatsUpdateTimeForOtherPlayer;
         if ( v3 < Dvar_GetInt("minDelayForOtherPlayerStatsFetch") )
         {
-            LiveStorage_ReadOtherPlayerStatsSuccessful(controllerIndex);
+            LiveStorage_ReadOtherPlayerStatsSuccessful(controllerIndex, nullptr);
             return 0;
         }
         s_lastStatsUpdateTimeForOtherPlayer = currTime;
@@ -1521,7 +1521,7 @@ TaskRecord *__cdecl LiveStorage_ReadOtherPlayerStats(int controllerIndex, unsign
     fileInfo->fileTask.m_filename = (char*)"globalstatsCompressed";
     fileInfo->fileBuffer = (unsigned __int8 *)LiveStorage_GetStatsBuffer(controllerIndex, STATS_LOCATION_OTHERPLAYER, 1);
     fileInfo->bufferSize = 40172;
-    fileInfo->fileOperationSucessFunction = (void (__cdecl *)(const int, void *))LiveStorage_ReadOtherPlayerStatsSuccessful;
+    fileInfo->fileOperationSucessFunction = LiveStorage_ReadOtherPlayerStatsSuccessful;
     fileInfo->fileNotFoundFunction = (taskCompleteResults (__cdecl *)(const int, void *))LiveStorage_OtherPlayerStatsFileNotFound;
     fileInfo->menuDef = "popup_fetchstats";
     fileInfo->fileTask.m_optional = 1;
@@ -1532,7 +1532,7 @@ TaskRecord *__cdecl LiveStorage_ReadOtherPlayerStats(int controllerIndex, unsign
     return LiveStorage_SetupNestedTask(task_LiveGetOtherPlayerStatsData, controllerIndex, nestedTask, fileInfo);
 }
 
-void __cdecl LiveStorage_ReadOtherPlayerStatsSuccessful(int controllerIndex)
+void __cdecl LiveStorage_ReadOtherPlayerStatsSuccessful(int controllerIndex, void *)
 {
     int LocalClientNum; // eax
 
@@ -1576,7 +1576,7 @@ TaskRecord *__cdecl LiveStorage_ReadPlayerStats(int controllerIndex, bool valida
         return 0;
     fileInfo = &controllerNetworkData[controllerIndex].fileOps->getPlayerStatsFileInfo;
     fileInfo->fileTask.m_filename = (char*)"mpstatsCompressed";
-    fileInfo->fileOperationSucessFunction = (void (__cdecl *)(const int, void *))LiveStorage_ReadPlayerStatsSuccessful;
+    fileInfo->fileOperationSucessFunction = LiveStorage_ReadPlayerStatsSuccessful;
     fileInfo->fileNotFoundFunction = (taskCompleteResults (__cdecl *)(const int, void *))LiveStorage_PlayerStatsFileNotFound;
     return LiveStorage_ReadCommonStats(
                      controllerIndex,
@@ -1622,7 +1622,7 @@ int __cdecl LiveStorage_PlayerStatsFileNotFound(int controllerIndex, const char 
     }
 }
 
-void __cdecl LiveStorage_ReadPlayerStatsSuccessful(int controllerIndex)
+void __cdecl LiveStorage_ReadPlayerStatsSuccessful(int controllerIndex, void *)
 {
     persistentStats *StatsBuffer; // eax
     persistentStats *v2; // eax
@@ -1746,7 +1746,7 @@ TaskRecord *__cdecl LiveStorage_ReadBasicTrainingStats(int controllerIndex, bool
         return 0;
     fileInfo = &controllerNetworkData[controllerIndex].fileOps->getBasicTrainingStatsFileInfo;
     fileInfo->fileTask.m_filename = (char*)"mpstatsBasicTraining";
-    fileInfo->fileOperationSucessFunction = (void (__cdecl *)(const int, void *))LiveStorage_ReadBasicTrainingStatsSuccessful;
+    fileInfo->fileOperationSucessFunction = LiveStorage_ReadBasicTrainingStatsSuccessful;
     fileInfo->fileNotFoundFunction = (taskCompleteResults (__cdecl *)(const int, void *))LiveStorage_BasicTrainingStatsFileNotFound;
     return LiveStorage_ReadCommonStats(
                      controllerIndex,
@@ -1791,7 +1791,7 @@ int __cdecl LiveStorage_BasicTrainingStatsFileNotFound(int controllerIndex, cons
     }
 }
 
-void __cdecl LiveStorage_ReadBasicTrainingStatsSuccessful(int controllerIndex)
+void __cdecl LiveStorage_ReadBasicTrainingStatsSuccessful(int controllerIndex, void *)
 {
     persistentStats *StatsBuffer; // eax
     persistentStats *v2; // eax

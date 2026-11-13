@@ -921,7 +921,7 @@ char __cdecl Demo_SetMetaData(
                 screenshotMetaInfo *sInfo,
                 fileShareSearchFileType fileType);
 void __cdecl Demo_StreamingSuccessCallback(int controllerIndex, unsigned __int64 fileID);
-void __cdecl Demo_StreamingFailureCallback();
+void __cdecl Demo_StreamingFailureCallback(int);
 void __cdecl Demo_StartRecord_f();
 void __cdecl Demo_StopRecord_f();
 void __cdecl Demo_Play_f();
@@ -966,10 +966,11 @@ bool __cdecl Demo_InitWrite();
 bool __cdecl Demo_InitRead();
 void __cdecl Demo_Frame(int msec);
 void __cdecl Demo_End(bool abnormalTermination);
-void __cdecl Demo_ReadDataCallback(char *data, unsigned int dataSize);
+void __cdecl Demo_ReadDataCallback(char *data, unsigned int dataSize, unsigned int, unsigned int);
 void __cdecl Demo_ReadDataSuccessPlayIt(dwFileShareReadFileTask *task);
 void __cdecl Demo_ReadDataSuccessRenderIt(dwFileShareReadFileTask *task);
-void __cdecl Demo_ReadDataFailure();
+struct dwFileShareReadFileTask;
+void __cdecl Demo_ReadDataFailure(dwFileShareReadFileTask *);
 void __cdecl Demo_DownloadFile(
                 int controllerIndex,
                 char *filmName,

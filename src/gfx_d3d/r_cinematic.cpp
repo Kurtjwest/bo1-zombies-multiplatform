@@ -111,7 +111,7 @@ jqModule _UpdateFrameModule =
 {
     .Name = "_UpdateFrame",
     .Type = JQ_WORKER_GENERIC,
-    .Code = (int(__cdecl *)(jqBatch *))_UpdateFrameCallback,
+    .Code = _UpdateFrameCallback,
     //.Group = 0
 };
 jqWorkerCmd _UpdateFrameWorkerCmd = { &_UpdateFrameModule, sizeof(CINE_JQ_CMD), 0, 0, &_UpdateFrameLimit, NULL, 0u};
@@ -550,7 +550,7 @@ void __cdecl R_Cinematic_StopPlayback()
     Sys_LeaveCriticalSection(CRITSECT_CINEMATIC);
 }
 
-int __cdecl _UpdateFrameCallback()
+int __cdecl _UpdateFrameCallback(jqBatch *)
 {
     R_Cinematic_UpdateFrame_Core(0);
     _InterlockedExchange(&cineThreadBlock, 0);

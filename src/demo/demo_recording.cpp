@@ -353,7 +353,7 @@ unsigned int __cdecl Demo_ThrottleStream(unsigned int dataSize)
     return dataSize;
 }
 
-int __cdecl Demo_WriteToStream(unsigned __int8 *data, unsigned int dataSize)
+int __cdecl Demo_WriteToStream(unsigned __int8 *data, unsigned int dataSize, unsigned int)
 {
     int CurrUsedBuffer; // eax
     int bytesToUpload; // [esp+0h] [ebp-4h]

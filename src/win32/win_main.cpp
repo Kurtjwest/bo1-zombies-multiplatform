@@ -3,7 +3,12 @@
 #include <vector>
 #if !defined(_WIN32)
 #include <dlfcn.h>
+#if defined(__EMSCRIPTEN__)
+// (WebAssembly has no native call stack to walk: the browser's own error report shows the stack)
+static int backtrace(void **, int) { return 0; }
+#else
 #include <execinfo.h>
+#endif
 #endif
 #include <universal/bo1_ptrcast.h>
 #include "win_main.h"

@@ -33,6 +33,12 @@ include(cmake_files.cmake)
 if(APPLE)
     include(cmake/macos.cmake)
     return()
+elseif(EMSCRIPTEN)
+    # The browser build (WebAssembly with threads, WebGL 2), built with Emscripten (build-web.sh) and served on the
+    # local network with the game files by tools/web-server.py. See cmake/web.cmake and the browser section of
+    # README.md.
+    include(cmake/web.cmake)
+    return()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # Native Linux build (x86_64, x86, arm64, armhf): SDL2 and OpenGL. See cmake/linux.cmake and the Linux section of
     # README.md.

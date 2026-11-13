@@ -56,7 +56,7 @@ void __cdecl DB_EnumXAssets(
                 void (__cdecl *func)(XAssetHeader, void *),
                 void *inData,
                 bool includeOverride);
-void __cdecl DB_EnumXAssets_LoadObj(XAssetType type, void (__cdecl *func)(void *, void *), void *inData);
+void __cdecl DB_EnumXAssets_LoadObj(XAssetType type, void (__cdecl *func)(void *, void *), void *inData, bool = false);
 void __cdecl DB_EnumXAssetsFor(
                 fileData_s *fileData,
                 int fileDataType,

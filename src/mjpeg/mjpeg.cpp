@@ -46,7 +46,7 @@ bool __cdecl mjpeg_is_encoding()
     return mjpeg_run_encoder;
 }
 
-void __stdcall    mjpeg_thread(void *context)
+unsigned int __stdcall mjpeg_thread(void *context)
 {
     float diff; // [esp+30h] [ebp-34h]
     unsigned __int8 *u; // [esp+40h] [ebp-24h] BYREF

@@ -87,7 +87,7 @@ void __cdecl Demo_SaveToStreamBuffer(unsigned __int8 *data, unsigned int dataSiz
 void __cdecl Demo_RecordSentPacket(unsigned int size);
 bool __cdecl Demo_ShouldThrottle();
 unsigned int __cdecl Demo_ThrottleStream(unsigned int dataSize);
-int __cdecl Demo_WriteToStream(unsigned __int8 *data, unsigned int dataSize);
+int __cdecl Demo_WriteToStream(unsigned __int8 *data, unsigned int dataSize, unsigned int);
 int __cdecl Demo_SaveCallback(jqBatch *batch);
 unsigned __int8 *__cdecl Demo_GetActiveMemoryBuffer();
 unsigned __int8 *__cdecl Demo_SwapActiveMemoryBuffer();

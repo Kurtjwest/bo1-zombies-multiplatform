@@ -498,7 +498,7 @@ void __cdecl DB_EnumXAssets(
             includeOverride);
 }
 
-void __cdecl DB_EnumXAssets_LoadObj(XAssetType type, void (__cdecl *func)(void *, void *), void *inData)
+void __cdecl DB_EnumXAssets_LoadObj(XAssetType type, void (__cdecl *func)(void *, void *), void *inData, bool)
 {
     unsigned int hash; // [esp+4h] [ebp-Ch]
 

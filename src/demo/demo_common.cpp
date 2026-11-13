@@ -717,7 +717,7 @@ void __cdecl Demo_StreamingSuccessCallback(int controllerIndex, unsigned __int64
     }
 }
 
-void __cdecl Demo_StreamingFailureCallback()
+void __cdecl Demo_StreamingFailureCallback(int)
 {
     Demo_StopStreaming();
 }
@@ -768,7 +768,7 @@ void __cdecl Demo_StartRecord_f()
             fileInfo.fileSize = 0;
             fileInfo.dataCallback = (unsigned int (__cdecl *)(void *, unsigned int, unsigned int))Demo_WriteToStream;
             fileInfo.successCallback = Demo_StreamingSuccessCallback;
-            fileInfo.failureCallback = (void (__cdecl *)(int))Demo_StreamingFailureCallback;
+            fileInfo.failureCallback = Demo_StreamingFailureCallback;
             if ( LiveStorage_FileShare_WriteFile(0, &fileInfo) )
                 Demo_StartStreaming(0);
             v1 = Session_HostNum(&g_serverSession);
@@ -2695,7 +2695,7 @@ void __cdecl Demo_End(bool abnormalTermination)
     num_heli_height_lock_patches = 0;
 }
 
-void __cdecl Demo_ReadDataCallback(char *data, unsigned int dataSize)
+void __cdecl Demo_ReadDataCallback(char *data, unsigned int dataSize, unsigned int, unsigned int)
 {
     Demo_Write(data, dataSize, s_demoFileHandle);
 }
@@ -2718,7 +2718,7 @@ void __cdecl Demo_ReadDataSuccessRenderIt(dwFileShareReadFileTask *task)
     Cbuf_AddText(0, v1);
 }
 
-void __cdecl Demo_ReadDataFailure()
+void __cdecl Demo_ReadDataFailure(dwFileShareReadFileTask *)
 {
     Com_Printf(16, "Demo download failed.\n");
     if ( Menu_IsMenuOpenAndVisible(0, "popup_downloadingfile") )
@@ -2760,7 +2760,7 @@ void __cdecl Demo_DownloadFile(
         fileInfo.successCallback = Demo_ReadDataSuccessRenderIt;
     else
         fileInfo.successCallback = Demo_ReadDataSuccessPlayIt;
-    fileInfo.failureCallback = (void (__cdecl *)(dwFileShareReadFileTask *))Demo_ReadDataFailure;
+    fileInfo.failureCallback = Demo_ReadDataFailure;
     fileInfo.cacheBuffer = Demo_GetStreamAllocatedBuffer();
     LiveStorage_FileShare_ReadFile(controllerIndex, &fileInfo);
 }

@@ -24,7 +24,11 @@
 #include "../win32compat/w32_platform.h"
 #include "platform_bridge.h"
 
-#if defined(__APPLE__)
+#if defined(__EMSCRIPTEN__)
+#include "../web/web_shared.h"
+#define BO1_SETUP_SCRIPT "./setup-linux.sh"
+#define BO1_GAME_FOLDER_PARENT "the server's game folder"
+#elif defined(__APPLE__)
 #define BO1_SETUP_SCRIPT "./setup-mac.sh"
 #define BO1_GAME_FOLDER_PARENT "~/Library/Application Support"
 #else
@@ -474,8 +478,16 @@ void AppendArg(std::string &cmd, const std::string &arg)
 }
 } // namespace
 
+#if defined(__EMSCRIPTEN__)
+// the page shows that the game has quit (bo1_page.js reads exitCode)
+static void WebMarkExit() { bo1web::Shared().exitCode.store(1); }
+#endif
+
 int main(int argc, char **argv)
 {
+#if defined(__EMSCRIPTEN__)
+    atexit(WebMarkExit);
+#endif
     w32::PlatformInit(argc, argv);
     w32::User32Init(); // the windowing system's application object; the message boxes below need it
 
@@ -520,6 +532,21 @@ int main(int argc, char **argv)
     else
     {
         gameDir = Bridge_AppSupportPath(); // (created if needed)
+#if defined(__EMSCRIPTEN__)
+        // the browser build: the game folder is the server's (web_fs.cpp, tools/web-server.py)
+        if (gameDir.empty() || !LooksLikeGameDir(gameDir, true))
+        {
+            Bridge_MessageBox("BO1 Zombies",
+                              gameDir.empty()
+                                  ? "The game's files could not be read from the server. Is tools/web-server.py still "
+                                    "running? Reload the page to try again."
+                                  : "The server's game folder has no Call of Duty: Black Ops files (zone/ and main/ "
+                                    "with its .iwd files). Start tools/web-server.py with --game and the folder of a "
+                                    "Black Ops PC install.",
+                              0, 2);
+            return 1;
+        }
+#endif
         if (gameDir.empty() || !IsDir(gameDir))
         {
             Bridge_MessageBox("BO1 Zombies", "Can't create the game's folder in " BO1_GAME_FOLDER_PARENT ".", 0, 2);
@@ -573,5 +600,11 @@ int main(int argc, char **argv)
 
     std::vector<char> buf(cmdline.begin(), cmdline.end());
     buf.push_back(0);
+#if defined(__EMSCRIPTEN__)
+    const int code = WinMain((HINSTANCE__ *)GetModuleHandleA(nullptr), nullptr, buf.data(), SW_SHOWDEFAULT);
+    WebMarkExit();
+    return code;
+#else
     return WinMain((HINSTANCE__ *)GetModuleHandleA(nullptr), nullptr, buf.data(), SW_SHOWDEFAULT);
+#endif
 }

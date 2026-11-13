@@ -130,7 +130,7 @@ bool __cdecl UI_Gametype_HasPerkChangedFromDefault(int itemIndex);
 bool __cdecl UI_Gametype_Custom_IsPerkTweakable(int itemIndex);
 void __cdecl UI_Gametype_Custom_ResolveNumKillsConflicts();
 void __cdecl UI_Gametype_Custom_UploadToFileShareSuccess(int controllerIndex, unsigned __int64 fileID);
-void __cdecl UI_Gametype_Custom_UploadToFileShareFailure();
+void __cdecl UI_Gametype_Custom_UploadToFileShareFailure(int);
 void __cdecl UI_Gametype_Custom_UploadToFileShare(
                 int controllerIndex,
                 unsigned __int16 fileSlot,

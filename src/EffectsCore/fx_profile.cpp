@@ -4,7 +4,7 @@
 #include "fx_draw.h"
 #include "fx_archive.h"
 
-void __cdecl FX_DrawProfile(int clientIndex, void (__cdecl *drawFunc)(char *), float *profilePos)
+void __cdecl FX_DrawProfile(int clientIndex, void (__cdecl *drawFunc)(const char *, float *), float *profilePos)
 {
     char *v3; // eax
     char *v4; // eax
@@ -44,44 +44,44 @@ void __cdecl FX_DrawProfile(int clientIndex, void (__cdecl *drawFunc)(char *), f
                      1024,
                      (float)((float)v11 * 0.09765625),
                      1024 - v11);
-        drawFunc(v3);
+        drawFunc(v3, profilePos);
         v4 = va(
                      "%4i of %4i trails in use (%.0f%%; %i free)",
                      system->shared->activeTrailCount,
                      128,
                      (float)((float)system->shared->activeTrailCount * 0.78125),
                      128 - system->shared->activeTrailCount);
-        drawFunc(v4);
+        drawFunc(v4, profilePos);
         v5 = va(
                      "%4i of %4i spot lights in use (%.0f%%; %i free)",
                      system->shared->activeSpotLightEffectCount,
                      1,
                      (float)((float)system->shared->activeSpotLightEffectCount * 100.0),
                      1 - system->shared->activeSpotLightEffectCount);
-        drawFunc(v5);
+        drawFunc(v5, profilePos);
         v6 = va(
                      "%4i of %4i effect elements in use (%.0f%%; %i free)",
                      system->shared->activeElemCount,
                      fx_elemLimit, // mod (L43): r_mod_fxElems (retail 2048)
                      (float)((float)system->shared->activeElemCount * 100.0f / (float)fx_elemLimit),
                      fx_elemLimit - system->shared->activeElemCount);
-        drawFunc(v6);
+        drawFunc(v6, profilePos);
         v7 = va(
                      "%4i of %4i trail elements in use (%.0f%%; %i free)",
                      system->shared->activeTrailElemCount,
                      2048,
                      (float)((float)system->shared->activeTrailElemCount * 0.048828125),
                      2048 - system->shared->activeTrailElemCount);
-        drawFunc(v7);
+        drawFunc(v7, profilePos);
         v8 = va(
                      "%4i of %4i cloud elements in use (%.0f%%; %i free)",
                      system->gfxCloudCount,
                      256,
                      (float)((float)system->gfxCloudCount * 0.390625),
                      256 - system->gfxCloudCount);
-        drawFunc(v8);
-        ((void (__cdecl *)(const char *, float *))drawFunc)("", profilePos);
-        ((void (__cdecl *)(const char *, float *))drawFunc)(
+        drawFunc(v8, profilePos);
+        drawFunc("", profilePos);
+        drawFunc(
             "Effects are sorted by percent of available resources used",
             profilePos);
         v9 = va(
@@ -95,8 +95,8 @@ void __cdecl FX_DrawProfile(int clientIndex, void (__cdecl *drawFunc)(char *), f
                      "actv",
                      "pend",
                      "effectname");
-        drawFunc(v9);
-        ((void (__cdecl *)(const char *, float *))drawFunc)(
+        drawFunc(v9, profilePos);
+        drawFunc(
             "-------------------------------------------------------------------",
             profilePos);
         for ( j = 0; j < 30 && j < entryCount; ++j )
@@ -113,7 +113,7 @@ void __cdecl FX_DrawProfile(int clientIndex, void (__cdecl *drawFunc)(char *), f
                             entry->activeTrailElemCount,
                             entry->pendingTrailElemCount,
                             BO1_VA(entry->effectDef->name));
-            drawFunc(v10);
+            drawFunc(v10, profilePos);
         }
     }
 }
@@ -213,7 +213,7 @@ double __cdecl FX_GetProfileEntryCost(const FxProfileEntry *entry)
         return (float)((float)entry->effectCount * 0.0009765625);
 }
 
-void __cdecl FX_DrawPriorityDebug(int clientIndex, void (__cdecl *drawFunc)(char *), float *profilePos)
+void __cdecl FX_DrawPriorityDebug(int clientIndex, void (__cdecl *drawFunc)(const char *, float *), float *profilePos)
 {
     char *v3; // eax
     char *v4; // eax
@@ -278,24 +278,24 @@ void __cdecl FX_DrawPriorityDebug(int clientIndex, void (__cdecl *drawFunc)(char
     v18 = system->system.priorityInfo.warningHigh[system->system.priorityInfo.readIndex];
     v13 = system->system.shared->firstNewEffect - system->system.shared->firstActiveEffect;
     v3 = va("%4i of %4i effect objects in use (%.0f%%; %i free)", v13, 1024, (float)((float)v13 * 0.09765625), 1024 - v13);
-    drawFunc(v3);
+    drawFunc(v3, profilePos);
     v4 = va(
                  "%4i of %4i effect elements in use (%.0f%%; %i free)",
                  system->system.shared->activeElemCount,
                  fx_elemLimit, // mod (L43): r_mod_fxElems (retail 2048)
                  (float)((float)system->system.shared->activeElemCount * 100.0f / (float)fx_elemLimit),
                  fx_elemLimit - system->system.shared->activeElemCount);
-    drawFunc(v4);
+    drawFunc(v4, profilePos);
     v5 = va(
                  "priority warning high %d. Client %d, handles %d",
                  v18,
                  clientIndex,
                  system->system.uniqueHandleDb->numNodesInUse);
-    drawFunc(v5);
-    ((void (__cdecl *)(const char *, float *))drawFunc)("", profilePos);
+    drawFunc(v5, profilePos);
+    drawFunc("", profilePos);
     v6 = va("%4s     %4s     %s", "prio", "count", "effectname");
-    drawFunc(v6);
-    ((void (__cdecl *)(const char *, float *))drawFunc)(
+    drawFunc(v6, profilePos);
+    drawFunc(
         "-------------------------------------------------------------------",
         profilePos);
     if ( num > 40 )
@@ -305,7 +305,7 @@ void __cdecl FX_DrawPriorityDebug(int clientIndex, void (__cdecl *drawFunc)(char
     for ( k = 0; k < v8; ++k )
     {
         v7 = va("%4i     %4i     %s", *(unsigned __int8 *)BO1_I2P((base[2 * k] + 5)), base[2 * k + 1], BO1_VA(*(Ptr32<const char> *)BO1_I2P(base[2 * k])));
-        drawFunc(v7);
+        drawFunc(v7, profilePos);
     }
 }
 
@@ -329,7 +329,7 @@ int __cdecl FX_ComparePriorityDebugEntries(unsigned int *e0, unsigned int *e1)
     return -1;
 }
 
-void __cdecl FX_DrawMarkProfile(unsigned int clientIndex, void (__cdecl *drawFunc)(char *), float *profilePos)
+void __cdecl FX_DrawMarkProfile(unsigned int clientIndex, void (__cdecl *drawFunc)(const char *, float *), float *profilePos)
 {
     const char *v3; // eax
     char *v4; // eax
@@ -427,26 +427,26 @@ void __cdecl FX_DrawMarkProfile(unsigned int clientIndex, void (__cdecl *drawFun
                  256,
                  marksSystem->allocedMarkCount,
                  marksSystem->freedMarkCount);
-    drawFunc(v4);
+    drawFunc(v4, profilePos);
     v5 = va("%4i of %4i triGroups in use (%4i wasted)", 1024 - freeTriGroups, 1024, wastedTriGroups);
-    drawFunc(v5);
+    drawFunc(v5, profilePos);
     v6 = va("%4i of %4i pointGroups in use (%4i wasted)", 1536 - freePointGroups, 1536, wastedPointGroups);
-    drawFunc(v6);
-    ((void (__cdecl *)(const char *, float *))drawFunc)(" ", profilePos);
+    drawFunc(v6, profilePos);
+    drawFunc(" ", profilePos);
     v7 = va("%4i World Brush Marks", worldBrushMarks);
-    drawFunc(v7);
+    drawFunc(v7, profilePos);
     v8 = va("%4i World Model Marks", worldModelMarks);
-    drawFunc(v8);
+    drawFunc(v8, profilePos);
     v9 = va("%4i Ent Brush Marks", entBrushMarks);
-    drawFunc(v9);
+    drawFunc(v9, profilePos);
     v10 = va("%4i Ent Model", entModelMarks);
-    drawFunc(v10);
+    drawFunc(v10, profilePos);
     FX_DrawMarkProfile_MarkPrint(
         marksSystem,
         marksSystem->firstActiveWorldMarkHandle,
         "world",
         0,
-        (void (__cdecl *)(const char *, float *))drawFunc,
+        drawFunc,
         profilePos);
     for ( entityIndex = 0; entityIndex != 1536; ++entityIndex )
         FX_DrawMarkProfile_MarkPrint(
@@ -454,7 +454,7 @@ void __cdecl FX_DrawMarkProfile(unsigned int clientIndex, void (__cdecl *drawFun
             marksSystem->entFirstMarkHandles[entityIndex],
             "ent",
             entityIndex,
-            (void (__cdecl *)(const char *, float *))drawFunc,
+            drawFunc,
             profilePos);
     for ( markItera = marksSystem->marks; markItera != (FxMark *)marksSystem->triGroups; ++markItera )
     {
@@ -469,7 +469,7 @@ void __cdecl FX_DrawMarkProfile(unsigned int clientIndex, void (__cdecl *drawFun
                 v11,
                 "sm",
                 modelIndex,
-                (void (__cdecl *)(const char *, float *))drawFunc,
+                drawFunc,
                 profilePos);
         }
     }

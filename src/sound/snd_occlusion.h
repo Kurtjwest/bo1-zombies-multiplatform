@@ -25,6 +25,6 @@ float __cdecl SND_SurfaceTypeToReflectance(unsigned int surface);
 void __cdecl SND_UpdateProximity();
 void __cdecl SND_LosOcclusionCmd();
 void __cdecl SND_LosOcclusionUpdate();
-void __cdecl SND_LosOcclusionThreadMain();
+void __cdecl SND_LosOcclusionThreadMain(unsigned int);
 void __cdecl SND_LosOcclusionInit();
 void __cdecl SND_LosOcclusionFini();

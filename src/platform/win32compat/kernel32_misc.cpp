@@ -14,7 +14,9 @@
 #include <universal/ptr32.h>
 
 #include <dlfcn.h>
+#if !defined(__EMSCRIPTEN__)
 #include <execinfo.h>
+#endif
 #if defined(__APPLE__)
 #include <libproc.h>
 #include <mach-o/dyld.h>
@@ -25,7 +27,9 @@
 #include <sys/sysctl.h>
 #else
 #include <link.h>
+#if !defined(__EMSCRIPTEN__)
 #include <sys/prctl.h>
+#endif
 #include <sys/sysinfo.h>
 #include <sys/uio.h>
 #include <time.h>
@@ -50,6 +54,14 @@
 #include <vector>
 
 extern char **environ;
+
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/heap.h>
+#include <emscripten/threading.h>
+// (WebAssembly has no native call stack to walk: the browser's own error report shows the stack)
+static int backtrace(void **, int) { return 0; }
+static void backtrace_symbols_fd(void *const *, int, int) {}
+#endif
 
 using namespace w32;
 
@@ -333,6 +345,8 @@ void SetCurrentThreadName(const char *name)
         return;
 #if defined(__APPLE__)
     pthread_setname_np(name);
+#elif defined(__EMSCRIPTEN__)
+    emscripten_set_thread_name(pthread_self(), name);
 #else
     char buf[16]; // (Linux keeps 15 characters)
     strncpy(buf, name, sizeof(buf) - 1);
@@ -423,7 +437,7 @@ SIZE_T VirtualQuery(LPCVOID addr, PMEMORY_BASIC_INFORMATION mbi, SIZE_T len)
         return sizeof(*mbi);
     }
     // outside the arena: describe the enclosing VM region
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
     if (FILE *maps = fopen("/proc/self/maps", "r"))
     {
         char line[512];
@@ -535,7 +549,12 @@ size_t _msize(void *p) { return malloc_size(p); }
 
 static void PhysicalMemory(unsigned long long *total, unsigned long long *avail)
 {
-#if defined(__linux__)
+#if defined(__EMSCRIPTEN__)
+    // WebAssembly: what the memory may grow to (4 GB for wasm32), and the part of it not grown into yet
+    *total = (unsigned long long)emscripten_get_heap_max();
+    *avail = *total - (unsigned long long)emscripten_get_heap_size() + (256ull << 20);
+    return;
+#elif defined(__linux__)
     struct sysinfo si;
     if (sysinfo(&si) != 0)
     {
@@ -602,7 +621,7 @@ BOOL GlobalMemoryStatusEx(LPMEMORYSTATUSEX st)
 }
 static DWORD CpuCount()
 {
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
     long n = sysconf(_SC_NPROCESSORS_ONLN);
     if (n <= 0)
         n = 4;
@@ -878,7 +897,7 @@ BOOL GetSystemTimes(LPFILETIME idle, LPFILETIME kernel, LPFILETIME user)
         ft->dwLowDateTime = (DWORD)v;
         ft->dwHighDateTime = (DWORD)(v >> 32);
     };
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
     // the first line of /proc/stat: cpu user nice system idle iowait irq softirq (USER_HZ ticks)
     unsigned long long t[7] = {};
     FILE *f = fopen("/proc/stat", "r");
@@ -911,7 +930,19 @@ BOOL ReadProcessMemory(HANDLE h, LPCVOID addr, LPVOID buf, SIZE_T n, SIZE_T *got
 {
     if (h != GetCurrentProcess())
         return FALSE;
-#if defined(__linux__)
+#if defined(__EMSCRIPTEN__)
+    // (WebAssembly memory is all readable: a plain copy, refused past its end)
+    if ((uintptr_t)addr + n < (uintptr_t)addr || (uintptr_t)addr + n > (uintptr_t)__builtin_wasm_memory_size(0) * 65536)
+    {
+        if (got)
+            *got = 0;
+        return FALSE;
+    }
+    memcpy(buf, addr, n);
+    if (got)
+        *got = n;
+    return TRUE;
+#elif defined(__linux__)
     // a copy the kernel makes, so an unmapped source fails instead of faulting (as on Windows)
     struct iovec local = {buf, n}, remote = {(void *)addr, n};
     const ssize_t out = process_vm_readv(getpid(), &local, 1, &remote, 1, 0);
@@ -937,7 +968,9 @@ BOOL WriteProcessMemory(HANDLE h, LPVOID addr, LPCVOID buf, SIZE_T n, SIZE_T *wr
 }
 BOOL FlushInstructionCache(HANDLE, LPCVOID p, SIZE_T n)
 {
+#if !defined(__EMSCRIPTEN__) // (WebAssembly code is not in its memory)
     __builtin___clear_cache((char *)p, (char *)p + n);
+#endif
     return TRUE;
 }
 UINT SetErrorMode(UINT m) { return m; }
@@ -993,7 +1026,7 @@ DWORD ExpandEnvironmentStringsA(LPCSTR src, LPSTR dst, DWORD n)
 }
 BOOL IsDebuggerPresent(void)
 {
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
     FILE *f = fopen("/proc/self/status", "r");
     if (!f)
         return FALSE;
@@ -1367,7 +1400,7 @@ LSTATUS RegGetValueA(HKEY, LPCSTR, LPCSTR, DWORD, LPDWORD, PVOID, LPDWORD) { ret
 BOOL GetProcessMemoryInfo(HANDLE, PPROCESS_MEMORY_COUNTERS c, DWORD cb)
 {
     unsigned long long resident = 0, peak = 0;
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
     // VmRSS / VmHWM of /proc/self/status (kB)
     FILE *f = fopen("/proc/self/status", "r");
     if (!f)
@@ -1403,7 +1436,10 @@ BOOL GetProcessMemoryInfo(HANDLE, PPROCESS_MEMORY_COUNTERS c, DWORD cb)
 BOOL K32GetProcessMemoryInfo(HANDLE h, PPROCESS_MEMORY_COUNTERS c, DWORD cb) { return GetProcessMemoryInfo(h, c, cb); }
 BOOL GetModuleInformation(HANDLE, HMODULE, LPMODULEINFO mi, DWORD)
 {
-#if defined(__linux__)
+#if defined(__EMSCRIPTEN__)
+    // (one WebAssembly module: its "image" is the start of its memory)
+    mi->lpBaseOfDll = nullptr;
+#elif defined(__linux__)
     // the main program's first loadable segment
     uintptr_t base = 0;
     dl_iterate_phdr(
@@ -1542,10 +1578,17 @@ WORD RtlCaptureStackBackTrace(DWORD skip, DWORD count, PVOID *frames, PDWORD has
 void RtlCaptureContext(PCONTEXT ctx)
 {
     memset(ctx, 0, sizeof(*ctx));
+#if defined(__EMSCRIPTEN__)
+    // (WebAssembly code addresses are not in its memory: the frame is all there is)
+    ctx->Fp = (DWORD64)(uintptr_t)__builtin_frame_address(0);
+    uintptr_t sp = (uintptr_t)__builtin_frame_address(0);
+#else
     ctx->Pc = (DWORD64)__builtin_return_address(0);
     ctx->Fp = (DWORD64)__builtin_frame_address(0);
     uintptr_t sp;
-#if defined(__x86_64__)
+#endif
+#if defined(__EMSCRIPTEN__)
+#elif defined(__x86_64__)
     __asm__ volatile("mov %%rsp, %0" : "=r"(sp));
 #elif defined(__i386__)
     __asm__ volatile("mov %%esp, %0" : "=r"(sp));
@@ -1665,7 +1708,7 @@ BOOL SetThreadSelectedCpuSets(HANDLE, const ULONG *, ULONG) { return TRUE; }
 BOOL GetLogicalProcessorInformation(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buf, PDWORD len)
 {
     int phys = 0;
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
     // the distinct (package, core) pairs of the online processors
     {
         std::vector<std::pair<int, int>> cores;
@@ -1776,7 +1819,7 @@ namespace w32
 // Called once from main() before anything else runs.
 void PlatformInit(int argc, char **argv)
 {
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
     // The engine keeps big structures on the main thread's stack (the macOS build links a 32 MB one, Windows reserves
     // what the exe asks for). Linux grows the main thread's stack up to the stack rlimit as it is used (8 MB by
     // default), and raising the limit now still applies to it.
@@ -1796,7 +1839,7 @@ void PlatformInit(int argc, char **argv)
     {
         // the main thread's stack is not in the arena: give its locals 32-bit handles through a window
         // (the reported size can be the rlimit rather than the linked -stack_size; cover the larger of the two)
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
         char *top = nullptr;
         size_t size = 0;
         pthread_attr_t attr;

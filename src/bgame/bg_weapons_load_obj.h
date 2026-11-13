@@ -89,7 +89,7 @@ char __cdecl BG_IsGripAnimationName(const char *name);
 int __cdecl BG_MergeWeaponDefAnimations(const char *fieldName, char **value, char *mergedValue, unsigned int size);
 int __cdecl BG_MergeWeaponDefSpecialCases(const char *fieldName, char **value, char *mergedValue, int size);
 char __cdecl BG_LoadWeaponVariantDefFile(WeaponFullDef *weapFullDef, const char *folder, char *name);
-int __cdecl BG_ParseWeaponDefSpecificFieldType(WeaponFullDef *pStruct, const char *pValue, int iFieldType);
+int __cdecl BG_ParseWeaponDefSpecificFieldType(WeaponFullDef *pStruct, const char *pValue, int iFieldType, int);
 int __cdecl Weapon_GetStringArrayIndex(const char *value, const char **stringArray, int arraySize);
 Ptr32<const char> *__cdecl BG_RegisterSurfaceTypeSounds(const char *surfaceSoundBase);
 WeaponFullDef *__cdecl BG_LoadWeaponVariantDefInternal(const char *folder, char *name);

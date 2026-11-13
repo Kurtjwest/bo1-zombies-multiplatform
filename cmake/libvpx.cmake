@@ -18,7 +18,14 @@ set(BO1_LIBVPX_LIB "${BO1_LIBVPX_INSTALL}/lib/libvpx.a")
 include("${CMAKE_CURRENT_LIST_DIR}/deps_target.cmake")
 set(BO1_LIBVPX_FLAGS "${BO1_DEP_CFLAGS}")
 set(BO1_LIBVPX_LDFLAGS "${BO1_DEP_LDFLAGS}")
-string(APPEND BO1_LIBVPX_FLAGS " -O2 -fPIC")
+if(EMSCRIPTEN)
+    # (the browser build: no position-independent code, the program is one module)
+    string(APPEND BO1_LIBVPX_FLAGS " -O2")
+    set(BO1_LIBVPX_PIC_ARG --disable-pic)
+else()
+    string(APPEND BO1_LIBVPX_FLAGS " -O2 -fPIC")
+    set(BO1_LIBVPX_PIC_ARG --enable-pic)
+endif()
 
 # configure reads the toolchain from the environment
 set(BO1_LIBVPX_ENV
@@ -31,7 +38,10 @@ set(BO1_LIBVPX_ENV
     "CXXFLAGS=${BO1_LIBVPX_FLAGS}"
     "LDFLAGS=${BO1_LIBVPX_LDFLAGS}"
 )
-if(CMAKE_CROSSCOMPILING)
+if(EMSCRIPTEN)
+    # (WebAssembly objects: nothing to strip)
+    list(APPEND BO1_LIBVPX_ENV "STRIP=true")
+elseif(CMAKE_CROSSCOMPILING)
     # the host's GNU strip cannot process other systems' objects (it drops the archive's symbol index)
     find_program(BO1_LLVM_STRIP NAMES llvm-strip llvm-strip-18)
     if(BO1_LLVM_STRIP)
@@ -46,7 +56,7 @@ set(BO1_LIBVPX_CONFIGURE_ARGS
     --prefix=${BO1_LIBVPX_INSTALL}
     --enable-static
     --disable-shared
-    --enable-pic
+    ${BO1_LIBVPX_PIC_ARG}
     --disable-examples
     --disable-docs
     --disable-unit-tests

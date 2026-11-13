@@ -3256,7 +3256,7 @@ void    UpdateRigidBody(float delta_t)
         //Nitrous_ForEachBody<void (__cdecl *)(PhysObjUserData &,float)>(Phys_BodyGrabSnapshotNitrous, t);
         Nitrous_ForEachBody(Phys_BodyGrabSnapshotNitrous, t);
         //Nitrous_ForEachBody<void (__cdecl *)(PhysObjUserData &,float)>((void (__cdecl *)(PhysObjUserData *, float))Phys_DebugRender, t);
-        Nitrous_ForEachBody((void(__cdecl *)(PhysObjUserData *, float))Phys_DebugRender, t);
+        Nitrous_ForEachBody(Phys_DebugRender, t);
         render_debug_draw_gjk_trace_geom();
         NitrousVehicle::frame_prolog_all_systems(t);
     }
@@ -3278,7 +3278,7 @@ void    UpdateRigidBody(float delta_t)
     Sys_LeaveCriticalSection(CRITSECT_PHYSICS_UPDATE);
 }
 
-void __cdecl Phys_DebugRender(PhysObjUserData *userData)
+void __cdecl Phys_DebugRender(PhysObjUserData *userData, float)
 {
     int savedregs; // [esp+0h] [ebp+0h] BYREF
 

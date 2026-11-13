@@ -436,7 +436,7 @@ struct stream_dest_info_t // sizeof=0x2
     unsigned __int8 UsageIndex;
 };
 
-void __cdecl Material_FreeTechniqueSet(XAssetHeader header);
+void __cdecl Material_FreeTechniqueSet(XAssetHeader header, void * = nullptr);
 unsigned __int8 *__cdecl Material_Alloc(unsigned int size);
 void __cdecl Load_CreateMaterialPixelShader(GfxPixelShaderLoadDef *loadDef, MaterialPixelShader *mtlShader);
 void __cdecl Load_CreateMaterialVertexShader(GfxVertexShaderLoadDef *loadDef, MaterialVertexShader *mtlShader);
@@ -491,7 +491,7 @@ void __cdecl Material_Init();
 void __cdecl Material_LoadBuiltIn(const BuiltInMaterialTable *mtlTable, int mtlTableCount);
 void __cdecl Material_Shutdown();
 void __cdecl Material_UpdatePicmipAll();
-void __cdecl Material_UpdatePicmipSingle(XAssetHeader header);
+void __cdecl Material_UpdatePicmipSingle(XAssetHeader header, void *);
 void __cdecl Material_UpdatePicmipForTexdef(const MaterialTextureDef *texdef);
 void __cdecl R_Cmd_ReloadMaterialTextures();
 Material *__cdecl Material_Find(const char *name);

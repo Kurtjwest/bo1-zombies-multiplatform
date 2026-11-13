@@ -144,9 +144,9 @@ void __cdecl UI_DrawLoadBar(
     float percentDone; // [esp+3Ch] [ebp-10h]
 
     if ( useFastFile->current.enabled )
-        v9 = ((double (__cdecl *)(double (__cdecl *)()))UI_LoadBarProgress_FastFile)(UI_LoadBarProgress_FastFile);
+        v9 = UI_LoadBarProgress_FastFile();
     else
-        v9 = ((double (__cdecl *)(double (__cdecl *)()))UI_LoadBarProgress_LoadObj)(UI_LoadBarProgress_LoadObj);
+        v9 = UI_LoadBarProgress_LoadObj();
     percentDone = v9;
     CL_DrawStretchPic(
         scrPlace,
@@ -244,9 +244,9 @@ void __cdecl UI_DrawSpinnerLoadbar(
     float percentDone; // [esp+28h] [ebp-4h]
 
     if ( useFastFile->current.enabled )
-        v8 = ((double (__cdecl *)(double (__cdecl *)()))UI_LoadBarProgress_FastFile)(UI_LoadBarProgress_FastFile);
+        v8 = UI_LoadBarProgress_FastFile();
     else
-        v8 = ((double (__cdecl *)(double (__cdecl *)()))UI_LoadBarProgress_LoadObj)(UI_LoadBarProgress_LoadObj);
+        v8 = UI_LoadBarProgress_LoadObj();
     percentDone = v8;
     CL_DrawSpinnerLoadbar(scrPlace, x, y, width, height, horzAlign, vertAlign, color, percentDone);
 }

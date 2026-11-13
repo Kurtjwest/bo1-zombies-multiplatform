@@ -105,7 +105,16 @@ set_source_files_properties(${BO1_PLATFORM_SOURCES} PROPERTIES COMPILE_DEFINITIO
 # Direct3D 9 implementation (src/platform/third_party/mojoshader; only that profile is built, without effect or
 # preshader support)
 set(MOJOSHADER_DIR "${PLATFORM_DIR}/third_party/mojoshader")
-string(TOLOWER "${BO1_PORT_MOJOSHADER_PROFILE}" _bo1_profile)
+# (GLSLES3, the browser build's: the same BO1 GLSL profile, which the WebGL renderer adapts to GLSL ES 3.00)
+set(_bo1_metal 0)
+set(_bo1_glsl 0)
+if(BO1_PORT_MOJOSHADER_PROFILE STREQUAL "METAL")
+    set(_bo1_metal 1)
+    set(_bo1_profile metal)
+else()
+    set(_bo1_glsl 1)
+    set(_bo1_profile glsl)
+endif()
 add_library(bo1_mojoshader STATIC
     "${MOJOSHADER_DIR}/mojoshader.c"
     "${MOJOSHADER_DIR}/mojoshader_common.c"
@@ -113,13 +122,6 @@ add_library(bo1_mojoshader STATIC
     "${MOJOSHADER_DIR}/profiles/mojoshader_profile_${_bo1_profile}.c"
 )
 target_include_directories(bo1_mojoshader PUBLIC "${MOJOSHADER_DIR}")
-set(_bo1_metal 0)
-set(_bo1_glsl 0)
-if(BO1_PORT_MOJOSHADER_PROFILE STREQUAL "METAL")
-    set(_bo1_metal 1)
-else()
-    set(_bo1_glsl 1)
-endif()
 target_compile_definitions(bo1_mojoshader PRIVATE
     SUPPORT_PROFILE_D3D=0
     SUPPORT_PROFILE_BYTECODE=0

@@ -112,11 +112,12 @@ token_s *__cdecl PC_CopyToken(token_s *token)
 {
     unsigned int *t; // [esp+8h] [ebp-4h]
 
-    t = GetMemory(0x430u);
+    // (sizeof(token_s) is 0x430 in the Windows game, more where long double is wider than its double)
+    t = GetMemory(sizeof(token_s));
     if ( t )
     {
-        memcpy(t, token, 0x430u);
-        t[266] = 0;
+        memcpy(t, token, sizeof(token_s));
+        ((token_s *)t)->next = 0;
         ++numtokens;
         return (token_s *)t;
     }
@@ -2240,7 +2241,7 @@ source_s *__cdecl LoadSourceFile(char *filename)
     if ( !script )
         return 0;
     script->next = 0;
-    source = (source_s *)GetMemory(0x4D0u);
+    source = (source_s *)GetMemory(sizeof(source_s));
     memset(source, 0, sizeof(source_s));
     strncpy((char*)source, filename, 0x40u);
     source->scriptstack = script;

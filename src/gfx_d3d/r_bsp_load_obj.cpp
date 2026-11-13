@@ -5599,7 +5599,7 @@ GfxShadowGeometry *R_InitShadowGeometryArrays()
     {
         __debugbreak();
     }
-    R_ForEachShadowCastingSurfaceOnEachLight((void (__cdecl *)(GfxWorld *, unsigned int, unsigned int))R_IncrementShadowGeometryCount);
+    R_ForEachShadowCastingSurfaceOnEachLight(R_IncrementShadowGeometryCount);
     s_world.shadowGeom->surfaceCount = 0;
     s_world.shadowGeom[s_world.sunPrimaryLightIndex].surfaceCount = 0;
     for ( primaryLightIndex = 0; primaryLightIndex < s_world.primaryLightCount; ++primaryLightIndex )
@@ -5695,7 +5695,7 @@ void __cdecl R_ForEachShadowCastingSurfaceOnEachLight(void (__cdecl *Callback)(G
     }
 }
 
-void __cdecl R_IncrementShadowGeometryCount(GfxWorld *world, unsigned int primaryLightIndex)
+void __cdecl R_IncrementShadowGeometryCount(GfxWorld *world, unsigned int primaryLightIndex, unsigned int)
 {
     ++world->shadowGeom[primaryLightIndex].surfaceCount;
 }

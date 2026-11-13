@@ -4954,7 +4954,7 @@ void(__cdecl *DB_RemoveXAssetHandler[43])(XAssetHeader) =
   NULL,
   &DB_RemoveXModel,
   NULL,
-  &Material_FreeTechniqueSet,
+  [](XAssetHeader header) { Material_FreeTechniqueSet(header); }, // (the function is also a DB_EnumXAssets callback, with its data argument)
   &DB_RemoveImage,
   &DB_RemoveSound,
   &DB_RemoveSoundPatch,

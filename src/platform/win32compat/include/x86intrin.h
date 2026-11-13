@@ -3,6 +3,8 @@
 #pragma once
 #if defined(__x86_64__) || defined(__i386__)
 #include_next <x86intrin.h>
+#elif defined(__EMSCRIPTEN__)
+#include <immintrin.h>
 #else
 #include "sse_compat.h"
 #endif

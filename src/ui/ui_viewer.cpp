@@ -1877,7 +1877,7 @@ void __cdecl UIViewer::SetControllerIndexCmd()
     uiViewer.controllerIndex = 0;
 }
 
-DObj *__cdecl UIViewer::GetDObj(int handle)
+DObj *__cdecl UIViewer::GetDObj(int handle, int)
 {
     return uiViewer.drawDobjs[handle].dobj;
 }
@@ -1920,7 +1920,7 @@ void __thiscall UIViewer::SetupStreamer()
         R_StreamSetUIConfig(1);
         rowCount = StringTable_RowCount(this->bodyHeadTable);
         colCount = StringTable_ColumnCount(this->bodyHeadTable);
-        DB_EnumXAssets(ASSET_TYPE_WEAPON, (void (__cdecl *)(XAssetHeader, void *))ForceLoadWeapon, 0, 0);
+        DB_EnumXAssets(ASSET_TYPE_WEAPON, ForceLoadWeapon, 0, 0);
         for ( row = 0; row < rowCount; ++row )
         {
             partType = StringTable_GetColumnValueForRow(this->bodyHeadTable, row, 1);
@@ -1942,7 +1942,7 @@ void __thiscall UIViewer::SetupStreamer()
     }
 }
 
-void __cdecl ForceLoadWeapon(XAssetHeader header)
+void __cdecl ForceLoadWeapon(XAssetHeader header, void *)
 {
     WeaponDef *weaponDef; // [esp+4h] [ebp-4h]
 

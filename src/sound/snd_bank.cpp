@@ -13,16 +13,22 @@ unsigned int g_snd_bankCount;
 SndPatch *g_snd_patches[8];
 unsigned int g_snd_patchCount;
 
+// (the tables without rows: the retail game had RETURN_ZERO32 there, which takes no argument)
+static void *__cdecl SND_FindRowNone(unsigned int)
+{
+    return nullptr;
+}
+
 void *(__cdecl *const SND_FIND_ROW[9])(unsigned int) =
 {
   (void*(*)(unsigned int))SND_FindRowAlias,
   (void*(*)(unsigned int))SND_FindRowGroup,
   (void*(*)(unsigned int))SND_FindRowCurve,
   (void*(*)(unsigned int))SND_FindRowPan,
-  (void*(*)(unsigned int))RETURN_ZERO32,
-  (void*(*)(unsigned int))RETURN_ZERO32,
+  SND_FindRowNone,
+  SND_FindRowNone,
   (void*(*)(unsigned int))SND_FindRowContext,
-  (void*(*)(unsigned int))RETURN_ZERO32,
+  SND_FindRowNone,
   (void*(*)(unsigned int))SND_FindRowMaster
 };
 

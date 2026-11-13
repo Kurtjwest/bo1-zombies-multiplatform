@@ -30,6 +30,18 @@
 #include <unordered_map>
 #include <vector>
 
+#if !defined(__APPLE__)
+// the kernel's id of the calling thread (Linux; Emscripten numbers its threads itself)
+static pid_t CurrentTid()
+{
+#if defined(__EMSCRIPTEN__)
+    return gettid();
+#else
+    return (pid_t)syscall(SYS_gettid);
+#endif
+}
+#endif
+
 namespace w32
 {
 std::mutex g_waitLock;
@@ -89,7 +101,7 @@ KThread *CurrentThread()
 #if defined(__APPLE__)
         t->machThread = pthread_mach_thread_np(pthread_self());
 #else
-        t->tid = (pid_t)syscall(SYS_gettid);
+        t->tid = CurrentTid();
 #endif
         t->id = g_nextThreadId.fetch_add(4);
         t->started = true;
@@ -433,7 +445,7 @@ static void ApplyThreadQos(int prio)
     else if (prio < THREAD_PRIORITY_NORMAL)
         nice = 2;
     if (nice)
-        setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), getpriority(PRIO_PROCESS, 0) + nice);
+        setpriority(PRIO_PROCESS, (id_t)CurrentTid(), getpriority(PRIO_PROCESS, 0) + nice);
 #endif
 }
 
@@ -442,7 +454,7 @@ static void *ThreadTrampoline(void *arg)
     KThread *t = (KThread *)arg;
     t_self = t;
 #if !defined(__APPLE__)
-    t->tid = (pid_t)syscall(SYS_gettid);
+    t->tid = CurrentTid();
 #endif
     {
         std::unique_lock<std::mutex> lk(g_waitLock);
@@ -486,6 +498,11 @@ static void SuspendSignalHandler(int, siginfo_t *, void *uctx)
 
 static bool ParkThread(KThread *t)
 {
+#if defined(__EMSCRIPTEN__)
+    // (no signals between Web Workers: a thread cannot be stopped from outside; only diagnostics ask)
+    (void)t;
+    return false;
+#endif
     static std::once_flag once;
     std::call_once(once, [] {
         struct sigaction sa;
@@ -1085,7 +1102,7 @@ BOOL GetThreadContext(HANDLE h, LPCONTEXT ctx)
     if (!o || o->type != KType::Thread || !ctx)
         return FALSE;
     KThread *t = static_cast<KThread *>(o);
-#if defined(__linux__)
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
     // the registers a suspended thread was parked with (ParkThread)
     if (t->machSuspended <= 0 || !ReadSignalContext(&t->parkedContext, *ctx))
         return FALSE;
