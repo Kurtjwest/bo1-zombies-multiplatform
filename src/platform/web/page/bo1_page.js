@@ -355,9 +355,16 @@
     shownFrame = 0; // (draw the next frame whatever it is)
   });
 
+  // the game's memory, a shared WebAssembly.Memory (bo1_web_lib.js; older Emscriptens also have it on Module)
+  function gameMemory() {
+    const m = Module.bo1Memory ? Module.bo1Memory() : null;
+    return m || Module.wasmMemory || null;
+  }
+
   function heapBytes() {
     // (the game's memory grows: a view made earlier doesn't reach what was allocated since)
-    const buffer = Module.wasmMemory ? Module.wasmMemory.buffer : Module.HEAPU8.buffer;
+    const memory = gameMemory();
+    const buffer = memory ? memory.buffer : Module.HEAPU8.buffer;
     if (!u8 || u8.byteLength !== buffer.byteLength) {
       i32 = new Int32Array(buffer);
       f32 = new Float32Array(buffer);
@@ -591,7 +598,9 @@
     try {
       const worker = new Worker('bo1_fetch_worker.js');
       worker.onerror = (e) => log('[page] fetch worker: ' + (e.message || e));
-      worker.postMessage({memory: Module.wasmMemory, table: shared + OFF.fetch});
+      const memory = gameMemory();
+      if (!memory) throw new Error('no WebAssembly.Memory to give it');
+      worker.postMessage({memory: memory, table: shared + OFF.fetch});
     } catch (e) {
       // (the game's threads then make their requests themselves)
       log('[page] no fetch worker: ' + e);
@@ -674,10 +683,7 @@
       },
       onRuntimeInitialized: () => {
         shared = Module._Bridge_WebSharedState();
-        const buffer = Module.HEAPU8.buffer;
-        i32 = new Int32Array(buffer);
-        f32 = new Float32Array(buffer);
-        u8 = new Uint8Array(buffer);
+        heapBytes();
         startFetchWorker();
         updateSize();
         lastFocus = -1;

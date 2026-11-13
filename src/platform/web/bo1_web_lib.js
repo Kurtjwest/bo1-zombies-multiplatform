@@ -6,6 +6,9 @@ addToLibrary({
   // ---- the game folder on the server (web_fs.cpp): synchronous requests, which workers may make ----
 
   // Reads [offset, offset + length) of a server file into dst. Returns the bytes read, or -1.
+  // The game's memory (a shared WebAssembly.Memory) for the page and its fetch worker, as Module.bo1Memory():
+  // Emscripten used to put it, and views of it such as HEAPU8, on Module itself; newer versions do only on request.
+  bo1_web_http_read__postset: "Module['bo1Memory'] = function() { return typeof wasmMemory != 'undefined' ? wasmMemory : null; };",
   bo1_web_http_read: function(url, offset, length, dst) {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', UTF8ToString(url), false);
