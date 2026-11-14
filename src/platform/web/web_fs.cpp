@@ -70,12 +70,13 @@ std::atomic<uint32_t> g_writeSerial{0}; // bumped by every write to a memory fil
 
 // ---- the block cache -----------------------------------------------------------------------------------------------
 // The game reads its files two ways: straight through (a fast file, 256 KB at a time) and here and there (an image in
-// an .iwd archive, a few KB to a few hundred, anywhere in a file of hundreds of MB). So the cache keeps small blocks,
-// and a request fetches the blocks a read needs, plus, for a file being read straight through, more of what follows
-// (as much again as it has read straight through so far, up to kMaxRequest).
+// an .iwd archive, a few KB to a few hundred, anywhere in a file of hundreds of MB, though mostly in the order they are
+// stored). So the cache keeps small blocks, and a request fetches the blocks a read needs, plus, for a file being read
+// on through, more of what follows (as much again as that stretch has covered so far, up to kMaxRequest: HttpFile).
 constexpr size_t kBlockSize = 64 << 10;     // the cache's unit (aligned in the file)
 constexpr size_t kCacheBlocks = 1536;       // 96 MB of the most recently read blocks
 constexpr size_t kMaxRequest = 4 << 20;     // the most one request fetches
+constexpr uint64_t kRunGap = 512 << 10;     // a read this far past where the last one ended still carries it on
 
 struct Block
 {
@@ -355,9 +356,17 @@ class HttpFile : public GameMemFile
     uint32_t id;
     bool local = false;
 
-    // where the file is being read straight through from, and up to (the read-ahead: WasmFS reads a file under its
-    // lock, so one read at a time)
-    uint64_t runStart = 0, runEnd = 0;
+    // The read-ahead: the stretches of the file being read on through, a few at a time (an .iwd archive is read at its
+    // directory, at its end, between the files the game reads from it, which it mostly reads in the order they are
+    // stored: a stretch carries on over the small gaps between them). A read that carries one on fetches as much
+    // again as the stretch has covered. (WasmFS reads a file under its lock: one read at a time.)
+    struct Run
+    {
+        uint64_t start = 0, end = 0;
+        uint32_t used = 0;
+    };
+    Run runs[4];
+    uint32_t runTick = 0;
 
     ssize_t read(uint8_t *buf, size_t len, off_t offset) override
     {
@@ -368,11 +377,23 @@ class HttpFile : public GameMemFile
         if (offset >= remoteSize)
             return 0;
         len = (size_t)std::min<off_t>((off_t)len, remoteSize - offset);
-        if ((uint64_t)offset != runEnd)
-            runStart = (uint64_t)offset;
-        runEnd = (uint64_t)offset + len;
-        const uint64_t ahead = std::min<uint64_t>(kMaxRequest, runEnd - runStart);
-        const ssize_t got = ReadBlocks(id, url, (uint64_t)remoteSize, (uint64_t)offset, len, runEnd + ahead, buf);
+        const uint64_t at = (uint64_t)offset;
+        Run *run = nullptr;
+        for (Run &r : runs)
+            if (r.used && at >= r.start && at <= r.end + kRunGap && (!run || r.end > run->end))
+                run = &r;
+        if (!run)
+        {
+            run = &runs[0];
+            for (Run &r : runs)
+                if (r.used < run->used)
+                    run = &r;
+            run->start = run->end = at;
+        }
+        run->end = std::max(run->end, at + len);
+        run->used = ++runTick;
+        const uint64_t ahead = std::min<uint64_t>(kMaxRequest, run->end - run->start);
+        const ssize_t got = ReadBlocks(id, url, (uint64_t)remoteSize, at, len, at + len + ahead, buf);
         return got < 0 ? -EIO : got;
     }
 

@@ -342,6 +342,16 @@ struct Texture
     std::vector<Texture *> views;
 };
 
+// A GL buffer holding the bytes [start, end) of a Buffer as they were when it was made, with a store of its own (filled
+// by glBufferData). An upload never writes into a GL buffer a draw has used: some WebGL implementations (ANGLE's Metal
+// backend, which Safari and Chrome use on a Mac) answer that with a copy of the whole buffer, or a wait for the GPU,
+// every time. Scratch memory (TransientChunk) is uploaded in these, and so are writes to buffers the GPU may be reading.
+struct GlPiece
+{
+    size_t start, end;
+    GLuint id;
+};
+
 struct Buffer
 {
     size_t length = 0;
@@ -356,6 +366,13 @@ struct Buffer
     // NoCopy: ranges the CPU wrote that the GL copies do not have yet (under G->uploadLock)
     std::vector<std::pair<size_t, size_t>> dirty;
     bool queued = false;
+    // NoCopy, on the render thread: what was written while a draw of the last frames may still read the GL copies, in
+    // pieces (newest last), drawn from instead of the copies where they are newer (GlPlaceForRange) until a newer piece
+    // replaces them or the copies are brought up to date (MergeBufferPieces); and the bytes the pieces span
+    std::vector<GlPiece> piecesV, piecesI;
+    size_t piecesLoV = SIZE_MAX, piecesHiV = 0, piecesLoI = SIZE_MAX, piecesHiI = 0;
+    bool pieced = false;     // (in G->pieced)
+    uint64_t drawnFrame = 0; // the last frame a draw read its GL copies (+ 1: 0 is never)
 };
 
 struct ShaderObj
@@ -416,6 +433,9 @@ struct TransientChunk
     size_t used = 0;
     size_t uploadedV = 0, uploadedI = 0; // how much of [0, used) the GL copies have
     uint64_t frame = 0;                  // last frame that used it
+    // the GL copies: a piece for each upload (SyncChunk: one before nearly every draw, its shader constants), in the
+    // order of start
+    std::vector<GlPiece> piecesV, piecesI;
 };
 
 namespace
@@ -595,6 +615,9 @@ struct Globals
     // scratch memory
     std::vector<std::unique_ptr<TransientChunk>> chunks;
     TransientChunk *chunk = nullptr;
+    std::vector<GLuint> freePiecesV, freePiecesI; // GL buffers of pieces no longer drawn from, for the next ones
+    std::vector<GLuint> retiredV, retiredI;       // ... and of pieces a newer one replaced this frame (free at its end)
+    std::vector<Buffer *> pieced;                 // buffers with pieces (MergeBufferPieces)
 
     // work other threads left for the render thread (in the order they asked)
     std::mutex deferLock;
@@ -640,6 +663,9 @@ struct Globals
         double frameStart = -1; // the frame being drawn: its first draw or clear (-1: none since the last Present)
         double drawMs = 0, linkMs = 0, aheadMs = 0, readbackMs = 0, pageWaitMs = 0;
         uint32_t frames = 0, draws = 0, links = 0, ahead = 0;
+        uint32_t scratchUploads = 0, bufferUploads = 0, merges = 0; // uploads of scratch memory, of buffers' writes
+        uint32_t readPieces = 0; // pieces made for what a draw reads (GlPlaceForRange)
+        uint64_t scratchBytes = 0, bufferBytes = 0, readPieceBytes = 0;
         int width = 0, height = 0; // the last frame's size
         uint32_t pageMicros = 0, pageDraws = 0; // the page's counters when the period began (web_shared.h)
         uint64_t reads = 0, readMicros = 0;     // the server reads' (web_fs.cpp)
@@ -1093,6 +1119,141 @@ void UploadRange(GLuint glbuf, size_t offset, size_t length, const void *data)
     glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)length, data);
 }
 
+
+// a piece of the bytes [start, end) of cpu (start a multiple of the uniform buffer offset alignment, so that offsets
+// into the piece keep the alignments offsets into the buffer had), for vertex and uniform data or for indices
+GlPiece MakePiece(const uint8_t *cpu, size_t start, size_t end, bool index)
+{
+    start -= start % (size_t)G->uboAlign;
+    std::vector<GLuint> &pool = index ? G->freePiecesI : G->freePiecesV;
+    GLuint id = 0;
+    if (!pool.empty())
+    {
+        id = pool.back();
+        pool.pop_back();
+    }
+    else
+        glGenBuffers(1, &id);
+    // (a new store each time, glBufferData: no draw has used it)
+    if (index)
+    {
+        BindVao(G->mainVao);
+        SetElementBuffer(id);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(end - start), cpu + start, GL_STREAM_DRAW);
+    }
+    else
+    {
+        // (the copy-write target first: the buffer becomes one WebGL never lets hold indices)
+        BindCopyBuffer(id);
+        glBufferData(GL_COPY_WRITE_BUFFER, (GLsizeiptr)(end - start), cpu + start, GL_STREAM_DRAW);
+    }
+    return {start, end, id};
+}
+
+// scratch memory used since the last upload, into a piece of the given kind
+void SyncChunk(TransientChunk *c, bool index)
+{
+    size_t &uploaded = index ? c->uploadedI : c->uploadedV;
+    if (uploaded >= c->used)
+        return;
+    const GlPiece p = MakePiece(c->buffer.cpu, uploaded, c->used, index);
+    (index ? c->piecesI : c->piecesV).push_back(p);
+    uploaded = c->used;
+    ++G->perf.scratchUploads;
+    G->perf.scratchBytes += p.end - p.start;
+}
+
+// a piece of a buffer's bytes [start, end) as they are now, newer than its GL copy of the given kind there (the older
+// pieces it covers go: a buffer rewritten every frame, as most dynamic ones are, keeps a few pieces for good)
+const GlPiece &AddBufferPiece(Buffer *b, size_t start, size_t end, bool index)
+{
+    std::vector<GlPiece> &pieces = index ? b->piecesI : b->piecesV;
+    const GlPiece n = MakePiece(b->cpu, start, end, index);
+    // (a replaced piece's GL buffer is not reused before the frame's end: a stream of the draw being prepared may
+    // still point at it)
+    std::vector<GLuint> &pool = index ? G->retiredI : G->retiredV;
+    size_t lo = n.start, hi = n.end;
+    size_t keep = 0;
+    for (size_t i = 0; i < pieces.size(); ++i)
+    {
+        if (n.start <= pieces[i].start && pieces[i].end <= n.end)
+        {
+            pool.push_back(pieces[i].id);
+            continue;
+        }
+        lo = std::min(lo, pieces[i].start);
+        hi = std::max(hi, pieces[i].end);
+        pieces[keep++] = pieces[i];
+    }
+    pieces.resize(keep);
+    pieces.push_back(n);
+    (index ? b->piecesLoI : b->piecesLoV) = lo;
+    (index ? b->piecesHiI : b->piecesHiV) = hi;
+    if (!b->pieced)
+    {
+        b->pieced = true;
+        G->pieced.push_back(b);
+    }
+    return pieces.back();
+}
+
+// a buffer's pieces back to the pool (its GL copies have their bytes, or the buffer is going away)
+void DropBufferPieces(Buffer *b)
+{
+    for (const GlPiece &p : b->piecesV)
+        G->freePiecesV.push_back(p.id);
+    for (const GlPiece &p : b->piecesI)
+        G->freePiecesI.push_back(p.id);
+    b->piecesV.clear();
+    b->piecesI.clear();
+    b->piecesLoV = b->piecesLoI = SIZE_MAX;
+    b->piecesHiV = b->piecesHiI = 0;
+}
+
+// At the end of a frame: a buffer with many pieces (its writes move about, an append buffer's) has its GL copies
+// brought up to what it holds, and its pieces go. One upload of the span they cover: it costs the copy, which a draw
+// has likely read, a copy of itself in some WebGL implementations (see GlPiece), so once in a while rather than at
+// every write.
+constexpr size_t kMaxBufferPieces = 384;
+void MergeBufferPieces()
+{
+    G->freePiecesV.insert(G->freePiecesV.end(), G->retiredV.begin(), G->retiredV.end());
+    G->freePiecesI.insert(G->freePiecesI.end(), G->retiredI.begin(), G->retiredI.end());
+    G->retiredV.clear();
+    G->retiredI.clear();
+    size_t keep = 0;
+    for (size_t k = 0; k < G->pieced.size(); ++k)
+    {
+        Buffer *b = G->pieced[k];
+        if (b->piecesV.size() + b->piecesI.size() <= kMaxBufferPieces)
+        {
+            G->pieced[keep++] = b;
+            continue;
+        }
+        b->pieced = false;
+        for (int kind = 0; kind < 2; ++kind)
+        {
+            const bool index = kind == 1;
+            const GLuint glbuf = index ? b->ibo : b->vbo;
+            const size_t from = index ? b->piecesLoI : b->piecesLoV;
+            const size_t to = std::min(index ? b->piecesHiI : b->piecesHiV, b->length);
+            if ((index ? b->piecesI : b->piecesV).empty() || !glbuf || !b->cpu || from >= to)
+                continue;
+            if (index)
+            {
+                BindVao(G->mainVao);
+                SetElementBuffer(glbuf);
+                glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, (GLintptr)from, (GLsizeiptr)(to - from), b->cpu + from);
+            }
+            else
+                UploadRange(glbuf, from, to - from, b->cpu + from);
+            ++G->perf.merges;
+        }
+        DropBufferPieces(b);
+    }
+    G->pieced.resize(keep);
+}
+
 // the written ranges of NoCopy buffers into their GL copies (before a draw)
 void FlushPendingUploads()
 {
@@ -1104,37 +1265,104 @@ void FlushPendingUploads()
     for (Buffer *b : list)
     {
         b->queued = false;
+        // (into the GL copies themselves when no draw of the last frames read them; else into pieces)
+        const bool inUse = b->drawnFrame && b->drawnFrame + kFramesBeforeReuse > G->frameIndex + 1;
         for (const auto &r : b->dirty)
         {
             if (b->vbo)
-                UploadRange(b->vbo, r.first, r.second - r.first, b->cpu + r.first);
+            {
+                if (inUse)
+                    AddBufferPiece(b, r.first, r.second, false);
+                else
+                    UploadRange(b->vbo, r.first, r.second - r.first, b->cpu + r.first);
+            }
             if (b->ibo)
-                UploadRange(b->ibo, r.first, r.second - r.first, b->cpu + r.first);
+            {
+                if (inUse)
+                    AddBufferPiece(b, r.first, r.second, true);
+                else
+                {
+                    BindVao(G->mainVao);
+                    SetElementBuffer(b->ibo);
+                    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, (GLintptr)r.first, (GLsizeiptr)(r.second - r.first),
+                                    b->cpu + r.first);
+                }
+            }
+            if (b->vbo || b->ibo)
+            {
+                ++G->perf.bufferUploads;
+                G->perf.bufferBytes += r.second - r.first;
+            }
         }
         b->dirty.clear();
     }
 }
 
-// scratch memory used since the last upload into the GL copy of the given kind
-void SyncChunk(TransientChunk *c, bool index)
+// the chunk's GL buffers back to the pools (the chunk is being reused: what it held is no longer drawn)
+void RecycleChunkPieces(TransientChunk *c)
 {
-    size_t &uploaded = index ? c->uploadedI : c->uploadedV;
-    if (uploaded >= c->used)
-        return;
-    const GLuint glbuf = index ? EnsureIbo(&c->buffer) : EnsureVbo(&c->buffer);
-    UploadRange(glbuf, uploaded, c->used - uploaded, c->buffer.cpu + uploaded);
-    uploaded = c->used;
+    for (const GlPiece &p : c->piecesV)
+        G->freePiecesV.push_back(p.id);
+    for (const GlPiece &p : c->piecesI)
+        G->freePiecesI.push_back(p.id);
+    c->piecesV.clear();
+    c->piecesI.clear();
 }
 
-// a buffer's GL copy of the given kind, up to date
-GLuint GlBufferFor(Buffer *b, bool index)
+// where the bytes of a buffer from offset on are for the GL, up to date: the GL buffer of the given kind, and the
+// offset in the buffer at which that GL buffer starts (subtract it from offsets into the buffer)
+struct GlPlace
+{
+    GLuint id;
+    size_t base;
+};
+GlPlace GlPlaceFor(Buffer *b, size_t offset, bool index)
+{
+    if (!b->chunk)
+    {
+        b->drawnFrame = G->frameIndex + 1;
+        return {index ? EnsureIbo(b) : EnsureVbo(b), 0};
+    }
+    TransientChunk *c = b->chunk;
+    SyncChunk(c, index);
+    c->frame = G->frameIndex;
+    const std::vector<GlPiece> &pieces = index ? c->piecesI : c->piecesV;
+    // (the last piece that starts at or before the offset)
+    auto it = std::upper_bound(pieces.begin(), pieces.end(), offset,
+                               [](size_t o, const GlPiece &p) { return o < p.start; });
+    if (it == pieces.begin())
+        return {0, 0};
+    --it;
+    return {it->id, it->start};
+}
+
+// the same for the bytes [r0, r1) of a buffer that a draw reads (r1: what the draw may read, at most): the newest
+// piece with bytes of the range if it has all of them, a new piece of the range if it has some, else the GL copy
+GlPlace GlPlaceForRange(Buffer *b, size_t r0, size_t r1, bool index)
 {
     if (b->chunk)
+        return GlPlaceFor(b, r0, index);
+    b->drawnFrame = G->frameIndex + 1;
+    r1 = std::max(std::min(r1, b->length), r0 + 1);
+    const std::vector<GlPiece> &pieces = index ? b->piecesI : b->piecesV;
+    const size_t lo = index ? b->piecesLoI : b->piecesLoV, hi = index ? b->piecesHiI : b->piecesHiV;
+    if (!pieces.empty() && lo < r1 && r0 < hi)
     {
-        SyncChunk(b->chunk, index);
-        b->chunk->frame = G->frameIndex;
+        for (size_t i = pieces.size(); i-- > 0;)
+        {
+            const GlPiece &p = pieces[i];
+            if (p.start < r1 && r0 < p.end)
+            {
+                if (p.start <= r0 && r1 <= p.end)
+                    return {p.id, p.start};
+                const GlPiece &n = AddBufferPiece(b, r0, r1, index);
+                ++G->perf.readPieces;
+                G->perf.readPieceBytes += n.end - n.start;
+                return {n.id, n.start};
+            }
+        }
     }
-    return index ? EnsureIbo(b) : EnsureVbo(b);
+    return {index ? EnsureIbo(b) : EnsureVbo(b), 0};
 }
 
 void *Transient(size_t length, size_t alignment, Buffer **buf, uint32_t *offset)
@@ -1165,6 +1393,7 @@ void *Transient(size_t length, size_t alignment, Buffer **buf, uint32_t *offset)
         }
         c->used = 0;
         c->uploadedV = c->uploadedI = 0;
+        RecycleChunkPieces(c);
         G->chunk = c;
     }
     const size_t off = AlignUp(c->used, alignment);
@@ -2726,7 +2955,7 @@ Buffer *CreateBufferNoCopy(void *ptr, size_t length, void (*release)(void *ptr, 
     b->length = length;
     b->release = release;
     b->user = user;
-    // (the GL copies are made from these bytes when first drawn from: GlBufferFor)
+    // (the GL copies are made from these bytes when first drawn from: GlPlaceFor)
     return b;
 }
 
@@ -2810,6 +3039,9 @@ void ReleaseBuffer(Buffer *buf)
                 ForgetBufferName(id);
                 glDeleteBuffers(1, &id);
             }
+        DropBufferPieces(buf);
+        if (buf->pieced)
+            G->pieced.erase(std::remove(G->pieced.begin(), G->pieced.end(), buf), G->pieced.end());
         delete buf;
     });
 }
@@ -3224,13 +3456,44 @@ void BindBlock(uint32_t k, const BoundBuffer &u, GLint need)
         memset(p, 0, (size_t)need);
         if (u.buf && u.buf->cpu)
             memcpy(p, u.buf->cpu + u.offset, std::min<size_t>(u.size, (size_t)need));
-        BindUniformBuffer(k, GlBufferFor(tb, false), off, AlignUp((size_t)need, 16));
+        const GlPlace at = GlPlaceFor(tb, off, false);
+        BindUniformBuffer(k, at.id, (GLintptr)(off - at.base), AlignUp((size_t)need, 16));
         return;
     }
-    BindUniformBuffer(k, GlBufferFor(u.buf, false), u.offset, u.size);
+    const GlPlace at = GlPlaceForRange(u.buf, u.offset, (size_t)u.offset + u.size, false);
+    BindUniformBuffer(k, at.id, (GLintptr)(u.offset - at.base), u.size);
 }
 
-bool PrepareDraw(int32_t baseVertex)
+// what a draw reads of its vertex streams: vertices 0 up to the highest index (relative to the base vertex), worked out
+// only for streams with pieces (GlPlaceForRange)
+struct DrawReads
+{
+    uint32_t vertexCount = 0;      // a draw without indices
+    const uint8_t *indices = nullptr;
+    uint32_t indexCount = 0;
+    bool index32 = false;
+    int64_t maxIndex = -1;         // (worked out)
+    uint32_t MaxIndex()
+    {
+        if (maxIndex >= 0)
+            return (uint32_t)maxIndex;
+        uint32_t m = vertexCount ? vertexCount - 1 : 0;
+        if (indices)
+        {
+            m = 0;
+            if (index32)
+                for (uint32_t i = 0; i < indexCount; ++i)
+                    m = std::max(m, ((const uint32_t *)indices)[i]);
+            else
+                for (uint32_t i = 0; i < indexCount; ++i)
+                    m = std::max<uint32_t>(m, ((const uint16_t *)indices)[i]);
+        }
+        maxIndex = m;
+        return m;
+    }
+};
+
+bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
 {
     if (!RenderContext("Draw"))
         return false;
@@ -3367,7 +3630,24 @@ bool PrepareDraw(int32_t baseVertex)
             LogOnce("negbase", "a draw with a negative base vertex before its stream's start is skipped");
             return false;
         }
-        SetAttribute(i, GlBufferFor(vb.buf, false), p->attrFormat[i], stride, offset, divisor);
+        // (where the stream's bytes are: scratch memory's are in the piece of its start; a buffer's newer than its GL
+        // copy in a piece with all the draw reads, from its first vertex on)
+        GlPlace at;
+        if (vb.buf->chunk || (vb.buf->piecesV.empty()))
+            at = GlPlaceFor(vb.buf, vb.offset, false);
+        else
+        {
+            const size_t first = (size_t)(offset - (GLintptr)a.offset);
+            const size_t last = divisor ? first + std::max<size_t>(stride, a.offset + 16)
+                                        : first + ((size_t)reads.MaxIndex() + 1) * std::max<size_t>(stride, 1);
+            at = GlPlaceForRange(vb.buf, first, last, false);
+        }
+        if (offset < (GLintptr)at.base)
+        {
+            LogOnce("piecebase", "a draw's stream starts before the piece holding its vertices: skipped");
+            return false;
+        }
+        SetAttribute(i, at.id, p->attrFormat[i], stride, offset - (GLintptr)at.base, divisor);
     }
 
     // uniforms
@@ -3428,23 +3708,35 @@ bool PrepareDraw(int32_t baseVertex)
 
 void Draw(PrimitiveType prim, uint32_t vertexStart, uint32_t vertexCount)
 {
-    if (!vertexCount || !PrepareDraw(0))
+    // (the first vertex as the base vertex: the streams start at it, so a piece of them holds what the draw reads)
+    DrawReads reads;
+    reads.vertexCount = vertexCount;
+    if (!vertexCount || !PrepareDraw((int32_t)vertexStart, reads))
         return;
     ++G->perf.draws;
-    glDrawArrays(kPrim[prim < 5 ? prim : 3], (GLint)vertexStart, (GLsizei)vertexCount);
+    glDrawArrays(kPrim[prim < 5 ? prim : 3], 0, (GLsizei)vertexCount);
 }
 
 void DrawIndexed(PrimitiveType prim, uint32_t indexCount, bool index32, Buffer *indexBuffer, uint32_t indexOffset,
                  int32_t baseVertex)
 {
-    if (!indexCount || !indexBuffer || !indexBuffer->cpu || !PrepareDraw(baseVertex))
+    if (!indexCount || !indexBuffer || !indexBuffer->cpu)
         return;
-    const GLuint ibo = GlBufferFor(indexBuffer, true);
+    const size_t indexBytes = (size_t)indexCount * (index32 ? 4 : 2);
+    if ((size_t)indexOffset + indexBytes > indexBuffer->length)
+        return;
+    DrawReads reads;
+    reads.indices = indexBuffer->cpu + indexOffset;
+    reads.indexCount = indexCount;
+    reads.index32 = index32;
+    if (!PrepareDraw(baseVertex, reads))
+        return;
+    const GlPlace at = GlPlaceForRange(indexBuffer, indexOffset, indexOffset + indexBytes, true);
     BindVao(G->mainVao);
-    SetElementBuffer(ibo);
+    SetElementBuffer(at.id);
     ++G->perf.draws;
     glDrawElements(kPrim[prim < 5 ? prim : 3], (GLsizei)indexCount, index32 ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT,
-                   (const void *)(uintptr_t)indexOffset);
+                   (const void *)(uintptr_t)(indexOffset - at.base));
 }
 
 void *AllocTransient(size_t length, size_t alignment, Buffer **buf, uint32_t *offset)
@@ -3542,14 +3834,20 @@ void PerfLine(double now)
         if (f.links || f.ahead)
             snprintf(shaders, sizeof(shaders), "; shaders compiled at their first draw %u (%.0f ms), ahead of it %u "
                      "(%.0f ms)", f.links, f.linkMs, f.ahead, f.aheadMs);
+        char uploads[200] = "";
+        if (f.scratchUploads || f.bufferUploads)
+            snprintf(uploads, sizeof(uploads), "; uploads a frame: %.0f of scratch memory (%.0f KB), %.0f buffer writes "
+                     "(%.0f KB; %.0f more for draws, %.0f KB; %.0f merges)", f.scratchUploads / n,
+                     f.scratchBytes / n / 1024.0, f.bufferUploads / n, f.bufferBytes / n / 1024.0, f.readPieces / n,
+                     f.readPieceBytes / n / 1024.0, f.merges / n);
         char server[96] = "";
         if (reads != f.reads)
             snprintf(server, sizeof(server), "; %llu reads from the server, %.1f s waiting",
                      (unsigned long long)(reads - f.reads), (readMicros - f.readMicros) / 1e6);
         printf("[web] %.1f fps at %dx%d: a frame %.1f ms = drawing %.1f (%.0f draws), GPU and readback %.1f, waiting "
-               "for the page %.1f, other %.1f%s%s%s\n",
+               "for the page %.1f, other %.1f%s%s%s%s\n",
                n * 1000.0 / span, f.width, f.height, each, f.drawMs / n, f.draws / n, f.readbackMs / n,
-               f.pageWaitMs / n, rest, page, shaders, server);
+               f.pageWaitMs / n, rest, page, shaders, uploads, server);
     }
     const double frameStart = f.frameStart;
     const int width = f.width, height = f.height;
@@ -3578,6 +3876,7 @@ void Present(Texture *backBuffer, const uint16_t *gammaRamp)
     ++G->perf.frames;
     G->linkBudget = kLinkAheadMsPerFrame;
     EnsureCmdBuf();
+    MergeBufferPieces();
     if (gammaRamp && memcmp(gammaRamp, G->gammaCache, sizeof(G->gammaCache)) != 0)
     {
         memcpy(G->gammaCache, gammaRamp, sizeof(G->gammaCache));
