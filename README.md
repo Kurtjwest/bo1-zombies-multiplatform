@@ -246,8 +246,8 @@ The same engine also builds for web browsers, with Emscripten: the game runs in 
 tablets and phones of your network, and its files stay on the one computer that serves it. `tools/web-server.py` serves
 the page together with the game files of a Black Ops PC install, and the game reads them from it while it plays, a part
 of a file at a time as it asks for it: nothing is downloaded up front, uploaded or installed in the browser. What the
-game saves (`players/`: settings and profiles, and `screenshots/`) goes back to the server, so every device that plays
-from it shares one set of settings. It is meant for a home network: the server has no accounts, and anyone who can
+game saves (`players/`: settings and profiles, `screenshots/`, and `shadercache/`, see below) goes back to the server,
+so every device that plays from it shares one set of settings. It is meant for a home network: the server has no accounts, and anyone who can
 reach its port can play and read the game files, so don't forward it to the internet.
 
 Building needs Emscripten 3.1.52 (`--install-emsdk` fetches it into `.emsdk/`), CMake 3.16+, Ninja, git, make and
@@ -321,9 +321,14 @@ does, so the game hands its work to the page instead: the render thread reads ea
 draws it on its canvas, and a worker of the page makes the requests for the game files (a game thread making them itself
 would keep every byte it read). On a GPU without DXT texture compression (most phones and tablets) the textures are
 decompressed as they load, which takes memory and time. There is no voice chat (microphone), no Steam and no online play
-(a browser has no sockets), and the log and the shader cache live in the tab's memory only. The browser build's own code
-is in `src/platform/web` (`web_fs.cpp` reads the game folder from the server, `web_bridge.cpp` is the window and input,
-`web_audio.cpp` the sound, `page/` the page) and `cmake/web.cmake`.
+(a browser has no sockets). A browser compiles a shader when it is first drawn, which stalls that frame, so the shader
+cache (the record of the shaders a run drew) goes back to the server and the next run compiles them while its levels
+load. The log lives in the tab's memory: the browser's console shows its end, and `copy(bo1Log())` typed there copies
+all of it. Every ten seconds it gives the frame rate and where a frame's time went (`[web] 30.2 fps at 1280x720: a
+frame 33.1 ms = drawing ...`), and after each fast file how much was read from the server; the browser's developer
+tools slow a game down while they are open. The browser build's own code is in `src/platform/web` (`web_fs.cpp` reads
+the game folder from the server, `web_bridge.cpp` is the window and input, `web_audio.cpp` the sound, `page/` the page)
+and `cmake/web.cmake`.
 
 ## Dead Ops Arcade
 

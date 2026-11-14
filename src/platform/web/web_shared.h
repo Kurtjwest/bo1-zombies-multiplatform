@@ -135,16 +135,23 @@ struct SharedState
     int32_t frameAspectW;                // 296 the shape to show the frames at (the game's resolution)
     int32_t frameAspectH;                // 300
     int32_t frameFill;                   // 304 1: stretched over the whole canvas, 0: at frameAspect, black bars
-    int32_t reserved[3];                 // 308
+    // ---- the page's share of each frame, for the performance line in the log (webgl_rhi.cpp): counters that only grow
+    // (and wrap) ----
+    std::atomic<int32_t> pageDrawMicros; // 308 page: time spent putting new frames on its canvas
+    std::atomic<int32_t> pageDraws;      // 312 page: how many it has put there
+    int32_t reserved;                    // 316
     GamepadState pads[4];                // 320
     InputRecord ring[kInputRingSize];    // 512
     FetchTable fetch;                    // 33280
 };
 
-constexpr int32_t kSharedVersion = 3;
+constexpr int32_t kSharedVersion = 4; // (bo1_page.js checks it: SHARED_VERSION)
 
 // why the game folder could not be read from the server ("" if it could, or was not tried): web_bridge.cpp
 const char *GameFolderError();
+
+// the reads from the server so far: how many, and how long the threads that made them waited for them (web_fs.cpp)
+void ServerReadStats(uint64_t *requests, uint64_t *micros);
 
 SharedState &Shared();
 } // namespace bo1web

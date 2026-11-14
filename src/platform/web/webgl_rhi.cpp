@@ -39,6 +39,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -625,6 +626,25 @@ struct Globals
     uint8_t *slot[3] = {};
     size_t slotCapacity[3] = {};
 
+    // pipelines to link before a draw needs them, a few milliseconds of each frame at a time (LinkAhead): the shader
+    // cache makes the ones earlier runs drew while a level loads (src/platform/d3d9mtl/d3d9_shadercache.cpp)
+    std::mutex linkLock;
+    std::deque<Pipeline *> toLink;
+    std::atomic<bool> haveToLink{false};
+    double linkBudget = 0; // milliseconds left for it in this frame
+
+    // the performance line in the log, every 10 seconds (PerfLine): where the render thread's time went
+    struct Perf
+    {
+        double since = 0;       // when the period began
+        double frameStart = -1; // the frame being drawn: its first draw or clear (-1: none since the last Present)
+        double drawMs = 0, linkMs = 0, aheadMs = 0, readbackMs = 0, pageWaitMs = 0;
+        uint32_t frames = 0, draws = 0, links = 0, ahead = 0;
+        int width = 0, height = 0; // the last frame's size
+        uint32_t pageMicros = 0, pageDraws = 0; // the page's counters when the period began (web_shared.h)
+        uint64_t reads = 0, readMicros = 0;     // the server reads' (web_fs.cpp)
+    } perf;
+
     // depth buffers standing in for a bigger (or smaller) one bound with a color target (FboFor)
     struct ScratchDepth
     {
@@ -665,6 +685,13 @@ void LogOnce(const char *key, const char *fmt, ...)
 
 bool OnRenderThread() { return t_render; }
 
+// the frame being drawn has started (its first draw or clear since the last Present)
+inline void FrameWork()
+{
+    if (G->perf.frameStart < 0)
+        G->perf.frameStart = emscripten_get_now();
+}
+
 // work for the render thread, done at its next call (now, on the render thread)
 void Defer(std::function<void()> fn)
 {
@@ -692,6 +719,8 @@ void RunDeferred()
         fn();
 }
 
+void LinkAhead();
+
 // the render thread with its context (after the work other threads left for it); false (logged once) elsewhere
 bool RenderContext(const char *what)
 {
@@ -703,6 +732,8 @@ bool RenderContext(const char *what)
         return false;
     }
     RunDeferred();
+    if (G->haveToLink.load(std::memory_order_acquire) && G->linkBudget > 0)
+        LinkAhead();
     return true;
 }
 
@@ -1917,6 +1948,39 @@ bool LinkPipeline(Pipeline *p, char *err, size_t errSize)
     return true;
 }
 
+// pipelines made since (CreatePipeline) linked now, before a draw needs them, while this frame's budget lasts: a link
+// waits for the browser to compile the program (tens of milliseconds in some), which at a draw stalls the frame
+void LinkAhead()
+{
+    const double start = emscripten_get_now();
+    for (;;)
+    {
+        Pipeline *p = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(G->linkLock);
+            if (G->toLink.empty())
+            {
+                G->haveToLink.store(false, std::memory_order_relaxed);
+                break;
+            }
+            p = G->toLink.front();
+            G->toLink.pop_front();
+        }
+        if (!p->linked && !p->failed)
+        {
+            char err[2048] = "";
+            if (!LinkPipeline(p, err, sizeof(err)))
+                LogOnce(err, "pipeline failed: %s", err);
+            ++G->perf.ahead;
+        }
+        if (emscripten_get_now() - start >= G->linkBudget)
+            break;
+    }
+    const double spent = emscripten_get_now() - start;
+    G->linkBudget -= spent;
+    G->perf.aheadMs += spent;
+}
+
 // ---- the renderer's own programs ----
 // a full-viewport triangle; rect: source uv at the viewport's top-left (xy) and bottom-right (zw); flip.x: 1 into a
 // render target (row 0 at the top), -1 into the canvas (row 0 at the bottom)
@@ -2813,7 +2877,12 @@ Pipeline *CreatePipeline(const PipelineDesc &desc, char *err, size_t errSize)
             p->bgraMask |= (uint16_t)(1u << i);
         p->bindingMask |= 1u << (a.bufferIndex - VERTEX_BUFFER_BASE);
     }
-    // (linked by the render thread at its first draw: PrepareDraw)
+    // (linked by the render thread ahead of its first draw if it can, LinkAhead, else at it: PrepareDraw)
+    {
+        std::lock_guard<std::mutex> lock(G->linkLock);
+        G->toLink.push_back(p);
+        G->haveToLink.store(true, std::memory_order_release);
+    }
     return p;
 }
 
@@ -2822,6 +2891,12 @@ void ReleasePipeline(Pipeline *p)
     if (!p || !G)
         return;
     Defer([p] {
+        {
+            std::lock_guard<std::mutex> lock(G->linkLock);
+            auto it = std::find(G->toLink.begin(), G->toLink.end(), p);
+            if (it != G->toLink.end())
+                G->toLink.erase(it);
+        }
         if (G->want.pipeline == p)
             G->want.pipeline = nullptr;
         if (p->program)
@@ -2921,6 +2996,7 @@ void Clear(uint32_t flags, const float color[4], float depth, uint32_t stencil, 
 {
     if (!RenderContext("Clear"))
         return;
+    FrameWork();
     for (int i = 0; i < 4; ++i)
         if (!G->rt.color[i])
             flags &= ~(CLEAR_COLOR0 << i);
@@ -3158,13 +3234,18 @@ bool PrepareDraw(int32_t baseVertex)
 {
     if (!RenderContext("Draw"))
         return false;
+    FrameWork();
     Pipeline *p = G->want.pipeline;
     if (!p)
         return false;
     if (!p->linked)
     {
         char err[2048] = "";
-        if (!LinkPipeline(p, err, sizeof(err)))
+        const double start = emscripten_get_now();
+        const bool ok = LinkPipeline(p, err, sizeof(err));
+        G->perf.linkMs += emscripten_get_now() - start;
+        ++G->perf.links;
+        if (!ok)
         {
             LogOnce(err, "pipeline failed: %s", err);
             return false;
@@ -3349,6 +3430,7 @@ void Draw(PrimitiveType prim, uint32_t vertexStart, uint32_t vertexCount)
 {
     if (!vertexCount || !PrepareDraw(0))
         return;
+    ++G->perf.draws;
     glDrawArrays(kPrim[prim < 5 ? prim : 3], (GLint)vertexStart, (GLsizei)vertexCount);
 }
 
@@ -3360,6 +3442,7 @@ void DrawIndexed(PrimitiveType prim, uint32_t indexCount, bool index32, Buffer *
     const GLuint ibo = GlBufferFor(indexBuffer, true);
     BindVao(G->mainVao);
     SetElementBuffer(ibo);
+    ++G->perf.draws;
     glDrawElements(kPrim[prim < 5 ? prim : 3], (GLsizei)indexCount, index32 ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT,
                    (const void *)(uintptr_t)indexOffset);
 }
@@ -3431,10 +3514,69 @@ void WaitForSerial(uint64_t serial)
 
 double LastFrameGpuTime() { return 0.0; }
 
+// how much of each frame may go to linking pipelines ahead of their draws (LinkAhead)
+constexpr double kLinkAheadMsPerFrame = 25.0;
+
+// The performance line (every 10 seconds, at a Present): frames a second, and what each frame's time went to on the
+// render thread (drawing it, which includes compiling new shaders; waiting for the GPU to finish the one before and
+// reading it back for the page; waiting for the page to show the one before) and on the page (putting it on the
+// canvas). The rest of a frame's time the render thread waited for the game's next frame, or loaded its resources.
+void PerfLine(double now)
+{
+    Globals::Perf &f = G->perf;
+    bo1web::SharedState &sh = bo1web::Shared();
+    const uint32_t pageMicros = (uint32_t)sh.pageDrawMicros.load(std::memory_order_relaxed);
+    const uint32_t pageDraws = (uint32_t)sh.pageDraws.load(std::memory_order_relaxed);
+    uint64_t reads = 0, readMicros = 0;
+    bo1web::ServerReadStats(&reads, &readMicros);
+    if (f.since > 0 && f.frames > 0)
+    {
+        const double span = now - f.since, n = f.frames;
+        const double each = span / n;
+        const double rest = std::max(0.0, each - (f.drawMs + f.readbackMs + f.pageWaitMs) / n);
+        const uint32_t pd = pageDraws - f.pageDraws;
+        char page[64] = "";
+        if (pd)
+            snprintf(page, sizeof(page), ", %.1f ms on the page", (pageMicros - f.pageMicros) / 1000.0 / pd);
+        char shaders[160] = "";
+        if (f.links || f.ahead)
+            snprintf(shaders, sizeof(shaders), "; shaders compiled at their first draw %u (%.0f ms), ahead of it %u "
+                     "(%.0f ms)", f.links, f.linkMs, f.ahead, f.aheadMs);
+        char server[96] = "";
+        if (reads != f.reads)
+            snprintf(server, sizeof(server), "; %llu reads from the server, %.1f s waiting",
+                     (unsigned long long)(reads - f.reads), (readMicros - f.readMicros) / 1e6);
+        printf("[web] %.1f fps at %dx%d: a frame %.1f ms = drawing %.1f (%.0f draws), GPU and readback %.1f, waiting "
+               "for the page %.1f, other %.1f%s%s%s\n",
+               n * 1000.0 / span, f.width, f.height, each, f.drawMs / n, f.draws / n, f.readbackMs / n,
+               f.pageWaitMs / n, rest, page, shaders, server);
+    }
+    const double frameStart = f.frameStart;
+    const int width = f.width, height = f.height;
+    f = Globals::Perf();
+    f.since = now;
+    f.frameStart = frameStart;
+    f.width = width;
+    f.height = height;
+    f.pageMicros = pageMicros;
+    f.pageDraws = pageDraws;
+    f.reads = reads;
+    f.readMicros = readMicros;
+}
+
 void Present(Texture *backBuffer, const uint16_t *gammaRamp)
 {
     if (!RenderContext("Present"))
         return;
+    // (the period ends before this frame, which is the next one's first)
+    const double presentStart = emscripten_get_now();
+    if (presentStart - G->perf.since >= 10000.0)
+        PerfLine(presentStart);
+    if (G->perf.frameStart >= 0)
+        G->perf.drawMs += presentStart - G->perf.frameStart;
+    G->perf.frameStart = -1;
+    ++G->perf.frames;
+    G->linkBudget = kLinkAheadMsPerFrame;
     EnsureCmdBuf();
     if (gammaRamp && memcmp(gammaRamp, G->gammaCache, sizeof(G->gammaCache)) != 0)
     {
@@ -3499,11 +3641,15 @@ void Present(Texture *backBuffer, const uint16_t *gammaRamp)
         }
         BindReadFbo(G->frameFbo);
         glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        const double readStart = emscripten_get_now();
         glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        G->perf.readbackMs += emscripten_get_now() - readStart;
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         cur.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         cur.w = w;
         cur.h = h;
+        G->perf.width = w;
+        G->perf.height = h;
         // the shape to show it at: the game's resolution (its window's client size), stretched or not
         const WebSurface *s = G->surface;
         const int lw = s ? s->logicalW.load(std::memory_order_relaxed) : 0;
@@ -3531,10 +3677,12 @@ void Present(Texture *backBuffer, const uint16_t *gammaRamp)
     }
     if (G->slot[slot])
     {
+        const double readStart = emscripten_get_now();
         glClientWaitSync(prev.fence, 0, 0);
         glBindBuffer(GL_PIXEL_PACK_BUFFER, prev.pbo);
         glGetBufferSubData(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)bytes, G->slot[slot]);
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        G->perf.readbackMs += emscripten_get_now() - readStart;
     }
     glDeleteSync(prev.fence);
     prev.fence = nullptr;
@@ -3564,6 +3712,7 @@ void Present(Texture *backBuffer, const uint16_t *gammaRamp)
                 break; // (the page is hidden: the game keeps running, slowly)
             emscripten_futex_wait(&sh.framesDisplayed, (uint32_t)shown, left);
         }
+        G->perf.pageWaitMs += emscripten_get_now() - start;
     }
 }
 } // namespace rhi

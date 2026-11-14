@@ -3,8 +3,8 @@
 
 The game runs in the browser, but its files stay on this machine: the page reads them from this server while it
 plays (a byte range of a file at a time, as the game asks for it), so nothing is uploaded to or installed in the
-browser. What the game writes into players/ (settings, profiles) is sent back here and kept in the saves folder, so
-every device that plays from this server shares one set of settings.
+browser. What the game writes into players/ (settings, profiles), screenshots/ and shadercache/ is sent back here and
+kept in the saves folder, so every device that plays from this server shares one set of settings.
 
     python3 tools/web-server.py                                  # the game folder of this machine's own build
     python3 tools/web-server.py --game "/path/to/Call of Duty Black Ops"
@@ -54,14 +54,18 @@ import urllib.parse
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # folders below the game folder the game may write to through the server (kept in the saves folder, which overlays
-# the game folder). Everything else the game writes (logs, the shader cache) stays in the browser's memory.
-WRITABLE_PREFIXES = ("players/", "screenshots/")
+# the game folder): settings and profiles, screenshots, and the record of the shaders earlier runs drew (which the game
+# compiles while a level loads, rather than when they are first drawn). Everything else the game writes (its logs)
+# stays in the browser's memory.
+WRITABLE_PREFIXES = ("players/", "screenshots/", "shadercache/")
 MAX_UPLOAD = 64 << 20
 
 # what the browser never needs from the game folder (the Windows executables and installers, Steam's files, and the
-# logs a desktop build writes there: the browser's game writes its own, in its memory)
+# logs and shader cache a desktop build writes there: the browser's game keeps its own logs in its memory, and its
+# shader cache in the saves folder, the one layer whose shadercache/ is served)
 SKIP_EXT = {".exe", ".dll", ".pdb", ".bat", ".ps1", ".hta", ".url", ".lnk", ".msi", ".cab", ".vdf", ".log"}
 SKIP_DIRS = {"redist", "_commonredist", "directx", "$tempdir", ".git", "shadercache", "__pycache__"}
+SAVES_LAYER = "saved files"
 
 
 def default_game_dirs():
@@ -97,11 +101,12 @@ class FileTree:
 
     def scan(self):
         files = {}
-        for _, root, prefix in self.layers:
+        for layer, root, prefix in self.layers:
             if not os.path.isdir(root):
                 continue
+            skip = SKIP_DIRS - {"shadercache"} if layer == SAVES_LAYER else SKIP_DIRS
             for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
-                dirnames[:] = [d for d in dirnames if d.lower() not in SKIP_DIRS and not d.startswith(".")]
+                dirnames[:] = [d for d in dirnames if d.lower() not in skip and not d.startswith(".")]
                 rel_dir = os.path.relpath(dirpath, root).replace(os.sep, "/")
                 rel_dir = prefix + ("" if rel_dir == "." else rel_dir + "/")
                 for name in filenames:
@@ -321,7 +326,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         url = urllib.parse.urlsplit(self.path)
         rel = clean_rel(url.path[len("/files/"):]) if url.path.startswith("/files/") else None
         if not self.writable(rel):
-            self.send_plain(403, "the game may only write players/ and screenshots/ here")
+            self.send_plain(403, "the game may only write players/, screenshots/ and shadercache/ here")
             return
         try:
             length = int(self.headers.get("Content-Length", "-1"))
@@ -347,7 +352,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         url = urllib.parse.urlsplit(self.path)
         rel = clean_rel(url.path[len("/files/"):]) if url.path.startswith("/files/") else None
         if not self.writable(rel):
-            self.send_plain(403, "the game may only write players/ and screenshots/ here")
+            self.send_plain(403, "the game may only write players/, screenshots/ and shadercache/ here")
             return
         hit = self.tree.lookup(rel)
         if hit and os.path.abspath(hit[3]).startswith(os.path.abspath(self.saves) + os.sep):
@@ -501,7 +506,7 @@ def main():
         for name, src in (("mods", os.path.join(REPO, "mods")), ("main", os.path.join(REPO, "data", "main"))):
             if os.path.isdir(src):
                 tree_layers.append(("the repository's " + name, src, name + "/"))
-    tree_layers.append(("saved files", saves, ""))
+    tree_layers.append((SAVES_LAYER, saves, ""))
     tree = FileTree(tree_layers)
     count, total = tree.scan()
 

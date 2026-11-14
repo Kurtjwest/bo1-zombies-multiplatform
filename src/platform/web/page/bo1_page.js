@@ -15,8 +15,10 @@
     wantCapture: 72, cursorVisible: 76, wantFullscreen: 80, titleSerial: 84, title: 88,
     keyState: 216, modifiers: 248, loading: 252, exitCode: 256,
     framePixels: 260, frameWidth: 272, frameHeight: 284, frameAspectW: 296, frameAspectH: 300, frameFill: 304,
+    pageDrawMicros: 308, pageDraws: 312,
     pads: 320, ring: 512, fetch: 33280,
   };
+  const SHARED_VERSION = 4; // web_shared.h kSharedVersion: the game and this page are from the same build
   const RING_SIZE = 1024;
   const EV = {KEY_DOWN: 1, KEY_UP: 2, CHAR: 3, MOUSE_MOVE: 4, MOUSE_DOWN: 5, MOUSE_UP: 6, WHEEL: 7, FOCUS: 8,
               RESIZE: 9, POINTER_LOCK: 10, QUIT: 11};
@@ -63,10 +65,14 @@
   const audioNodes = new Map();
   let shownFrame = 0;   // the render thread's frame number the canvas shows
 
+  // the game's console, kept for the error message and for bo1Log() (in the browser's console: copy(bo1Log()) copies
+  // all of it, which the console itself keeps only the end of)
+  const LOG_KEEP = 50000;
   function log(line) {
     logLines.push(line);
-    if (logLines.length > 400) logLines.shift();
+    if (logLines.length > LOG_KEEP + 5000) logLines.splice(0, logLines.length - LOG_KEEP);
   }
+  window.bo1Log = () => logLines.join('\n');
 
   function setStatus(text, isError) {
     status.textContent = text;
@@ -386,6 +392,7 @@
       canvas.height = getShared(OFF.drawH);
     }
     if (frame !== shownFrame && frame > 0) {
+      const started = performance.now();
       const slot = frame % 3;
       const ptr = getShared(OFF.framePixels + slot * 4) >>> 0;
       const w = getShared(OFF.frameWidth + slot * 4), h = getShared(OFF.frameHeight + slot * 4);
@@ -411,6 +418,9 @@
         }
       }
       shownFrame = frame;
+      // (for the performance line in the log: webgl_rhi.cpp)
+      Atomics.add(i32, (shared + OFF.pageDrawMicros) >> 2, Math.round((performance.now() - started) * 1000));
+      Atomics.add(i32, (shared + OFF.pageDraws) >> 2, 1);
     }
     if (!view.texW) return;
     // over the canvas: stretched, or at the game's shape with black bars
@@ -503,10 +513,19 @@
 
   // ---- every animation frame ----
   let titleSerial = -1, lastCursor = -1, lastWantCapture = 0;
+  let versionChecked = false;
   function tick() {
     requestAnimationFrame(tick);
     if (!i32) return;
     heapBytes();
+    if (!versionChecked && getShared(OFF.version)) {
+      versionChecked = true;
+      if (getShared(OFF.version) !== SHARED_VERSION) {
+        fatal('This page (bo1_page.js) and the game (BO1Zombies.js, BO1Zombies.wasm) are from different builds: ' +
+              'copy all of build-web/web to the server, then reload the page.');
+        return;
+      }
+    }
     updateFocus();
     drawFrame();
     // (the render thread waits for the page to have shown its last frame: one per display refresh)

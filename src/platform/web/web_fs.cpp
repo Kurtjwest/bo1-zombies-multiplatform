@@ -6,9 +6,10 @@
 //   - folders are in memory (GameDirectory); a file the game creates is a memory file (GameMemFile)
 //   - a server file (HttpFile) becomes a memory file the first time the game writes it (copied in whole, unless the
 //     write truncates it first); renamed or removed like any other file
-//   - what the game writes into players/ and screenshots/ is sent back to the server (PUT /files/<path>), a second or
-//     two after it changes, and removed there when the game removes it: the server keeps it in its saves folder,
-//     which it lays over the game folder, so every device that plays from the server has the same settings
+//   - what the game writes into players/, screenshots/ and shadercache/ is sent back to the server (PUT
+//     /files/<path>), a second or two after it changes, and removed there when the game removes it: the server keeps
+//     it in its saves folder, which it lays over the game folder, so every device that plays from the server has the
+//     same settings
 //
 // The reads go through the page's fetch worker (web_shared.h FetchTable): a request made by a game thread itself would
 // keep its memory for as long as the thread runs, which is as long as the game does. (Until the worker has started,
@@ -610,8 +611,10 @@ std::shared_ptr<GameDirectory> FolderFor(std::shared_ptr<GameDirectory> root, co
     return dir;
 }
 
-// ---- the save sync: players/ and screenshots/ back to the server ---------------------------------------------------
-const char *const kSyncedFolders[] = {"players", "screenshots"};
+// ---- the save sync: players/, screenshots/ and shadercache/ back to the server --------------------------------------
+// (shadercache/pipelines.bin: the pipelines earlier runs drew, which the game links while a level loads rather than at
+// their first draw: src/platform/d3d9mtl/d3d9_shadercache.cpp, webgl_rhi.cpp LinkAhead)
+const char *const kSyncedFolders[] = {"players", "screenshots", "shadercache"};
 
 struct SyncState
 {
@@ -788,6 +791,12 @@ bool MountGameFolder(const char *mountPoint, std::string *error)
     return true;
 }
 } // namespace bo1web
+
+void bo1web::ServerReadStats(uint64_t *requests, uint64_t *micros)
+{
+    *requests = g_statRequests.load(std::memory_order_relaxed);
+    *micros = g_statMicros.load(std::memory_order_relaxed);
+}
 
 // the log: what was read from the server since the last time (after each fast file: db_file_load.cpp), which tells a
 // slow load waiting for the server from one waiting for the browser
