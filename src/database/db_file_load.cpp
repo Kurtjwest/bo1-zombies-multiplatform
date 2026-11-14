@@ -13,6 +13,9 @@
 #include "db_stream_load.h"
 #include "db_load.h"
 #include <tl/tl_system.h>
+#ifdef __EMSCRIPTEN__
+extern "C" void Bridge_WebLogReads(void); // src/platform/web/web_fs.cpp
+#endif
 
 volatile int g_totalSize;
 volatile unsigned int g_loadedSize;
@@ -499,6 +502,10 @@ void __cdecl DB_LoadXFileInternal()
     }
     v1 = g_totalWait;
     Com_Printf(10, "Loaded fastfile '%s' in %ims (%dms waiting)\n", BO1_VA(g_load.filename), Sys_Milliseconds() - g_load.startTime, v1);
+#ifdef __EMSCRIPTEN__
+    // browser build: how much of that went to reading the game's files from the server (src/platform/web/web_fs.cpp)
+    Bridge_WebLogReads();
+#endif
     if ( (g_load.flags & 1) != 0 )
         g_minimumFastFileLoaded = 1;
     DB_CancelLoadXFile();

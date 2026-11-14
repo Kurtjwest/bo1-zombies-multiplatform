@@ -5794,6 +5794,17 @@ void __cdecl RB_UpdateDynamicBuffers(GfxBackEndData *backendData)
 }
 
 static const void *data; // (the render thread's current frame; r_water_sim.cpp has a global of this name)
+
+// How long the render thread gives the zone loader's resources between two frames while zones load (RB_Resource_Update
+// waits for its time then only). The browser build gives them much longer: a frame costs far more there (each one is
+// read back for the page: src/platform/web/webgl_rhi.cpp Present), and the loader waits for the resources it queues
+// (RB_Resource_Flush) while one is drawn. (The loading screen is then drawn about 15 times a second.)
+#ifdef __EMSCRIPTEN__
+#define RB_LOADING_RESOURCE_MSEC(msec) 60
+#else
+#define RB_LOADING_RESOURCE_MSEC(msec) (msec)
+#endif
+
 void     RB_RenderThread(unsigned int threadContext)
 {
     void *Value; // eax
@@ -5841,7 +5852,7 @@ void     RB_RenderThread(unsigned int threadContext)
         }
         {
             PROF_SCOPED("RB_Resource_Update"); // ADD
-            RB_Resource_Update(5);
+            RB_Resource_Update(RB_LOADING_RESOURCE_MSEC(5));
         }
         Sys_StopRenderer();
         Sys_StartRenderer();
@@ -5905,7 +5916,7 @@ void     RB_RenderThread(unsigned int threadContext)
                 R_StreamAlloc_Lock();
                 R_StreamUpdate_ProcessFileCallbacks();
                 R_StreamAlloc_Unlock();
-                RB_Resource_Update(8);
+                RB_Resource_Update(RB_LOADING_RESOURCE_MSEC(8));
                 if ( Sys_TryEnterCriticalSection(CRITSECT_DBHASH) )
                 {
                     SCR_UpdateScreen();

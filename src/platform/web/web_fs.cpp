@@ -68,8 +68,13 @@ using namespace wasmfs;
 std::atomic<uint32_t> g_writeSerial{0}; // bumped by every write to a memory file
 
 // ---- the block cache -----------------------------------------------------------------------------------------------
-constexpr size_t kBlockSize = 1 << 20;   // what one request fetches (aligned)
-constexpr size_t kCacheBlocks = 96;      // 96 MB of the most recently read blocks
+// The game reads its files two ways: straight through (a fast file, 256 KB at a time) and here and there (an image in
+// an .iwd archive, a few KB to a few hundred, anywhere in a file of hundreds of MB). So the cache keeps small blocks,
+// and a request fetches the blocks a read needs, plus, for a file being read straight through, more of what follows
+// (as much again as it has read straight through so far, up to kMaxRequest).
+constexpr size_t kBlockSize = 64 << 10;     // the cache's unit (aligned in the file)
+constexpr size_t kCacheBlocks = 1536;       // 96 MB of the most recently read blocks
+constexpr size_t kMaxRequest = 4 << 20;     // the most one request fetches
 
 struct Block
 {
@@ -86,6 +91,9 @@ struct BlockCache
 };
 BlockCache g_cache;
 std::atomic<uint32_t> g_nextFileId{1};
+
+// what has been read from the server (for the log: Bridge_WebReadStats)
+std::atomic<uint64_t> g_statRequests{0}, g_statBytes{0}, g_statMicros{0};
 
 // percent-encoded, '/' kept
 std::string UrlFor(const std::string &path)
@@ -111,6 +119,18 @@ std::string UrlFor(const std::string &path)
 // serves the table (web_shared.h), else a synchronous request of this thread's own.
 int HttpRead(const std::string &url, uint64_t offset, int length, void *dst)
 {
+    const double started = emscripten_get_now();
+    struct Count
+    {
+        double started;
+        int length;
+        ~Count()
+        {
+            g_statRequests.fetch_add(1, std::memory_order_relaxed);
+            g_statBytes.fetch_add((uint64_t)length, std::memory_order_relaxed);
+            g_statMicros.fetch_add((uint64_t)((emscripten_get_now() - started) * 1000.0), std::memory_order_relaxed);
+        }
+    } count{started, length};
     FetchTable &table = Shared().fetch;
     if (!table.connected.load(std::memory_order_acquire))
         return bo1_web_http_read(url.c_str(), (double)offset, length, dst);
@@ -155,63 +175,120 @@ int HttpRead(const std::string &url, uint64_t offset, int length, void *dst)
     return result;
 }
 
-// one block of a server file, fetched or from the cache (several threads may ask for it: one fetches, the others wait)
-std::shared_ptr<Block> GetBlock(uint32_t fileId, const std::string &url, uint64_t blockIndex, uint64_t fileSize)
+// (the cache's lock held) the least recently used blocks out, down to kCacheBlocks
+void EvictLocked()
 {
-    const uint64_t key = ((uint64_t)fileId << 32) | blockIndex;
-    std::shared_ptr<Block> b;
-    bool fetch = false;
+    auto it = g_cache.lru.end();
+    while (g_cache.lru.size() > kCacheBlocks && it != g_cache.lru.begin())
     {
-        std::unique_lock<std::mutex> lk(g_cache.lock);
-        auto it = g_cache.index.find(key);
-        if (it != g_cache.index.end())
-        {
-            g_cache.lru.splice(g_cache.lru.begin(), g_cache.lru, it->second);
-            b = it->second->second;
-            g_cache.loaded.wait(lk, [&] { return b->ready || b->failed; });
-            if (b->ready)
-                return b;
-            // (a failed fetch is tried again)
-            g_cache.lru.erase(it->second);
-            g_cache.index.erase(it);
-        }
-        b = std::make_shared<Block>();
-        g_cache.lru.emplace_front(key, b);
-        g_cache.index[key] = g_cache.lru.begin();
-        fetch = true;
-        while (g_cache.lru.size() > kCacheBlocks)
-        {
-            auto &last = g_cache.lru.back();
-            if (!last.second->ready && !last.second->failed)
-                break; // (being fetched: kept until it has arrived)
-            g_cache.index.erase(last.first);
-            g_cache.lru.pop_back();
-        }
+        --it;
+        if (!it->second->ready && !it->second->failed)
+            continue; // (being fetched: kept until it has arrived)
+        g_cache.index.erase(it->first);
+        it = g_cache.lru.erase(it);
     }
-    if (fetch)
+}
+
+// [offset, offset + len) of a server file into buf, from the cache or the server; if any of it has to be fetched,
+// what follows it up to fetchEnd is fetched with it (read-ahead). The bytes read, or -1. (Several threads may want the
+// same blocks: the first fetches them, the others wait for them.)
+ssize_t ReadBlocks(uint32_t fileId, const std::string &url, uint64_t fileSize, uint64_t offset, size_t len,
+                   uint64_t fetchEnd, uint8_t *buf)
+{
+    if (len == 0 || offset >= fileSize)
+        return 0;
+    len = (size_t)std::min<uint64_t>(len, fileSize - offset);
+    fetchEnd = std::min(std::max(fetchEnd, offset + len), fileSize);
+    const uint64_t first = offset / kBlockSize, last = (offset + len - 1) / kBlockSize;
+    const uint64_t lastAhead = (fetchEnd - 1) / kBlockSize;
+    auto keyOf = [fileId](uint64_t i) { return ((uint64_t)fileId << 32) | i; };
+
+    std::vector<std::shared_ptr<Block>> blocks(last - first + 1);   // the read's
+    std::vector<std::pair<uint64_t, std::shared_ptr<Block>>> mine; // the ones this thread fetches, in order
     {
-        const uint64_t start = blockIndex * kBlockSize;
-        const size_t len = (size_t)std::min<uint64_t>(kBlockSize, fileSize > start ? fileSize - start : 0);
-        std::vector<uint8_t> data(len);
-        int got = len ? HttpRead(url, start, (int)len, data.data()) : 0;
-        // (a short read in the middle of a file is an error; one more try before giving up)
-        if (got != (int)len && len)
-            got = HttpRead(url, start, (int)len, data.data());
         std::lock_guard<std::mutex> lk(g_cache.lock);
-        if (got == (int)len)
+        auto claim = [&](uint64_t i) {
+            auto b = std::make_shared<Block>();
+            g_cache.lru.emplace_front(keyOf(i), b);
+            g_cache.index[keyOf(i)] = g_cache.lru.begin();
+            mine.emplace_back(i, b);
+            return b;
+        };
+        for (uint64_t i = first; i <= last; ++i)
         {
-            b->data.swap(data);
-            b->ready = true;
+            auto it = g_cache.index.find(keyOf(i));
+            if (it != g_cache.index.end())
+            {
+                if (!it->second->second->failed)
+                {
+                    g_cache.lru.splice(g_cache.lru.begin(), g_cache.lru, it->second);
+                    blocks[i - first] = it->second->second;
+                    continue;
+                }
+                // (a failed fetch is tried again)
+                g_cache.lru.erase(it->second);
+                g_cache.index.erase(it);
+            }
+            blocks[i - first] = claim(i);
         }
-        else
-        {
+        // what follows, with a fetch only, and up to the first block that is already here
+        if (!mine.empty())
+            for (uint64_t i = last + 1; i <= lastAhead && !g_cache.index.count(keyOf(i)); ++i)
+                claim(i);
+        EvictLocked();
+    }
+
+    // the blocks to fetch, a run of neighbours at a time (one request each)
+    for (size_t r = 0; r < mine.size();)
+    {
+        size_t e = r + 1;
+        while (e < mine.size() && mine[e].first == mine[e - 1].first + 1 && (e - r + 1) * kBlockSize <= kMaxRequest)
+            ++e;
+        const uint64_t start = mine[r].first * kBlockSize;
+        const uint64_t end = std::min<uint64_t>((mine[e - 1].first + 1) * kBlockSize, fileSize);
+        const size_t n = (size_t)(end - start);
+        std::vector<uint8_t> data(n);
+        int got = HttpRead(url, start, (int)n, data.data());
+        // (a short read in the middle of a file is an error; one more try before giving up)
+        if (got != (int)n)
+            got = HttpRead(url, start, (int)n, data.data());
+        if (got != (int)n)
             fprintf(stderr, "[web] could not read %s (bytes %llu-%llu) from the server\n", url.c_str(),
-                    (unsigned long long)start, (unsigned long long)(start + len));
-            b->failed = true;
+                    (unsigned long long)start, (unsigned long long)end);
+        std::lock_guard<std::mutex> lk(g_cache.lock);
+        for (size_t k = r; k < e; ++k)
+        {
+            Block &b = *mine[k].second;
+            if (got == (int)n)
+            {
+                const size_t at = (size_t)(mine[k].first * kBlockSize - start);
+                b.data.assign(data.begin() + at, data.begin() + std::min(n, at + kBlockSize));
+                b.ready = true;
+            }
+            else
+                b.failed = true;
         }
         g_cache.loaded.notify_all();
+        r = e;
     }
-    return b->ready ? b : nullptr;
+
+    // the read's bytes (waiting for those another thread fetches)
+    size_t done = 0;
+    std::unique_lock<std::mutex> lk(g_cache.lock);
+    for (uint64_t i = first; i <= last && done < len; ++i)
+    {
+        const std::shared_ptr<Block> &b = blocks[i - first];
+        g_cache.loaded.wait(lk, [&] { return b->ready || b->failed; });
+        if (b->failed)
+            return done ? (ssize_t)done : -1;
+        const size_t inBlock = (size_t)(offset + done - i * kBlockSize);
+        if (inBlock >= b->data.size())
+            break;
+        const size_t n = std::min(len - done, b->data.size() - inBlock);
+        memcpy(buf + done, b->data.data() + inBlock, n);
+        done += n;
+    }
+    return (ssize_t)done;
 }
 
 // ---- files ---------------------------------------------------------------------------------------------------------
@@ -277,6 +354,10 @@ class HttpFile : public GameMemFile
     uint32_t id;
     bool local = false;
 
+    // where the file is being read straight through from, and up to (the read-ahead: WasmFS reads a file under its
+    // lock, so one read at a time)
+    uint64_t runStart = 0, runEnd = 0;
+
     ssize_t read(uint8_t *buf, size_t len, off_t offset) override
     {
         if (local)
@@ -286,21 +367,12 @@ class HttpFile : public GameMemFile
         if (offset >= remoteSize)
             return 0;
         len = (size_t)std::min<off_t>((off_t)len, remoteSize - offset);
-        size_t done = 0;
-        while (done < len)
-        {
-            const uint64_t pos = (uint64_t)offset + done;
-            std::shared_ptr<Block> b = GetBlock(id, url, pos / kBlockSize, (uint64_t)remoteSize);
-            if (!b)
-                return done ? (ssize_t)done : -EIO;
-            const size_t inBlock = (size_t)(pos % kBlockSize);
-            if (inBlock >= b->data.size())
-                break;
-            const size_t n = std::min(len - done, b->data.size() - inBlock);
-            memcpy(buf + done, b->data.data() + inBlock, n);
-            done += n;
-        }
-        return (ssize_t)done;
+        if ((uint64_t)offset != runEnd)
+            runStart = (uint64_t)offset;
+        runEnd = (uint64_t)offset + len;
+        const uint64_t ahead = std::min<uint64_t>(kMaxRequest, runEnd - runStart);
+        const ssize_t got = ReadBlocks(id, url, (uint64_t)remoteSize, (uint64_t)offset, len, runEnd + ahead, buf);
+        return got < 0 ? -EIO : got;
     }
 
     // the server's bytes into memory (the first write); count: how many of them are needed
@@ -716,6 +788,23 @@ bool MountGameFolder(const char *mountPoint, std::string *error)
     return true;
 }
 } // namespace bo1web
+
+// the log: what was read from the server since the last time (after each fast file: db_file_load.cpp), which tells a
+// slow load waiting for the server from one waiting for the browser
+extern "C" void Bridge_WebLogReads(void)
+{
+    static std::mutex lock;
+    static uint64_t requests, bytes, micros;
+    std::lock_guard<std::mutex> lk(lock);
+    const uint64_t r = bo1web::g_statRequests.load(), b = bo1web::g_statBytes.load(), m = bo1web::g_statMicros.load();
+    if (r == requests)
+        return;
+    printf("[web] %.1f MB read from the server in %llu requests, waiting %.1f s for them\n", (b - bytes) / 1e6,
+           (unsigned long long)(r - requests), (m - micros) / 1e6);
+    requests = r;
+    bytes = b;
+    micros = m;
+}
 
 // WasmFS's hook for the root's backend, a weak definition in its wasmfs.cpp: a C++ function in namespace wasmfs in
 // Emscripten 3.1, a C function in later versions. Both are here; the version's WasmFS calls its own.
