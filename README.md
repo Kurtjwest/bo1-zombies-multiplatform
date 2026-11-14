@@ -284,17 +284,29 @@ python3 web-server.py --http --bind 127.0.0.1 --port 8090 --site build-web/web -
 ```
 
 ```nginx
+upstream bo1 {                           # (outside the server block)
+    server 127.0.0.1:8090;
+    keepalive 16;                        # connections kept open: a map load makes thousands of requests
+}
+
 location = /bo1 { return 301 /bo1/; }
 location /bo1/ {
-    proxy_pass http://127.0.0.1:8090/;   # (the trailing / strips /bo1 from the path)
+    proxy_pass http://bo1/;              # (the trailing / strips /bo1 from the path)
     proxy_http_version 1.1;
     proxy_set_header Connection "";
     proxy_buffering off;                 # the game file pieces straight through, not via the proxy's temporary files
     client_max_body_size 64m;            # the saves and screenshots the game sends back
+    access_log off;                      # (one line for every piece of a file the game reads)
+    allow 192.168.0.0/16;                # the home network only (your network's addresses)
+    deny all;
 }
 ```
 
-in the proxy's HTTPS `server` block, which must leave the server's `Cross-Origin-*` headers as they are. Without a
+in the proxy's HTTPS `server` block, which must leave the server's `Cross-Origin-*` headers as they are. A proxy that
+also serves the internet keeps the game to the home network with the `allow` / `deny` lines (or its own login). If
+the devices reach it by a public name (a dynamic DNS name for the router's address), the requests go out to the router
+and back, which slows every one of them and may not count as the home network: have the home network's DNS (or the
+device's hosts file) give that name the machine's own address. Without a
 certificate the devices already trust, `python3 web-server.py --make-cert [--name <the name devices use>]` makes one
 for nginx's `ssl_certificate` / `ssl_certificate_key`, and its authority is at `https://<machine>/bo1/ca.crt`.
 
