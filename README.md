@@ -334,7 +334,8 @@ cache (the record of the shaders a run drew) goes back to the server and the nex
 load. The log lives in the tab's memory: the browser's console shows its end, and `copy(bo1Log())` typed there copies
 all of it. Every ten seconds it gives the frame rate and where a frame's time went (`[web] 30.2 fps at 1280x720: a
 frame 33.1 ms = drawing ...`), and after each fast file how much was read from the server; the browser's developer
-tools slow a game down while they are open. The browser build's own code is in `src/platform/web` (`web_fs.cpp` reads
+tools slow a game down while they are open. With `?glcheck` at the end of the page's address the WebGL layer checks
+for errors after what it does and logs the first ones with what it was doing (the game runs slower). The browser build's own code is in `src/platform/web` (`web_fs.cpp` reads
 the game folder from the server, `web_bridge.cpp` is the window and input, `web_audio.cpp` the sound, `page/` the page)
 and `cmake/web.cmake`.
 

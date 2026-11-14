@@ -139,13 +139,14 @@ struct SharedState
     // (and wrap) ----
     std::atomic<int32_t> pageDrawMicros; // 308 page: time spent putting new frames on its canvas
     std::atomic<int32_t> pageDraws;      // 312 page: how many it has put there
-    int32_t reserved;                    // 316
+    int32_t debugFlags;                  // 316 page: kDebug* (from the page's address, before the game starts)
     GamepadState pads[4];                // 320
     InputRecord ring[kInputRingSize];    // 512
     FetchTable fetch;                    // 33280
 };
 
 constexpr int32_t kSharedVersion = 4; // (bo1_page.js checks it: SHARED_VERSION)
+constexpr int32_t kDebugGlCheck = 1;  // ?glcheck: the WebGL layer checks for errors after what it does, and logs them
 
 // why the game folder could not be read from the server ("" if it could, or was not tried): web_bridge.cpp
 const char *GameFolderError();

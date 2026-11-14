@@ -57,6 +57,7 @@ static_assert(offsetof(SharedState, canvasW) == 16 && offsetof(SharedState, fram
                   offsetof(SharedState, frameWidth) == 272 && offsetof(SharedState, frameHeight) == 284 &&
                   offsetof(SharedState, frameAspectW) == 296 && offsetof(SharedState, frameFill) == 304 &&
                   offsetof(SharedState, pageDrawMicros) == 308 && offsetof(SharedState, pageDraws) == 312 &&
+                  offsetof(SharedState, debugFlags) == 316 &&
                   offsetof(SharedState, pads) == 320 &&
                   offsetof(SharedState, ring) == 512 && offsetof(SharedState, fetch) == 33280,
               "bo1_page.js reads these offsets");

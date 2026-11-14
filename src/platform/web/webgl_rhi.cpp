@@ -433,6 +433,7 @@ struct TransientChunk
     size_t used = 0;
     size_t uploadedV = 0, uploadedI = 0; // how much of [0, used) the GL copies have
     uint64_t frame = 0;                  // last frame that used it
+    uint32_t generation = 0;             // bumped each time it is reused (BoundBuffer::generation)
     // the GL copies: a piece for each upload (SyncChunk: one before nearly every draw, its shader constants), in the
     // order of start
     std::vector<GlPiece> piecesV, piecesI;
@@ -541,6 +542,11 @@ struct BoundBuffer
     Buffer *buf = nullptr;
     uint32_t offset = 0;
     uint32_t size = 0; // (uniform blocks)
+    // Scratch memory: the chunk's generation when the bytes were put there, and the bytes (SetBytes). The Direct3D
+    // layer sets shader constants only when they change, so a block can stay bound for longer than its chunk is kept:
+    // a chunk no draw used for a few frames is reused, and its bytes are then someone else's (Refresh puts them back).
+    uint32_t generation = 0;
+    std::vector<uint8_t> bytes;
 };
 
 struct FboKey
@@ -719,6 +725,50 @@ inline void FrameWork()
 {
     if (G->perf.frameStart < 0)
         G->perf.frameStart = emscripten_get_now();
+}
+
+// ?glcheck (web_shared.h kDebugGlCheck): the errors WebGL flags after what this layer does, with what it was doing,
+// for the log (the first 40). glGetError waits for the GPU process, so only when asked for.
+bool GlCheckOn()
+{
+    static const bool on = (bo1web::Shared().debugFlags & bo1web::kDebugGlCheck) != 0 || getenv("BO1_GL_DEBUG");
+    return on;
+}
+
+const char *GlErrorName(GLenum e)
+{
+    switch (e)
+    {
+    case GL_INVALID_ENUM: return "INVALID_ENUM";
+    case GL_INVALID_VALUE: return "INVALID_VALUE";
+    case GL_INVALID_OPERATION: return "INVALID_OPERATION";
+    case GL_INVALID_FRAMEBUFFER_OPERATION: return "INVALID_FRAMEBUFFER_OPERATION";
+    case GL_OUT_OF_MEMORY: return "OUT_OF_MEMORY";
+    default: return "other";
+    }
+}
+
+void GlCheck(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void GlCheck(const char *fmt, ...)
+{
+    if (!GlCheckOn())
+        return;
+    GLenum e = glGetError();
+    if (e == GL_NO_ERROR)
+        return;
+    static int reported = 0;
+    char what[512];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(what, sizeof(what), fmt, ap);
+    va_end(ap);
+    std::string errors = GlErrorName(e);
+    while ((e = glGetError()) != GL_NO_ERROR && errors.size() < 200)
+        errors += std::string(", ") + GlErrorName(e);
+    if (++reported <= 40)
+        fprintf(stderr, "[webgl] WebGL error %s after %s\n", errors.c_str(), what);
+    else if (reported == 41)
+        fprintf(stderr, "[webgl] (no more WebGL errors are logged)\n");
 }
 
 // work for the render thread, done at its next call (now, on the render thread)
@@ -988,6 +1038,12 @@ void ActiveUnit(GLuint unit)
 void BindTextureUnit(uint32_t unit, GLenum target, GLuint tex)
 {
     GlState &h = G->have;
+    // The scratch unit's texture is bound to be made or filled: what follows (texStorage, texSubImage, texParameter)
+    // works on the active unit's, so that unit is made active even when the texture is bound there already. (Without
+    // this, a texture filled again after draws had made another unit active filled that unit's texture instead: the
+    // texture data went to the wrong textures.)
+    if (unit == kScratchUnit)
+        ActiveUnit(unit);
     if (h.tex[unit] == tex && (h.texTarget[unit] == target || !tex))
         return;
     ActiveUnit(unit);
@@ -1396,6 +1452,7 @@ void *Transient(size_t length, size_t alignment, Buffer **buf, uint32_t *offset)
         }
         c->used = 0;
         c->uploadedV = c->uploadedI = 0;
+        ++c->generation;
         RecycleChunkPieces(c);
         G->chunk = c;
     }
@@ -1432,15 +1489,8 @@ GLuint EnsureTexture(Texture *t)
         glTexStorage2D(t->target, (GLsizei)t->levels, f->internal, (GLsizei)t->width, (GLsizei)t->height);
     glTexParameteri(t->target, GL_TEXTURE_BASE_LEVEL, 0);
     glTexParameteri(t->target, GL_TEXTURE_MAX_LEVEL, (GLint)t->levels - 1);
-    // (glGetError waits for the GPU process: only when asked for)
-    static const bool check = getenv("BO1_GL_DEBUG") != nullptr;
-    const GLenum err = check ? glGetError() : GL_NO_ERROR;
-    if (err != GL_NO_ERROR)
-    {
-        char key[48];
-        snprintf(key, sizeof(key), "texstorage%u_%x", t->format, err);
-        LogOnce(key, "cannot make a %ux%u texture of format %u (GL error 0x%x)", t->width, t->height, t->format, err);
-    }
+    GlCheck("making a texture (type %d, format %u: GL 0x%x, %ux%ux%u, %u levels)", (int)t->type, t->format,
+            f->internal, t->width, t->height, t->depth, t->levels);
     return t->id;
 }
 
@@ -1698,6 +1748,9 @@ void Upload(Texture *t, uint32_t slice, uint32_t level, uint32_t x, uint32_t y, 
                         f->format, f->type, src);
     else
         glTexSubImage2D(target, (GLint)level, (GLint)x, (GLint)y, (GLsizei)w, (GLsizei)h, f->format, f->type, src);
+    GlCheck("filling a texture (type %d, format %u: GL 0x%x%s, %ux%ux%u, %u levels; level %u, slice %u, at %u,%u,%u, "
+            "%ux%ux%u, row pitch %u)", (int)t->type, t->format, f->internal, f->compressed ? " compressed" : "",
+            t->width, t->height, t->depth, t->levels, level, slice, x, y, z, w, h, d, rowPitch);
 }
 
 void ZeroRows(void *dst, uint32_t rows, uint32_t rowPitch, uint32_t tight)
@@ -2875,6 +2928,9 @@ void BlitRect(Texture *src, uint32_t srcSlice, uint32_t srcLevel, int sx0, int s
     if (depth)
         mask = GL_DEPTH_BUFFER_BIT | (HasStencil(src->format) && HasStencil(dst->format) ? GL_STENCIL_BUFFER_BIT : 0);
     glBlitFramebuffer(sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, mask, linear && !depth ? GL_LINEAR : GL_NEAREST);
+    GlCheck("a copy from a %ux%u texture of format %u (level %u) to a %ux%u one of format %u (level %u), %d,%d-%d,%d "
+            "to %d,%d-%d,%d%s", src->width, src->height, src->format, srcLevel, dst->width, dst->height, dst->format,
+            dstLevel, sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, linear && !depth ? ", filtered" : "");
     BindReadFbo(0);
     glDeleteFramebuffers(1, &readFbo);
 }
@@ -3270,6 +3326,7 @@ void Clear(uint32_t flags, const float color[4], float depth, uint32_t stencil, 
         const GLint sv = (GLint)stencil;
         glClearBufferiv(GL_STENCIL, 0, &sv);
     }
+    GlCheck("a clear (flags 0x%x) of %ux%u targets", flags, G->rtWidth, G->rtHeight);
 }
 
 void SetPipeline(Pipeline *p)
@@ -3339,8 +3396,11 @@ void SetVertexBuffer(uint32_t index, Buffer *buf, uint32_t offset)
 {
     if (!G || index >= MAX_VERTEX_BUFFERS || index == VERTEX_BUFFER_ZERO)
         return;
-    G->vbuf[index].buf = buf;
-    G->vbuf[index].offset = offset;
+    BoundBuffer &b = G->vbuf[index];
+    b.buf = buf;
+    b.offset = offset;
+    b.generation = buf && buf->chunk ? buf->chunk->generation : 0;
+    b.bytes.clear();
 }
 
 namespace
@@ -3355,9 +3415,27 @@ void SetBytes(BoundBuffer &b, const void *data, size_t length, size_t alignment)
     memcpy(p, data, length);
     if (size > length)
         memset(p + length, 0, size - length);
+    b.bytes.assign(p, p + size); // (p, not data: data may be b.bytes itself, from Refresh)
     b.buf = tb;
     b.offset = off;
     b.size = (uint32_t)size;
+    b.generation = tb && tb->chunk ? tb->chunk->generation : 0;
+}
+} // namespace
+
+namespace
+{
+// a binding of scratch memory whose chunk has been reused since: its bytes put in scratch memory again (false: it
+// has none to put back, a buffer of the caller's in scratch memory: AllocTransient)
+bool Refresh(BoundBuffer &b, size_t alignment)
+{
+    if (!b.buf || !b.buf->chunk || b.generation == b.buf->chunk->generation)
+        return true;
+    if (b.bytes.empty())
+        return false;
+    const std::vector<uint8_t> bytes = b.bytes;
+    SetBytes(b, bytes.data(), bytes.size(), alignment);
+    return true;
 }
 } // namespace
 
@@ -3446,10 +3524,12 @@ void DisableAttribute(uint32_t i)
 }
 
 // a uniform block of at least the size the program declares (WebGL refuses the draw otherwise)
-void BindBlock(uint32_t k, const BoundBuffer &u, GLint need)
+void BindBlock(uint32_t k, BoundBuffer &u, GLint need)
 {
     if (!need)
         return;
+    if (!Refresh(u, (size_t)G->uboAlign))
+        u = BoundBuffer{}; // (its bytes are gone: zeros)
     if (!u.buf || u.size < (uint32_t)need)
     {
         // (shorter than the program's: zeros after what there is)
@@ -3620,11 +3700,17 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
         }
         const VertexAttributeDesc &a = p->desc.attributes[i];
         const VertexLayoutDesc &l = p->desc.layouts[a.bufferIndex];
-        const BoundBuffer &vb = G->vbuf[a.bufferIndex];
+        BoundBuffer &vb = G->vbuf[a.bufferIndex];
         if (!vb.buf || !vb.buf->cpu)
         {
             DisableAttribute(i);
             continue;
+        }
+        if (!Refresh(vb, 16))
+        {
+            LogOnce("stalestream", "a draw from scratch memory reused since it was bound is skipped");
+            ++G->perf.dropped;
+            return false;
         }
         const GLsizei stride = (GLsizei)l.stride;
         GLintptr offset = (GLintptr)vb.offset + (GLintptr)a.offset;
@@ -3706,8 +3792,7 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
     misc[4] = p->bgraMask;
     if (p->blockSize[UBO_MISC])
     {
-        if (memcmp(misc, G->miscCache, sizeof(misc)) != 0 || !G->miscBlock.buf ||
-            G->miscBlock.buf->chunk->frame + kFramesBeforeReuse <= G->frameIndex)
+        if (memcmp(misc, G->miscCache, sizeof(misc)) != 0 || !G->miscBlock.buf)
         {
             memcpy(G->miscCache, misc, sizeof(misc));
             SetBytes(G->miscBlock, misc, sizeof(misc), (size_t)G->uboAlign);
@@ -3718,6 +3803,40 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
 }
 } // namespace
 
+// what the draw just made had bound (for ?glcheck's log): the program, its uniform blocks, its textures, its streams
+std::string DrawDescription()
+{
+    const Pipeline *p = G->want.pipeline;
+    if (!p)
+        return "no pipeline";
+    std::string d;
+    char buf[160];
+    snprintf(buf, sizeof(buf), "program %u, blocks", p->program);
+    d += buf;
+    for (uint32_t k = 0; k < UBO_COUNT; ++k)
+    {
+        snprintf(buf, sizeof(buf), " %u:%d/%u+%ld", k, p->blockSize[k], G->have.ubo[k], (long)G->have.uboSize[k]);
+        d += buf;
+    }
+    d += ", textures";
+    for (uint32_t m = p->unitMask; m;)
+    {
+        const uint32_t unit = (uint32_t)__builtin_ctz(m);
+        m &= m - 1;
+        Texture *t = unit < kMaxFragmentTextures ? G->ftex[unit]
+                     : unit >= kVertexTextureUnitBase ? G->vtex[unit - kVertexTextureUnitBase] : nullptr;
+        Texture *st = Storage(t);
+        if (st)
+            snprintf(buf, sizeof(buf), " %u:%ux%u/f%u/t%d", unit, st->width, st->height, st->format, (int)st->type);
+        else
+            snprintf(buf, sizeof(buf), " %u:none", unit);
+        d += buf;
+    }
+    snprintf(buf, sizeof(buf), ", targets %ux%u", G->rtWidth, G->rtHeight);
+    d += buf;
+    return d;
+}
+
 void Draw(PrimitiveType prim, uint32_t vertexStart, uint32_t vertexCount)
 {
     // (the first vertex as the base vertex: the streams start at it, so a piece of them holds what the draw reads)
@@ -3727,6 +3846,8 @@ void Draw(PrimitiveType prim, uint32_t vertexStart, uint32_t vertexCount)
         return;
     ++G->perf.draws;
     glDrawArrays(kPrim[prim < 5 ? prim : 3], 0, (GLsizei)vertexCount);
+    if (GlCheckOn())
+        GlCheck("a draw of %u vertices from %u (%s)", vertexCount, vertexStart, DrawDescription().c_str());
 }
 
 void DrawIndexed(PrimitiveType prim, uint32_t indexCount, bool index32, Buffer *indexBuffer, uint32_t indexOffset,
@@ -3753,6 +3874,9 @@ void DrawIndexed(PrimitiveType prim, uint32_t indexCount, bool index32, Buffer *
     ++G->perf.draws;
     glDrawElements(kPrim[prim < 5 ? prim : 3], (GLsizei)indexCount, index32 ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT,
                    (const void *)(uintptr_t)(indexOffset - at.base));
+    if (GlCheckOn())
+        GlCheck("a draw of %u %d-bit indices at %u, base vertex %d, highest index %u (%s)", indexCount,
+                index32 ? 32 : 16, indexOffset, baseVertex, reads.MaxIndex(), DrawDescription().c_str());
 }
 
 void *AllocTransient(size_t length, size_t alignment, Buffer **buf, uint32_t *offset)

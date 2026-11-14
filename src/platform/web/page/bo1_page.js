@@ -15,7 +15,7 @@
     wantCapture: 72, cursorVisible: 76, wantFullscreen: 80, titleSerial: 84, title: 88,
     keyState: 216, modifiers: 248, loading: 252, exitCode: 256,
     framePixels: 260, frameWidth: 272, frameHeight: 284, frameAspectW: 296, frameAspectH: 300, frameFill: 304,
-    pageDrawMicros: 308, pageDraws: 312,
+    pageDrawMicros: 308, pageDraws: 312, debugFlags: 316,
     pads: 320, ring: 512, fetch: 33280,
   };
   const SHARED_VERSION = 4; // web_shared.h kSharedVersion: the game and this page are from the same build
@@ -703,6 +703,8 @@
       onRuntimeInitialized: () => {
         shared = Module._Bridge_WebSharedState();
         heapBytes();
+        // (?glcheck in the address: the WebGL layer looks for errors after what it does and logs them; slower)
+        if (/[?&]glcheck\b/.test(location.search)) setShared(OFF.debugFlags, 1);
         startFetchWorker();
         updateSize();
         lastFocus = -1;
