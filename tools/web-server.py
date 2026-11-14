@@ -181,10 +181,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
 
     def isolation_headers(self):
-        # cross-origin isolation (SharedArrayBuffer for the game's threads)
+        # cross-origin isolation (SharedArrayBuffer for the game's threads). The page's own files may be embedded by a
+        # page at another address (an <iframe> on a cross-origin isolated page needs them to say so); the game's files
+        # (/files/) only by the game's page.
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
-        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        game_file = urllib.parse.urlsplit(self.path).path.startswith("/files/")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin" if game_file else "cross-origin")
 
     def send_plain(self, code, text):
         body = (text + "\n").encode()

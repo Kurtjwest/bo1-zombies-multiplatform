@@ -103,10 +103,18 @@
   // ---- what the browser must have ----
   function checkBrowser() {
     const missing = [];
-    if (!self.crossOriginIsolated)
-      missing.push(location.protocol === 'https:' || location.hostname === 'localhost'
-                       ? 'cross-origin isolation (the server must send the COOP/COEP headers: use tools/web-server.py)'
-                       : 'a secure connection: open the https:// address the server prints');
+    if (!self.crossOriginIsolated) {
+      if (!window.isSecureContext)
+        missing.push('a secure connection: open the https:// address the server prints');
+      else if (window.self !== window.top)
+        // (a frame is cross-origin isolated only when the page it is in is too)
+        missing.push('cross-origin isolation. This page is in a frame, so the page around it must be cross-origin ' +
+                     'isolated too: its server must send it with "Cross-Origin-Opener-Policy: same-origin" and ' +
+                     '"Cross-Origin-Embedder-Policy: require-corp", and the <iframe> needs ' +
+                     'allow="cross-origin-isolated; fullscreen; autoplay; gamepad"');
+      else
+        missing.push('cross-origin isolation (the server must send the COOP/COEP headers: use tools/web-server.py)');
+    }
     if (typeof SharedArrayBuffer === 'undefined') missing.push('SharedArrayBuffer');
     if (typeof WebAssembly === 'undefined') missing.push('WebAssembly');
     if (typeof OffscreenCanvas === 'undefined') missing.push('OffscreenCanvas');
@@ -807,6 +815,12 @@
   if (missing.length) {
     setStatus('This browser cannot run the game here. Missing: ' + missing.join('; ') + '.', true);
     if (missing.some((m) => !m.includes('silent'))) playButton.disabled = true;
+    // (in a frame that isn't isolated: the game runs in a tab of its own)
+    if (!self.crossOriginIsolated && window.self !== window.top) {
+      const a = $('newtab');
+      a.href = location.href;
+      a.hidden = false;
+    }
   } else
     setStatus('Ready. The game\'s files stay on the server; the first start compiles the game, which takes a moment.');
   playButton.addEventListener('click', start);

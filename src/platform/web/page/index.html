@@ -80,6 +80,8 @@
   #play:hover:not(:disabled) { background: var(--accent-hover); }
   #play:disabled { opacity: 0.45; cursor: default; }
   #play[hidden] { display: none; }
+  #newtab { display: block; margin-top: 12px; text-align: center; color: var(--text); }
+  #newtab[hidden] { display: none; }
   details { margin-top: 16px; color: var(--muted); font-size: 13px; }
   summary { cursor: pointer; }
   label { display: block; margin-top: 10px; }
@@ -130,6 +132,7 @@
     <p class="sub">In the browser, from this computer's server. The game files stay on the server.</p>
     <p id="status">Checking this browser…</p>
     <button id="play" type="button">Play</button>
+    <a id="newtab" target="_blank" rel="noopener" hidden>Open the game in a tab of its own</a>
     <details>
       <summary>Options</summary>
       <label><input type="checkbox" id="fullscreen"> Full screen</label>

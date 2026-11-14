@@ -306,6 +306,28 @@ own address. Without a certificate the devices already trust, `python3 web-serve
 devices use>]` makes one for nginx's `ssl_certificate` / `ssl_certificate_key`, and its authority is at
 `https://<machine>/bo1/ca.crt`.
 
+**In a frame of another page.** A frame can use the game's threads (SharedArrayBuffer) only when the page around it is
+cross-origin isolated too. That page must be sent with both headers, and the frame must be allowed them:
+
+```nginx
+location = /zombies.html {                # the page with the frame
+    include snippets/security-headers.conf;   # (an add_header here replaces the server block's: repeat those)
+    add_header Cross-Origin-Opener-Policy   "same-origin"  always;
+    add_header Cross-Origin-Embedder-Policy "require-corp" always;
+}
+```
+
+```html
+<iframe src="/bo1/" allow="cross-origin-isolated; fullscreen; autoplay; gamepad"></iframe>
+```
+
+With those headers, everything that page loads from other addresses (fonts, scripts, images, other frames) has to
+allow it (`Cross-Origin-Resource-Policy` or CORS), and frames of its own address need `Cross-Origin-Embedder-Policy`,
+or the browser leaves them out: a page of its own for the game is the easy way. `web-server.py` lets a page at another
+address embed the game's page (`Cross-Origin-Resource-Policy: cross-origin`; the game files stay `same-origin`); an
+`X-Frame-Options: SAMEORIGIN` from the proxy still refuses that. In a frame that isn't isolated, the game's page says
+what is missing and links to the game in a tab of its own.
+
 **Browsers.** Current versions of Chrome and Edge (95 or later), Firefox (105) and Safari (17, on macOS, iOS and iPadOS):
 the game needs WebGL 2 in a worker (OffscreenCanvas), WebAssembly threads, SIMD and exceptions, and the page says what
 a browser lacks. It needs a lot of memory (it starts with 512 MB and grows as maps load, up to 4 GB), which some phones
