@@ -329,9 +329,10 @@ does, so the game hands its work to the page instead: the render thread reads ea
 draws it on its canvas, and a worker of the page makes the requests for the game files (a game thread making them itself
 would keep every byte it read). On a GPU without DXT texture compression (most phones and tablets) the textures are
 decompressed as they load, which takes memory and time. There is no voice chat (microphone), no Steam and no online play
-(a browser has no sockets). A browser compiles a shader when it is first drawn, which stalls that frame, so the shader
-cache (the record of the shaders a run drew) goes back to the server and the next run compiles them while its levels
-load. The log lives in the tab's memory: the browser's console shows its end, and `copy(bo1Log())` typed there copies
+(a browser has no sockets). A browser with `KHR_parallel_shader_compile` compiles shaders in the background, and what
+uses a shader appears once it is ready (the log's `[webgl]` line says whether yours has it); without it a frame waits
+for each new shader. Either way the shader cache (the record of the shaders a run drew) goes back to the server and the
+next run compiles them while its levels load. The log lives in the tab's memory: the browser's console shows its end, and `copy(bo1Log())` typed there copies
 all of it. Every ten seconds it gives the frame rate and where a frame's time went (`[web] 30.2 fps at 1280x720: a
 frame 33.1 ms = drawing ...`), and after each fast file how much was read from the server; the browser's developer
 tools slow a game down while they are open. With `?glcheck` at the end of the page's address the WebGL layer checks

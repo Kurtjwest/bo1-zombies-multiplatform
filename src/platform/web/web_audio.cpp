@@ -35,7 +35,8 @@ struct AudioRingHeader
     int32_t sampleRate;            // 28
     std::atomic<int32_t> pull;     // 32 worklet: frames per process() call (128)
     std::atomic<int32_t> connected; // 36 worklet: 1 once it reads the ring
-    int32_t pad[6];                // 40
+    std::atomic<int32_t> stopped;  // 40 worklet: 1 once it no longer reads the ring (AudioOut_Close waits for it)
+    int32_t pad[5];                // 44
     // float frames[capacity * channels] follow, at 64
 };
 static_assert(sizeof(AudioRingHeader) == 64, "worklet offsets");
@@ -170,11 +171,20 @@ void AudioOut_Close(AudioOut *o)
 {
     if (!o)
         return;
-    MAIN_THREAD_EM_ASM(
+    const int hadNode = MAIN_THREAD_EM_ASM_INT(
         {
-            if (Module['bo1AudioClose']) Module['bo1AudioClose']($0 >>> 0);
+            return Module['bo1AudioClose'] ? Module['bo1AudioClose']($0 >>> 0) : 0;
         },
         o->ring);
+    // the page's node reads the ring until its worklet has the page's word to stop: the ring is freed after that (or
+    // after a while, when the browser's audio is not running and the worklet has not got to it)
+    if (hadNode)
+    {
+        const double until = emscripten_get_now() + 300.0;
+        for (double now = emscripten_get_now(); !o->ring->stopped.load(std::memory_order_acquire) && now < until;
+             now = emscripten_get_now())
+            emscripten_futex_wait(&o->ring->stopped, 0, until - now);
+    }
     o->quit.store(true);
     o->ring->wake.fetch_add(1);
     emscripten_futex_wake(&o->ring->wake, 1);

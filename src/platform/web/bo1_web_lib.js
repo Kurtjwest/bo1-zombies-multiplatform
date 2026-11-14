@@ -109,7 +109,8 @@ addToLibrary({
     var want = ['EXT_color_buffer_float', 'EXT_color_buffer_half_float', 'EXT_float_blend', 'OES_texture_float_linear',
                 'WEBGL_compressed_texture_s3tc', 'WEBGL_compressed_texture_s3tc_srgb', 'EXT_texture_compression_rgtc',
                 'EXT_texture_filter_anisotropic', 'EXT_texture_norm16', 'OES_draw_buffers_indexed',
-                'EXT_clip_control', 'EXT_polygon_offset_clamp', 'EXT_depth_clamp', 'WEBGL_provoking_vertex'];
+                'EXT_clip_control', 'EXT_polygon_offset_clamp', 'EXT_depth_clamp', 'WEBGL_provoking_vertex',
+                'KHR_parallel_shader_compile'];
     var have = [];
     for (var i = 0; i < want.length; ++i)
       if (gl.getExtension(want[i])) have.push(want[i]);

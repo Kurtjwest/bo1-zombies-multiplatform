@@ -568,45 +568,86 @@
     }
     hint.hidden = !(running && want && document.pointerLockElement !== canvas && lastFocus);
     pollGamepads();
+    audioReport();
     const exit = getShared(OFF.exitCode);
     if (running && exit > 0 && !quit) gameQuit();
   }
 
+  // every 30 s, for the log: how fast each sound output's frames were taken (its sample rate, when all is well) and how
+  // often its node found too few of them
+  let audioReportAt = 0;
+  const audioReportLast = new Map();
+  function audioReport() {
+    const now = performance.now();
+    if (now < audioReportAt || !audioNodes.size) return;
+    audioReportAt = now + 30000;
+    const buffer = heapBytes();
+    for (const ptr of audioNodes.keys()) {
+      const h = new Int32Array(buffer, ptr, 16);
+      const read = Atomics.load(h, 1), glitches = Atomics.load(h, 3);
+      const last = audioReportLast.get(ptr);
+      audioReportLast.set(ptr, {at: now, read, glitches});
+      if (!last) continue;
+      const secs = (now - last.at) / 1000;
+      log('[page] audio: ' + Math.round(((read - last.read) & 0x7FFFFFFF) / secs) + ' frames a second taken of a ' +
+          h[7] + ' Hz output, ' + (glitches - last.glitches) + ' times too few');
+    }
+    for (const ptr of audioReportLast.keys())
+      if (!audioNodes.has(ptr)) audioReportLast.delete(ptr);
+  }
+
   // ---- sound (web_audio.cpp) ----
+  // Every output of the game's (its mixer, a video's sound) gets a worklet node reading its ring, on the one
+  // AudioContext; a ring at another sample rate is resampled by its node. A node is made after the worklet's module has
+  // loaded, so an output can be closed before its node exists (the game opens and closes a test output before its real
+  // one, often at the same address): the open is then dropped, or two nodes would read the real one's ring, each taking
+  // frames, and the sound would play twice as fast.
+  const audioPending = new Map(); // ring address -> the open in progress ({cancelled})
+  let audioModule = null, audioModuleContext = null;
   async function audioOpen(ptr) {
     if (!audioContext || !window.AudioWorkletNode) return;
+    const req = {cancelled: false};
+    audioPending.set(ptr, req);
     try {
+      const ctx = audioContext;
+      if (audioModuleContext !== ctx) {
+        audioModuleContext = ctx;
+        audioModule = ctx.audioWorklet.addModule('bo1_audio_worklet.js');
+      }
+      await audioModule;
+      if (req.cancelled || ctx !== audioContext) return;
       const buffer = heapBytes(); // (the memory as it is now: the ring may be past what an older view reaches)
       const h = new Int32Array(buffer, ptr, 16);
       const rate = h[7], channels = h[6];
-      if (audioContext.sampleRate !== rate) {
-        try {
-          const ctx = new AudioContext({sampleRate: rate, latencyHint: 'interactive'});
-          audioContext.close();
-          audioContext = ctx;
-        } catch (e) {
-          log('[page] audio: this browser cannot play at ' + rate + ' Hz: ' + e);
-        }
-      }
-      await audioContext.audioWorklet.addModule('bo1_audio_worklet.js');
-      const node = new AudioWorkletNode(audioContext, 'bo1-audio',
+      const node = new AudioWorkletNode(ctx, 'bo1-audio',
                                         {numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [channels]});
       node.channelInterpretation = 'speakers';
       node.port.postMessage({cmd: 'ring', buffer: buffer, ptr: ptr});
-      node.connect(audioContext.destination);
+      node.connect(ctx.destination);
       audioNodes.set(ptr, node);
-      if (audioContext.state !== 'running') audioContext.resume().catch(() => {});
+      log('[page] audio: ' + channels + ' channels at ' + rate + ' Hz, played at ' + ctx.sampleRate + ' Hz' +
+          (rate !== ctx.sampleRate ? ' (resampled)' : ''));
+      if (ctx.state !== 'running') ctx.resume().catch(() => {});
     } catch (e) {
       log('[page] audio: ' + e);
+    } finally {
+      if (audioPending.get(ptr) === req) audioPending.delete(ptr);
     }
   }
 
+  // 1 when a node read the ring: the game then waits for the node to say it has stopped before it frees the ring
   function audioClose(ptr) {
+    const req = audioPending.get(ptr);
+    if (req) {
+      req.cancelled = true;
+      audioPending.delete(ptr);
+    }
     const node = audioNodes.get(ptr);
-    if (!node) return;
+    if (!node) return 0;
     node.port.postMessage({cmd: 'stop'});
     node.disconnect();
     audioNodes.delete(ptr);
+    return 1;
   }
 
   let wakeLock = null;

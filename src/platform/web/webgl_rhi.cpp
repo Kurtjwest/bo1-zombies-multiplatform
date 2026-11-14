@@ -60,6 +60,9 @@
 #define BO1_GL_COMPRESSED_RED_GREEN_RGTC2_EXT 0x8DBD
 #define BO1_GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
 #define BO1_GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
+#ifndef GL_COMPLETION_STATUS_KHR
+#define GL_COMPLETION_STATUS_KHR 0x91B1 // KHR_parallel_shader_compile
+#endif
 #define BO1_GL_R16_EXT 0x822A
 #define BO1_GL_RG16_EXT 0x822C
 #define BO1_GL_RGBA16_EXT 0x805B
@@ -401,6 +404,7 @@ struct Pipeline
 {
     GLuint program = 0;
     bool linked = false, failed = false;
+    bool linking = false; // KHR_parallel_shader_compile: linked in the background, not done yet (Globals::linking)
     std::shared_ptr<ShaderObj> vs, fs;
     PipelineDesc desc{};
     uint32_t unitMask = 0;    // texture units the program samples
@@ -683,6 +687,10 @@ struct Globals
     std::deque<Pipeline *> toLink;
     std::atomic<bool> haveToLink{false};
     double linkBudget = 0; // milliseconds left for it in this frame
+    // KHR_parallel_shader_compile: the browser compiles and links in the background, and says when it is done; until
+    // then the pipelines wait here, and their draws are left out (no frame waits for a compile)
+    bool parallelCompile = false;
+    std::vector<Pipeline *> linking;
 
     // the performance line in the log, every 10 seconds (PerfLine): where the render thread's time went
     struct Perf
@@ -2261,6 +2269,128 @@ void BindProgramInterface(Pipeline *pl)
     pl->unitMask = mask;
 }
 
+// ---- KHR_parallel_shader_compile: compiles and links the browser does in the background ----
+// a shader's compile asked for, without waiting for it (CompileShader waits)
+bool IssueCompile(ShaderObj *s)
+{
+    if (s->id)
+        return true;
+    if (s->failed)
+        return false;
+    const std::string src = AdaptSource(s);
+    if (KeepSources())
+        s->kept = src;
+    s->id = glCreateShader(s->pixel ? GL_FRAGMENT_SHADER : GL_VERTEX_SHADER);
+    const char *p = src.c_str();
+    glShaderSource(s->id, 1, &p, nullptr);
+    glCompileShader(s->id);
+    std::string().swap(s->source);
+    return true;
+}
+
+// a pipeline's shaders compiled and its program linked in the background (FinishLink once the browser is done)
+bool StartLink(Pipeline *p, char *err, size_t errSize)
+{
+    if (p->linked || p->linking)
+        return true;
+    if (p->failed)
+        return false;
+    if (!p->vs || !p->fs)
+    {
+        SetErr(err, errSize, "a pipeline needs a vertex and a pixel shader");
+        p->failed = true;
+        return false;
+    }
+    if (!IssueCompile(p->vs.get()) || !IssueCompile(p->fs.get()))
+    {
+        SetErr(err, errSize, "a shader of the pipeline did not compile");
+        p->failed = true;
+        return false;
+    }
+    p->program = glCreateProgram();
+    glAttachShader(p->program, p->vs->id);
+    glAttachShader(p->program, p->fs->id);
+    glLinkProgram(p->program);
+    p->linking = true;
+    G->linking.push_back(p);
+    return true;
+}
+
+bool LinkDone(const Pipeline *p)
+{
+    GLint done = 0;
+    glGetProgramiv(p->program, GL_COMPLETION_STATUS_KHR, &done);
+    return done != 0;
+}
+
+// the background link's result (the browser is done: these queries don't wait)
+bool FinishLink(Pipeline *p, char *err, size_t errSize)
+{
+    p->linking = false;
+    G->linking.erase(std::remove(G->linking.begin(), G->linking.end(), p), G->linking.end());
+    GLint ok = 0;
+    glGetProgramiv(p->program, GL_LINK_STATUS, &ok);
+    glDetachShader(p->program, p->vs->id);
+    glDetachShader(p->program, p->fs->id);
+    if (!ok)
+    {
+        std::string log;
+        for (ShaderObj *sh : {p->vs.get(), p->fs.get()})
+        {
+            GLint compiled = 0;
+            glGetShaderiv(sh->id, GL_COMPILE_STATUS, &compiled);
+            if (compiled)
+                continue;
+            sh->failed = true;
+            GLint len = 0;
+            glGetShaderiv(sh->id, GL_INFO_LOG_LENGTH, &len);
+            std::string l((size_t)std::max(len, 1), '\0');
+            glGetShaderInfoLog(sh->id, (GLsizei)l.size(), nullptr, &l[0]);
+            log += l.c_str();
+        }
+        if (log.empty())
+        {
+            GLint len = 0;
+            glGetProgramiv(p->program, GL_INFO_LOG_LENGTH, &len);
+            std::string l((size_t)std::max(len, 1), '\0');
+            glGetProgramInfoLog(p->program, (GLsizei)l.size(), nullptr, &l[0]);
+            log = l.c_str();
+        }
+        SetErr(err, errSize, log.empty() ? "the program did not link" : log.c_str());
+        glDeleteProgram(p->program);
+        p->program = 0;
+        p->failed = true;
+        return false;
+    }
+    BindProgramInterface(p);
+    if (KeepSources())
+    {
+        p->vsSource = p->vs->kept;
+        p->fsSource = p->fs->kept;
+    }
+    p->vs.reset();
+    p->fs.reset();
+    p->linked = true;
+    return true;
+}
+
+// the background links the browser has finished, done here (once a frame)
+void PollLinks()
+{
+    for (size_t i = 0; i < G->linking.size();)
+    {
+        Pipeline *p = G->linking[i];
+        if (!LinkDone(p))
+        {
+            ++i;
+            continue;
+        }
+        char err[2048] = "";
+        if (!FinishLink(p, err, sizeof(err))) // (takes it off the list)
+            LogOnce(err, "pipeline failed: %s", err);
+    }
+}
+
 bool LinkPipeline(Pipeline *p, char *err, size_t errSize)
 {
     if (p->linked)
@@ -2316,10 +2446,10 @@ void LinkAhead()
             p = G->toLink.front();
             G->toLink.pop_front();
         }
-        if (!p->linked && !p->failed)
+        if (!p->linked && !p->failed && !p->linking)
         {
             char err[2048] = "";
-            if (!LinkPipeline(p, err, sizeof(err)))
+            if (!(G->parallelCompile ? StartLink(p, err, sizeof(err)) : LinkPipeline(p, err, sizeof(err))))
                 LogOnce(err, "pipeline failed: %s", err);
             ++G->perf.ahead;
         }
@@ -2601,9 +2731,12 @@ bool Init(void *layer, char *err, size_t errSize)
         glGetFloatv(BO1_GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &G->maxAnisotropy);
     G->maxAnisotropy = std::max(G->maxAnisotropy, 1.0f);
     G->clipControl = !EnvFlag("BO1_WEBGL_NO_CLIP_CONTROL") && bo1_web_gl_clip_control() != 0;
-    fprintf(stderr, "[webgl] %s, %s; S3TC %s, RGTC %s, 16-bit normalized %s, float render targets %s\n",
+    G->parallelCompile = !EnvFlag("BO1_WEBGL_NO_PARALLEL_COMPILE") && bo1_web_gl_has("KHR_parallel_shader_compile") != 0;
+    fprintf(stderr, "[webgl] %s, %s; S3TC %s, RGTC %s, 16-bit normalized %s, float render targets %s, shaders compiled "
+                    "%s\n",
             renderer ? renderer : "?", version ? version : "?", s3tc ? "yes" : "decoded on the CPU",
-            rgtc ? "yes" : "decoded on the CPU", G->norm16 ? "yes" : "as half floats", G->colorBufferFloat ? "yes" : "no");
+            rgtc ? "yes" : "decoded on the CPU", G->norm16 ? "yes" : "as half floats", G->colorBufferFloat ? "yes" : "no",
+            G->parallelCompile ? "in the background" : "when drawn (the frame waits)");
 
     // fixed state
     SetCap(CAP_DEPTH, true);
@@ -3255,6 +3388,7 @@ void ReleasePipeline(Pipeline *p)
         }
         if (G->want.pipeline == p)
             G->want.pipeline = nullptr;
+        G->linking.erase(std::remove(G->linking.begin(), G->linking.end(), p), G->linking.end());
         if (p->program)
         {
             if (G->have.program == p->program)
@@ -3662,13 +3796,32 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
     {
         char err[2048] = "";
         const double start = emscripten_get_now();
-        const bool ok = LinkPipeline(p, err, sizeof(err));
+        bool ok;
+        if (G->parallelCompile)
+        {
+            // (in the background: the draw is left out until the browser is done, as the Direct3D layer leaves out
+            // draws whose shaders it is still translating)
+            if (!p->linking && !p->failed)
+                ++G->perf.links;
+            ok = StartLink(p, err, sizeof(err));
+            if (ok && p->linking && LinkDone(p))
+                ok = FinishLink(p, err, sizeof(err));
+        }
+        else
+        {
+            ok = LinkPipeline(p, err, sizeof(err));
+            ++G->perf.links;
+        }
         G->perf.linkMs += emscripten_get_now() - start;
-        ++G->perf.links;
         if (!ok)
         {
             LogOnce(err, "pipeline failed: %s", err);
             ++G->perf.dropped;
+            return false;
+        }
+        if (!p->linked)
+        {
+            ++G->perf.compileSkips;
             return false;
         }
     }
@@ -4276,6 +4429,8 @@ void Present(Texture *backBuffer, const uint16_t *gammaRamp)
     G->perf.frameStart = -1;
     ++G->perf.frames;
     G->linkBudget = kLinkAheadMsPerFrame;
+    if (!G->linking.empty())
+        PollLinks();
     EnsureCmdBuf();
     MergeBufferPieces();
     if (gammaRamp && memcmp(gammaRamp, G->gammaCache, sizeof(G->gammaCache)) != 0)
