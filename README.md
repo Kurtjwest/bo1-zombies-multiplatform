@@ -247,8 +247,7 @@ tablets and phones of your network, and its files stay on the one computer that 
 the page together with the game files of a Black Ops PC install, and the game reads them from it while it plays, a part
 of a file at a time as it asks for it: nothing is downloaded up front, uploaded or installed in the browser. What the
 game saves (`players/`: settings and profiles, `screenshots/`, and `shadercache/`, see below) goes back to the server,
-so every device that plays from it shares one set of settings. It is meant for a home network: the server has no accounts, and anyone who can
-reach its port can play and read the game files, so don't forward it to the internet.
+so every device that plays from it shares one set of settings.
 
 Building needs Emscripten 3.1.52 (`--install-emsdk` fetches it into `.emsdk/`), CMake 3.16+, Ninja, git, make and
 python3; serving needs Python 3.8 or later and the `openssl` command, on any system.
@@ -297,18 +296,15 @@ location /bo1/ {
     proxy_buffering off;                 # the game file pieces straight through, not via the proxy's temporary files
     client_max_body_size 64m;            # the saves and screenshots the game sends back
     access_log off;                      # (one line for every piece of a file the game reads)
-    allow 192.168.0.0/16;                # the home network only (your network's addresses)
-    deny all;
 }
 ```
 
-in the proxy's HTTPS `server` block, which must leave the server's `Cross-Origin-*` headers as they are. A proxy that
-also serves the internet keeps the game to the home network with the `allow` / `deny` lines (or its own login). If
-the devices reach it by a public name (a dynamic DNS name for the router's address), the requests go out to the router
-and back, which slows every one of them and may not count as the home network: have the home network's DNS (or the
-device's hosts file) give that name the machine's own address. Without a
-certificate the devices already trust, `python3 web-server.py --make-cert [--name <the name devices use>]` makes one
-for nginx's `ssl_certificate` / `ssl_certificate_key`, and its authority is at `https://<machine>/bo1/ca.crt`.
+in the proxy's HTTPS `server` block, which must leave the server's `Cross-Origin-*` headers as they are. If the devices
+reach it by a public name (a dynamic DNS name for the router's address), the requests go out to the router and back,
+which slows every one of them: have the home network's DNS (or the device's hosts file) give that name the machine's
+own address. Without a certificate the devices already trust, `python3 web-server.py --make-cert [--name <the name
+devices use>]` makes one for nginx's `ssl_certificate` / `ssl_certificate_key`, and its authority is at
+`https://<machine>/bo1/ca.crt`.
 
 **Browsers.** Current versions of Chrome and Edge (95 or later), Firefox (105) and Safari (17, on macOS, iOS and iPadOS):
 the game needs WebGL 2 in a worker (OffscreenCanvas), WebAssembly threads, SIMD and exceptions, and the page says what

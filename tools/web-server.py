@@ -26,9 +26,6 @@ Behind a reverse proxy (nginx, say; see the browser section of README.md): run i
 let the proxy pass a path (/bo1/, say) to it, its headers left as they are. --make-cert makes this server's certificate
 for the proxy to use, if it has none of its own (--name adds the names devices reach the machine by).
 
-This is for a home network: there are no accounts, and anyone who can reach the port can play and read the game
-files. Don't forward it to the internet.
-
 Python 3.8+ standard library only.
 """
 
