@@ -28,6 +28,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#ifdef __EMSCRIPTEN__
+extern "C" void Bridge_WebNoteSkippedDraw(void);
+#endif
+
 namespace d3d9mtl
 {
 void ShaderVariant::Release()
@@ -483,7 +487,13 @@ void CreatePipelineNow(PipelineEntry *e)
         WaitFor(e->state);
 }
 
-void NoteSkippedDraw() { g_skippedDraws.fetch_add(1, std::memory_order_relaxed); }
+void NoteSkippedDraw()
+{
+    g_skippedDraws.fetch_add(1, std::memory_order_relaxed);
+#ifdef __EMSCRIPTEN__
+    Bridge_WebNoteSkippedDraw(); // (the browser build's performance line: src/platform/web/webgl_rhi.cpp)
+#endif
+}
 
 void Drain()
 {

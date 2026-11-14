@@ -161,6 +161,10 @@ def clean_rel(path):
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "BO1ZombiesWeb/1"
     protocol_version = "HTTP/1.1"
+    # Each response goes out as it is written (TCP_NODELAY). On a connection kept open for the next request (a
+    # browser's, or a reverse proxy's with keepalive), the end of a response otherwise waits for the other side to
+    # acknowledge what came before it, which it delays by up to 40 ms: one request in five or so took 40 ms longer.
+    disable_nagle_algorithm = True
 
     # (set on the class by main())
     tree = None

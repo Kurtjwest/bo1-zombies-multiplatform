@@ -665,6 +665,9 @@ struct Globals
         uint32_t frames = 0, draws = 0, links = 0, ahead = 0;
         uint32_t scratchUploads = 0, bufferUploads = 0, merges = 0; // uploads of scratch memory, of buffers' writes
         uint32_t readPieces = 0; // pieces made for what a draw reads (GlPlaceForRange)
+        uint32_t dropped = 0;      // draws this layer could not make (no or a failed pipeline, targets, streams)
+        uint32_t compileSkips = 0; // draws the Direct3D layer left out while their shaders compiled
+        double resourceMs = 0;     // the render thread's time on the game's resources between frames (rb_backend.cpp)
         uint64_t scratchBytes = 0, bufferBytes = 0, readPieceBytes = 0;
         int width = 0, height = 0; // the last frame's size
         uint32_t pageMicros = 0, pageDraws = 0; // the page's counters when the period began (web_shared.h)
@@ -3500,7 +3503,10 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
     FrameWork();
     Pipeline *p = G->want.pipeline;
     if (!p)
+    {
+        ++G->perf.dropped;
         return false;
+    }
     if (!p->linked)
     {
         char err[2048] = "";
@@ -3511,6 +3517,7 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
         if (!ok)
         {
             LogOnce(err, "pipeline failed: %s", err);
+            ++G->perf.dropped;
             return false;
         }
     }
@@ -3518,7 +3525,10 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
         return false;
     EnsureCmdBuf();
     if (!BindRenderTargets())
+    {
+        ++G->perf.dropped;
         return false;
+    }
     FlushPendingUploads();
     const WantState &w = G->want;
 
@@ -3628,6 +3638,7 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
         if (offset < 0)
         {
             LogOnce("negbase", "a draw with a negative base vertex before its stream's start is skipped");
+            ++G->perf.dropped;
             return false;
         }
         // (where the stream's bytes are: scratch memory's are in the piece of its start; a buffer's newer than its GL
@@ -3645,6 +3656,7 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
         if (offset < (GLintptr)at.base)
         {
             LogOnce("piecebase", "a draw's stream starts before the piece holding its vertices: skipped");
+            ++G->perf.dropped;
             return false;
         }
         SetAttribute(i, at.id, p->attrFormat[i], stride, offset - (GLintptr)at.base, divisor);
@@ -3724,7 +3736,11 @@ void DrawIndexed(PrimitiveType prim, uint32_t indexCount, bool index32, Buffer *
         return;
     const size_t indexBytes = (size_t)indexCount * (index32 ? 4 : 2);
     if ((size_t)indexOffset + indexBytes > indexBuffer->length)
+    {
+        LogOnce("indexrange", "a draw with indices past its index buffer's end is skipped");
+        ++G->perf.dropped;
         return;
+    }
     DrawReads reads;
     reads.indices = indexBuffer->cpu + indexOffset;
     reads.indexCount = indexCount;
@@ -3812,7 +3828,8 @@ constexpr double kLinkAheadMsPerFrame = 25.0;
 // The performance line (every 10 seconds, at a Present): frames a second, and what each frame's time went to on the
 // render thread (drawing it, which includes compiling new shaders; waiting for the GPU to finish the one before and
 // reading it back for the page; waiting for the page to show the one before) and on the page (putting it on the
-// canvas). The rest of a frame's time the render thread waited for the game's next frame, or loaded its resources.
+// canvas). The rest of a frame's time the render thread made the game's resources (rb_backend.cpp tells how long), or
+// waited for the game's next frame.
 void PerfLine(double now)
 {
     Globals::Perf &f = G->perf;
@@ -3826,6 +3843,8 @@ void PerfLine(double now)
         const double span = now - f.since, n = f.frames;
         const double each = span / n;
         const double rest = std::max(0.0, each - (f.drawMs + f.readbackMs + f.pageWaitMs) / n);
+        // (of the rest: the game's resources; what remains is waiting for the game's next frame)
+        const double resources = std::min(rest, f.resourceMs / n);
         const uint32_t pd = pageDraws - f.pageDraws;
         char page[64] = "";
         if (pd)
@@ -3840,14 +3859,31 @@ void PerfLine(double now)
                      "(%.0f KB; %.0f more for draws, %.0f KB; %.0f merges)", f.scratchUploads / n,
                      f.scratchBytes / n / 1024.0, f.bufferUploads / n, f.bufferBytes / n / 1024.0, f.readPieces / n,
                      f.readPieceBytes / n / 1024.0, f.merges / n);
+        // (draws left out, and the errors WebGL has flagged since the last line: the one sync call of the period)
+        char errors[96] = "";
+        for (int k = 0; k < 4; ++k)
+        {
+            const GLenum e = glGetError();
+            if (e == GL_NO_ERROR)
+                break;
+            const char *name = e == GL_INVALID_ENUM ? "INVALID_ENUM" : e == GL_INVALID_VALUE ? "INVALID_VALUE"
+                               : e == GL_INVALID_OPERATION ? "INVALID_OPERATION"
+                               : e == GL_INVALID_FRAMEBUFFER_OPERATION ? "INVALID_FRAMEBUFFER_OPERATION"
+                               : e == GL_OUT_OF_MEMORY ? "OUT_OF_MEMORY" : "other";
+            snprintf(errors + strlen(errors), sizeof(errors) - strlen(errors), "%s%s", errors[0] ? ", " : "", name);
+        }
+        char skips[200] = "";
+        if (f.compileSkips || f.dropped || errors[0])
+            snprintf(skips, sizeof(skips), "; draws left out: %u waiting for their shaders, %u this layer could not "
+                     "make; WebGL errors: %s", f.compileSkips, f.dropped, errors[0] ? errors : "none");
         char server[96] = "";
         if (reads != f.reads)
             snprintf(server, sizeof(server), "; %llu reads from the server, %.1f s waiting",
                      (unsigned long long)(reads - f.reads), (readMicros - f.readMicros) / 1e6);
         printf("[web] %.1f fps at %dx%d: a frame %.1f ms = drawing %.1f (%.0f draws), GPU and readback %.1f, waiting "
-               "for the page %.1f, other %.1f%s%s%s%s\n",
+               "for the page %.1f, the game's resources %.1f, waiting for the game's next frame %.1f%s%s%s%s%s\n",
                n * 1000.0 / span, f.width, f.height, each, f.drawMs / n, f.draws / n, f.readbackMs / n,
-               f.pageWaitMs / n, rest, page, shaders, uploads, server);
+               f.pageWaitMs / n, resources, rest - resources, page, shaders, uploads, skips, server);
     }
     const double frameStart = f.frameStart;
     const int width = f.width, height = f.height;
@@ -3862,6 +3898,25 @@ void PerfLine(double now)
     f.readMicros = readMicros;
 }
 
+} // namespace rhi
+
+// a draw the Direct3D layer left out while its shaders compile (d3d9_shadercache.cpp), for the performance line
+extern "C" void Bridge_WebNoteSkippedDraw(void)
+{
+    if (rhi::G && rhi::OnRenderThread())
+        ++rhi::G->perf.compileSkips;
+}
+
+// the render thread's time on the game's resources (textures, buffers, shaders made for the loader, streamed images)
+// between two frames (rb_backend.cpp), for the performance line
+extern "C" void Bridge_WebResourceTime(double ms)
+{
+    if (rhi::G && rhi::OnRenderThread())
+        rhi::G->perf.resourceMs += ms;
+}
+
+namespace rhi
+{
 void Present(Texture *backBuffer, const uint16_t *gammaRamp)
 {
     if (!RenderContext("Present"))

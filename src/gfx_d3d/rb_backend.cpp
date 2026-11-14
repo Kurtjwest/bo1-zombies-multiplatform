@@ -5800,7 +5800,9 @@ static const void *data; // (the render thread's current frame; r_water_sim.cpp 
 // read back for the page: src/platform/web/webgl_rhi.cpp Present), and the loader waits for the resources it queues
 // (RB_Resource_Flush) while one is drawn. (The loading screen is then drawn about 15 times a second.)
 #ifdef __EMSCRIPTEN__
+#include <emscripten.h>
 #define RB_LOADING_RESOURCE_MSEC(msec) 60
+extern "C" void Bridge_WebResourceTime(double ms); // src/platform/web/webgl_rhi.cpp
 #else
 #define RB_LOADING_RESOURCE_MSEC(msec) (msec)
 #endif
@@ -5844,6 +5846,9 @@ void     RB_RenderThread(unsigned int threadContext)
     }
     while ( 1 )
     {
+#ifdef __EMSCRIPTEN__
+        const double resourcesStart = emscripten_get_now();
+#endif
         {
             PROF_SCOPED("R_StreamUpdate_ProcessFileCallbacks"); // ADD
             R_StreamAlloc_Lock();
@@ -5854,6 +5859,9 @@ void     RB_RenderThread(unsigned int threadContext)
             PROF_SCOPED("RB_Resource_Update"); // ADD
             RB_Resource_Update(RB_LOADING_RESOURCE_MSEC(5));
         }
+#ifdef __EMSCRIPTEN__
+        Bridge_WebResourceTime(emscripten_get_now() - resourcesStart); // (the performance line: webgl_rhi.cpp)
+#endif
         Sys_StopRenderer();
         Sys_StartRenderer();
 
