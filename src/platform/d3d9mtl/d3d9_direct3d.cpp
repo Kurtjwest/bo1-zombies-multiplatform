@@ -285,6 +285,11 @@ HRESULT Direct3D::CheckDeviceMultiSampleType(UINT Adapter, D3DDEVTYPE DeviceType
         return D3D_OK;
     if (n != 2 && n != 4 && n != 8)
         return D3DERR_NOTAVAILABLE;
+#ifdef __EMSCRIPTEN__
+    // (the browser's renderer has no multisampling, and the game asks before the renderer is up: r_aaSamples falls back
+    // to 1 instead of 4x anti-aliasing the renderer then leaves out)
+    return D3DERR_NOTAVAILABLE;
+#endif
     if (g_rhiReady && !rhi::SupportsSampleCount(n))
         return D3DERR_NOTAVAILABLE;
     if (!g_rhiReady && n == 8)

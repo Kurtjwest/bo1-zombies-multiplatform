@@ -73,6 +73,13 @@
     if (logLines.length > LOG_KEEP + 5000) logLines.splice(0, logLines.length - LOG_KEEP);
   }
   window.bo1Log = () => logLines.join('\n');
+  // bo1Capture() in the browser's console: the WebGL layer logs every draw of the next frame (what it drew with, the
+  // shader constants, and with ?gldump in the address each program's source), for finding out what draws wrong
+  window.bo1Capture = () => {
+    if (!i32) return 'the game has not started';
+    Atomics.or(i32, (shared + OFF.debugFlags) >> 2, 4);
+    return 'the next frame is logged: copy(bo1Log()) afterwards';
+  };
 
   function setStatus(text, isError) {
     status.textContent = text;
@@ -704,7 +711,9 @@
         shared = Module._Bridge_WebSharedState();
         heapBytes();
         // (?glcheck in the address: the WebGL layer looks for errors after what it does and logs them; slower)
-        if (/[?&]glcheck\b/.test(location.search)) setShared(OFF.debugFlags, 1);
+        // (?gldump: it keeps its shaders' sources, which bo1Capture() then logs with the draws of one frame)
+        setShared(OFF.debugFlags, (/[?&]glcheck\b/.test(location.search) ? 1 : 0) |
+                                  (/[?&]gldump\b/.test(location.search) ? 2 : 0));
         startFetchWorker();
         updateSize();
         lastFocus = -1;

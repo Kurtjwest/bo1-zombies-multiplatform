@@ -147,6 +147,8 @@ struct SharedState
 
 constexpr int32_t kSharedVersion = 4; // (bo1_page.js checks it: SHARED_VERSION)
 constexpr int32_t kDebugGlCheck = 1;  // ?glcheck: the WebGL layer checks for errors after what it does, and logs them
+constexpr int32_t kDebugKeepSources = 2; // ?gldump: the WebGL layer keeps its shaders' sources (for kDebugCapture)
+constexpr int32_t kDebugCapture = 4;  // bo1Capture() in the browser's console: the next frame's draws logged (once)
 
 // why the game folder could not be read from the server ("" if it could, or was not tried): web_bridge.cpp
 const char *GameFolderError();

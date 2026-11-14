@@ -46,6 +46,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // extension enumerations
@@ -381,6 +382,7 @@ struct ShaderObj
     bool pixel = false;
     bool failed = false;
     std::string source; // until compiled
+    std::string kept;   // ?gldump: the source as compiled (kDebugKeepSources)
     std::vector<int> inputs; // vertex shaders: the input registers (layout locations) the source declares
     ~ShaderObj();
 };
@@ -407,6 +409,7 @@ struct Pipeline
     uint16_t bgraMask = 0;    // attributes that are D3DCOLOR (bo1_misc.x)
     VertexFormatGL attrFormat[MAX_VERTEX_ATTRIBUTES];
     GLint blockSize[4] = {}; // the uniform blocks' sizes (UBO_*), 0: not used
+    std::string vsSource, fsSource; // ?gldump: the sources as compiled (kDebugKeepSources)
 };
 
 struct DepthStencil
@@ -437,6 +440,8 @@ struct TransientChunk
     // the GL copies: a piece for each upload (SyncChunk: one before nearly every draw, its shader constants), in the
     // order of start
     std::vector<GlPiece> piecesV, piecesI;
+    // pieces made for a draw that reads past what was written at once (GlPlaceForScratchRange), used by that draw only
+    std::vector<GlPiece> readPiecesV, readPiecesI;
 };
 
 namespace
@@ -623,6 +628,23 @@ struct Globals
     TransientChunk *chunk = nullptr;
     std::vector<GLuint> freePiecesV, freePiecesI; // GL buffers of pieces no longer drawn from, for the next ones
     std::vector<GLuint> retiredV, retiredI;       // ... and of pieces a newer one replaced this frame (free at its end)
+    // ?glcheck: the streams the last draw read (DrawDescription)
+    struct LastAttr
+    {
+        bool used;
+        uint32_t stream;
+        bool scratch;
+        GLuint id;
+        size_t size, offset, stride;
+        VertexFormatGL fmt;
+        GLuint divisor;
+    } lastAttr[16] = {};
+    GLuint lastIndexBuffer = 0;
+    size_t lastIndexSize = 0, lastIndexOffset = 0;
+    // bo1Capture(): this frame's draws are logged (CaptureDraw), and the programs whose sources have been
+    bool capturing = false;
+    uint32_t captureDraws = 0;
+    std::unordered_set<GLuint> capturedPrograms;
     std::vector<Buffer *> pieced;                 // buffers with pieces (MergeBufferPieces)
 
     // work other threads left for the render thread (in the order they asked)
@@ -732,6 +754,13 @@ inline void FrameWork()
 bool GlCheckOn()
 {
     static const bool on = (bo1web::Shared().debugFlags & bo1web::kDebugGlCheck) != 0 || getenv("BO1_GL_DEBUG");
+    return on;
+}
+
+// ?gldump: the shaders' sources kept for bo1Capture()
+bool KeepSources()
+{
+    static const bool on = (bo1web::Shared().debugFlags & bo1web::kDebugKeepSources) != 0;
     return on;
 }
 
@@ -990,9 +1019,11 @@ void SetPolygonOffset(float factor, float units)
     }
 }
 
+// (WebGL's viewport starts on a whole pixel: what the origin has past one, the Direct3D layer's half pixel, the vertex
+// shaders add to their positions, ViewportShift)
 void SetViewportGL(float x, float y, float w, float h, float n, float f)
 {
-    const GLint v[4] = {(GLint)lroundf(x), (GLint)lroundf(y), std::max((GLint)lroundf(w), 0),
+    const GLint v[4] = {(GLint)floorf(x), (GLint)floorf(y), std::max((GLint)lroundf(w), 0),
                         std::max((GLint)lroundf(h), 0)};
     if (memcmp(G->have.viewport, v, sizeof(v)) != 0)
     {
@@ -1364,8 +1395,14 @@ void RecycleChunkPieces(TransientChunk *c)
         G->freePiecesV.push_back(p.id);
     for (const GlPiece &p : c->piecesI)
         G->freePiecesI.push_back(p.id);
+    for (const GlPiece &p : c->readPiecesV)
+        G->freePiecesV.push_back(p.id);
+    for (const GlPiece &p : c->readPiecesI)
+        G->freePiecesI.push_back(p.id);
     c->piecesV.clear();
     c->piecesI.clear();
+    c->readPiecesV.clear();
+    c->readPiecesI.clear();
 }
 
 // where the bytes of a buffer from offset on are for the GL, up to date: the GL buffer of the given kind, and the
@@ -1374,13 +1411,14 @@ struct GlPlace
 {
     GLuint id;
     size_t base;
+    size_t end; // the GL buffer holds the bytes [base, end)
 };
 GlPlace GlPlaceFor(Buffer *b, size_t offset, bool index)
 {
     if (!b->chunk)
     {
         b->drawnFrame = G->frameIndex + 1;
-        return {index ? EnsureIbo(b) : EnsureVbo(b), 0};
+        return {index ? EnsureIbo(b) : EnsureVbo(b), 0, std::max<size_t>(b->length, 16)};
     }
     TransientChunk *c = b->chunk;
     SyncChunk(c, index);
@@ -1390,9 +1428,27 @@ GlPlace GlPlaceFor(Buffer *b, size_t offset, bool index)
     auto it = std::upper_bound(pieces.begin(), pieces.end(), offset,
                                [](size_t o, const GlPiece &p) { return o < p.start; });
     if (it == pieces.begin())
-        return {0, 0};
+        return {0, 0, 0};
     --it;
-    return {it->id, it->start};
+    return {it->id, it->start, it->end};
+}
+
+// The bytes [r0, r1) of scratch memory a draw reads. Direct3D lets a draw read past what was written at once (a
+// stream left bound from an earlier draw, more vertices than the draw's own data): the chunk's memory is there, with
+// whatever it holds. WebGL refuses a draw that reads past its buffer's end (INVALID_OPERATION in Safari; reads of
+// zeros elsewhere), so such a draw gets a piece of what it reads, made for it.
+GlPlace GlPlaceForScratchRange(Buffer *b, size_t r0, size_t r1, bool index)
+{
+    GlPlace at = GlPlaceFor(b, r0, index);
+    TransientChunk *c = b->chunk;
+    r1 = std::min(r1, c->size);
+    if ((at.id && r1 <= at.end) || r1 <= r0)
+        return at;
+    const GlPiece p = MakePiece(c->buffer.cpu, r0, r1, index);
+    (index ? c->readPiecesI : c->readPiecesV).push_back(p);
+    ++G->perf.readPieces;
+    G->perf.readPieceBytes += p.end - p.start;
+    return {p.id, p.start, p.end};
 }
 
 // the same for the bytes [r0, r1) of a buffer that a draw reads (r1: what the draw may read, at most): the newest
@@ -1400,7 +1456,7 @@ GlPlace GlPlaceFor(Buffer *b, size_t offset, bool index)
 GlPlace GlPlaceForRange(Buffer *b, size_t r0, size_t r1, bool index)
 {
     if (b->chunk)
-        return GlPlaceFor(b, r0, index);
+        return GlPlaceForScratchRange(b, r0, r1, index);
     b->drawnFrame = G->frameIndex + 1;
     r1 = std::max(std::min(r1, b->length), r0 + 1);
     const std::vector<GlPiece> &pieces = index ? b->piecesI : b->piecesV;
@@ -1413,15 +1469,15 @@ GlPlace GlPlaceForRange(Buffer *b, size_t r0, size_t r1, bool index)
             if (p.start < r1 && r0 < p.end)
             {
                 if (p.start <= r0 && r1 <= p.end)
-                    return {p.id, p.start};
+                    return {p.id, p.start, p.end};
                 const GlPiece &n = AddBufferPiece(b, r0, r1, index);
                 ++G->perf.readPieces;
                 G->perf.readPieceBytes += n.end - n.start;
-                return {n.id, n.start};
+                return {n.id, n.start, n.end};
             }
         }
     }
-    return {index ? EnsureIbo(b) : EnsureVbo(b), 0};
+    return {index ? EnsureIbo(b) : EnsureVbo(b), 0, std::max<size_t>(b->length, 16)};
 }
 
 void *Transient(size_t length, size_t alignment, Buffer **buf, uint32_t *offset)
@@ -1974,7 +2030,8 @@ bool ScissorEmpty(const WantState &s)
 // shaders: the BO1 GLSL profile's output as GLSL ES 3.00
 // ======================================================================================================================
 // What every shader starts with: the version and precision, the Metal-style type names the profile's emitters use,
-// and the per-draw table of the units' sampling swizzles (with the D3DCOLOR vertex inputs in bo1_misc.x).
+// and the per-draw table of the units' sampling swizzles (with the D3DCOLOR vertex inputs in bo1_misc.x, and in
+// bo1_misc.yz the clip-space shift of the viewport's half pixel).
 const char kShaderHeader[] =
     "#version 300 es\n"
     "precision highp float;\nprecision highp int;\nprecision highp sampler2D;\nprecision highp sampler3D;\n"
@@ -2096,6 +2153,7 @@ std::string AdaptSource(ShaderObj *s)
         out += "\n#undef main\nvoid main()\n{\n";
         out += assigns;
         out += "    bo1_main();\n";
+        out += "    gl_Position.xy += uintBitsToFloat(bo1_misc.yz) * gl_Position.w;\n"; // (the viewport's half pixel)
         if (!G->clipControl)
             out += "    gl_Position.y = -gl_Position.y;\n    gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n";
         out += "}\n";
@@ -2112,6 +2170,8 @@ bool CompileShader(ShaderObj *s, char *err, size_t errSize)
     if (s->failed)
         return false;
     const std::string src = AdaptSource(s);
+    if (KeepSources())
+        s->kept = src;
     s->id = glCreateShader(s->pixel ? GL_FRAGMENT_SHADER : GL_VERTEX_SHADER);
     const char *p = src.c_str();
     glShaderSource(s->id, 1, &p, nullptr);
@@ -2227,6 +2287,11 @@ bool LinkPipeline(Pipeline *p, char *err, size_t errSize)
         return false;
     }
     BindProgramInterface(p);
+    if (KeepSources())
+    {
+        p->vsSource = p->vs->kept;
+        p->fsSource = p->fs->kept;
+    }
     p->vs.reset();
     p->fs.reset();
     p->linked = true;
@@ -3580,6 +3645,12 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
 {
     if (!RenderContext("Draw"))
         return false;
+    if (GlCheckOn() || G->capturing)
+    {
+        for (auto &la : G->lastAttr)
+            la.used = false;
+        G->lastIndexBuffer = 0;
+    }
     FrameWork();
     Pipeline *p = G->want.pipeline;
     if (!p)
@@ -3730,7 +3801,7 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
         // (where the stream's bytes are: scratch memory's are in the piece of its start; a buffer's newer than its GL
         // copy in a piece with all the draw reads, from its first vertex on)
         GlPlace at;
-        if (vb.buf->chunk || (vb.buf->piecesV.empty()))
+        if (!vb.buf->chunk && vb.buf->piecesV.empty())
             at = GlPlaceFor(vb.buf, vb.offset, false);
         else
         {
@@ -3739,6 +3810,9 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
                                         : first + ((size_t)reads.MaxIndex() + 1) * std::max<size_t>(stride, 1);
             at = GlPlaceForRange(vb.buf, first, last, false);
         }
+        if ((GlCheckOn() || G->capturing) && i < 16)
+            G->lastAttr[i] = {true, a.bufferIndex, vb.buf->chunk != nullptr, at.id, at.end - at.base,
+                              (size_t)(offset - (GLintptr)at.base), (size_t)stride, p->attrFormat[i], divisor};
         if (offset < (GLintptr)at.base)
         {
             LogOnce("piecebase", "a draw's stream starts before the piece holding its vertices: skipped");
@@ -3790,6 +3864,16 @@ bool PrepareDraw(int32_t baseVertex, DrawReads &reads)
             misc[unit >> 3] |= (uint32_t)t->swizzle << ((unit & 7) * 4);
     }
     misc[4] = p->bgraMask;
+    // the part of the viewport's origin past a whole pixel (SetViewportGL), as a shift of the clip-space position
+    // (bo1_misc.yz, which the vertex shaders add times w: AdaptSource). Direct3D 9 puts pixel centers on whole
+    // coordinates, GL half a pixel further: without the shift, every full-screen pass of the game's (a resolve, a
+    // blur, the final composite) reads between texels, and the picture blurs a little more with each of them.
+    {
+        const double *vp = w.viewport;
+        const float shift[2] = {vp[2] > 0 ? (float)(2.0 * (vp[0] - std::floor(vp[0])) / vp[2]) : 0.0f,
+                                vp[3] > 0 ? (float)(-2.0 * (vp[1] - std::floor(vp[1])) / vp[3]) : 0.0f};
+        memcpy(&misc[5], shift, sizeof(shift));
+    }
     if (p->blockSize[UBO_MISC])
     {
         if (memcmp(misc, G->miscCache, sizeof(misc)) != 0 || !G->miscBlock.buf)
@@ -3834,7 +3918,109 @@ std::string DrawDescription()
     }
     snprintf(buf, sizeof(buf), ", targets %ux%u", G->rtWidth, G->rtHeight);
     d += buf;
+    // the streams: GL buffer and its size, the attribute's offset in it, stride, components x bytes, divisor
+    for (uint32_t i = 0; i < 16; ++i)
+    {
+        const Globals::LastAttr &la = G->lastAttr[i];
+        if (!la.used)
+            continue;
+        const uint32_t bytes = la.fmt.type == GL_FLOAT ? 4 : la.fmt.type == GL_HALF_FLOAT || la.fmt.type == GL_SHORT ||
+                                                                   la.fmt.type == GL_UNSIGNED_SHORT ? 2 : 1;
+        snprintf(buf, sizeof(buf), "; attribute %u: stream %u%s, buffer %u of %zu bytes, offset %zu, stride %zu, %dx%u%s",
+                 i, la.stream, la.scratch ? " (scratch)" : "", la.id, la.size, la.offset, la.stride, la.fmt.size, bytes,
+                 la.divisor ? ", per instance" : "");
+        d += buf;
+    }
+    if (G->lastIndexBuffer)
+    {
+        snprintf(buf, sizeof(buf), "; indices: buffer %u of %zu bytes, offset %zu", G->lastIndexBuffer,
+                 G->lastIndexSize, G->lastIndexOffset);
+        d += buf;
+    }
     return d;
+}
+
+// ?glcheck: a draw whose streams' buffers are too short for what it reads (WebGL refuses it, or reads zeros)
+void CheckDrawRanges(uint32_t maxIndex, const char *what)
+{
+    static int reported = 0;
+    for (uint32_t i = 0; i < 16; ++i)
+    {
+        const Globals::LastAttr &la = G->lastAttr[i];
+        if (!la.used)
+            continue;
+        const uint32_t bytes = la.fmt.type == GL_FLOAT ? 4 : la.fmt.type == GL_HALF_FLOAT || la.fmt.type == GL_SHORT ||
+                                                                   la.fmt.type == GL_UNSIGNED_SHORT ? 2 : 1;
+        const size_t need = la.offset + (la.divisor ? 0 : (size_t)maxIndex * la.stride) + (size_t)la.fmt.size * bytes;
+        if (need > la.size && ++reported <= 20)
+            fprintf(stderr, "[webgl] %s reads %zu bytes of a %zu-byte buffer through attribute %u (%s)\n", what, need,
+                    la.size, i, DrawDescription().c_str());
+    }
+}
+
+// bo1Capture(): a draw of the frame being captured, for the log: what it drew with (DrawDescription), its state, the
+// values of its uniform blocks, and the first time its program draws, the program's sources (with ?gldump)
+void CaptureDraw(const char *what)
+{
+    const Pipeline *p = G->want.pipeline;
+    const uint32_t n = ++G->captureDraws;
+    const PipelineDesc &pd = p->desc;
+    const DepthStencilDesc *ds = G->want.depthStencil ? &G->want.depthStencil->d : nullptr;
+    char targets[160];
+    {
+        const Texture *c0 = Storage(G->rt.color[0]), *dt = Storage(G->rt.depth);
+        snprintf(targets, sizeof(targets), "color %ux%u f%u x%u, depth %ux%u f%u x%u, stencil %d", c0 ? c0->width : 0,
+                 c0 ? c0->height : 0, c0 ? c0->format : 0, c0 ? c0->samples : 0, dt ? dt->width : 0,
+                 dt ? dt->height : 0, dt ? dt->format : 0, dt ? dt->samples : 0, ds ? ds->stencilEnable : -1);
+    }
+    fprintf(stderr, "[capture] draw %u: %s; depth func %d write %d; blend %d (%d %d %d / %d %d %d) mask %x; cull %d; "
+                    "viewport %g %g %g %g %g-%g; %s; %s\n",
+            n, what, ds ? ds->depthFunc : -1, ds ? ds->depthWrite : -1, pd.blend[0].enable, pd.blend[0].srcRGB,
+            pd.blend[0].dstRGB, pd.blend[0].opRGB, pd.blend[0].srcAlpha, pd.blend[0].dstAlpha, pd.blend[0].opAlpha,
+            pd.blend[0].writeMask, G->want.cull, G->want.viewport[0], G->want.viewport[1], G->want.viewport[2],
+            G->want.viewport[3], G->want.viewport[4], G->want.viewport[5], targets, DrawDescription().c_str());
+    static const char *const names[UBO_COUNT] = {"vs", "ps", "vsfix", "misc"};
+    for (uint32_t k = 0; k < UBO_COUNT; ++k)
+    {
+        if (!p->blockSize[k])
+            continue;
+        const BoundBuffer &u = k == UBO_MISC ? G->miscBlock : G->ubo[k];
+        const size_t bytes = std::min<size_t>(u.bytes.size(), (size_t)p->blockSize[k]);
+        std::string line;
+        char buf[96];
+        for (size_t c = 0; c * 16 < bytes; ++c)
+        {
+            float v[4] = {};
+            memcpy(v, u.bytes.data() + c * 16, std::min<size_t>(16, bytes - c * 16));
+            if (k == UBO_MISC)
+            {
+                uint32_t w[4];
+                memcpy(w, v, 16);
+                snprintf(buf, sizeof(buf), " [%zu] %x %x %x %x", c, w[0], w[1], w[2], w[3]);
+            }
+            else
+                snprintf(buf, sizeof(buf), " [%zu] %g %g %g %g", c, v[0], v[1], v[2], v[3]);
+            line += buf;
+        }
+        fprintf(stderr, "[capture]   %s block (%d bytes, %zu set):%s\n", names[k], p->blockSize[k], u.bytes.size(),
+                line.c_str());
+    }
+    if (G->capturedPrograms.insert(p->program).second && !p->vsSource.empty())
+    {
+        for (int stage = 0; stage < 2; ++stage)
+        {
+            const std::string &src = stage ? p->fsSource : p->vsSource;
+            size_t start = 0;
+            for (size_t e = src.find('\n'); start < src.size(); e = src.find('\n', start))
+            {
+                if (e == std::string::npos)
+                    e = src.size();
+                fprintf(stderr, "[src %u %s] %.*s\n", p->program, stage ? "ps" : "vs", (int)(e - start),
+                        src.c_str() + start);
+                start = e + 1;
+            }
+        }
+    }
 }
 
 void Draw(PrimitiveType prim, uint32_t vertexStart, uint32_t vertexCount)
@@ -3847,7 +4033,16 @@ void Draw(PrimitiveType prim, uint32_t vertexStart, uint32_t vertexCount)
     ++G->perf.draws;
     glDrawArrays(kPrim[prim < 5 ? prim : 3], 0, (GLsizei)vertexCount);
     if (GlCheckOn())
+    {
         GlCheck("a draw of %u vertices from %u (%s)", vertexCount, vertexStart, DrawDescription().c_str());
+        CheckDrawRanges(vertexCount - 1, "a draw without indices");
+    }
+    if (G->capturing)
+    {
+        char what[96];
+        snprintf(what, sizeof(what), "%u vertices from %u", vertexCount, vertexStart);
+        CaptureDraw(what);
+    }
 }
 
 void DrawIndexed(PrimitiveType prim, uint32_t indexCount, bool index32, Buffer *indexBuffer, uint32_t indexOffset,
@@ -3869,14 +4064,27 @@ void DrawIndexed(PrimitiveType prim, uint32_t indexCount, bool index32, Buffer *
     if (!PrepareDraw(baseVertex, reads))
         return;
     const GlPlace at = GlPlaceForRange(indexBuffer, indexOffset, indexOffset + indexBytes, true);
+    G->lastIndexBuffer = at.id;
+    G->lastIndexSize = at.end - at.base;
+    G->lastIndexOffset = indexOffset - at.base;
     BindVao(G->mainVao);
     SetElementBuffer(at.id);
     ++G->perf.draws;
     glDrawElements(kPrim[prim < 5 ? prim : 3], (GLsizei)indexCount, index32 ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT,
                    (const void *)(uintptr_t)(indexOffset - at.base));
     if (GlCheckOn())
+    {
         GlCheck("a draw of %u %d-bit indices at %u, base vertex %d, highest index %u (%s)", indexCount,
                 index32 ? 32 : 16, indexOffset, baseVertex, reads.MaxIndex(), DrawDescription().c_str());
+        CheckDrawRanges(reads.MaxIndex(), "a draw with indices");
+    }
+    if (G->capturing)
+    {
+        char what[128];
+        snprintf(what, sizeof(what), "%u indices at %u, base vertex %d, highest index %u", indexCount, indexOffset,
+                 baseVertex, reads.MaxIndex());
+        CaptureDraw(what);
+    }
 }
 
 void *AllocTransient(size_t length, size_t alignment, Buffer **buf, uint32_t *offset)
@@ -4049,6 +4257,20 @@ void Present(Texture *backBuffer, const uint16_t *gammaRamp)
     const double presentStart = emscripten_get_now();
     if (presentStart - G->perf.since >= 10000.0)
         PerfLine(presentStart);
+    // bo1Capture(): the frame after the one it was asked in is logged
+    if (G->capturing)
+    {
+        G->capturing = false;
+        fprintf(stderr, "[capture] frame %u ends after %u draws\n", (unsigned)G->frameIndex, G->captureDraws);
+    }
+    else if (__atomic_load_n(&bo1web::Shared().debugFlags, __ATOMIC_ACQUIRE) & bo1web::kDebugCapture)
+    {
+        __atomic_fetch_and(&bo1web::Shared().debugFlags, ~bo1web::kDebugCapture, __ATOMIC_ACQ_REL);
+        G->capturing = true;
+        G->captureDraws = 0;
+        fprintf(stderr, "[capture] frame %u begins%s\n", (unsigned)G->frameIndex + 1,
+                KeepSources() ? "" : " (with ?gldump in the address, the programs' sources too)");
+    }
     if (G->perf.frameStart >= 0)
         G->perf.drawMs += presentStart - G->perf.frameStart;
     G->perf.frameStart = -1;

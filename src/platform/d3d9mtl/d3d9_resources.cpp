@@ -48,6 +48,11 @@ bool TexStorage::Init(Device *, D3DRESOURCETYPE rtype, UINT w, UINT h, UINT d, U
     usage = use;
     pool = p;
     samples = std::max<UINT>(smp, 1);
+    // A sample count the renderer cannot make is made single-sampled here too (the browser's renderer makes every
+    // texture single-sampled): with the count asked for, a depth buffer and a color target made with different counts
+    // would no longer go together (ApplyRenderTargets leaves the depth buffer out), though the renderer's do.
+    if (samples > 1 && !rhi::SupportsSampleCount(samples))
+        samples = 1;
     if (samples > 1)
         levels = 1;
     locks.assign(faces * levels, LockState{});
